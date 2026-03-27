@@ -1,0 +1,61 @@
+package com.caseflow.auth.api;
+
+import com.caseflow.auth.AuthService;
+import com.caseflow.auth.api.dto.LoginRequest;
+import com.caseflow.auth.api.dto.MeResponse;
+import com.caseflow.auth.api.dto.RefreshTokenRequest;
+import com.caseflow.auth.api.dto.TokenResponse;
+import com.caseflow.identity.domain.User;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@Tag(name = "Auth", description = "Authentication — login, refresh, logout, me")
+@RestController
+@RequestMapping("/api/auth")
+public class AuthController {
+
+    private final AuthService authService;
+
+    public AuthController(AuthService authService) {
+        this.authService = authService;
+    }
+
+    @Operation(summary = "Login with username and password")
+    @PostMapping("/login")
+    public ResponseEntity<TokenResponse> login(@Valid @RequestBody LoginRequest request) {
+        AuthService.TokenPair pair = authService.login(request.username(), request.password());
+        return ResponseEntity.ok(TokenResponse.of(pair.accessToken(), pair.refreshToken(), pair.expiresIn()));
+    }
+
+    @Operation(summary = "Refresh access token using a valid refresh token")
+    @PostMapping("/refresh")
+    public ResponseEntity<TokenResponse> refresh(@Valid @RequestBody RefreshTokenRequest request) {
+        AuthService.TokenPair pair = authService.refresh(request.refreshToken());
+        return ResponseEntity.ok(TokenResponse.of(pair.accessToken(), pair.refreshToken(), pair.expiresIn()));
+    }
+
+    @Operation(summary = "Logout — revokes the provided refresh token")
+    @PostMapping("/logout")
+    public ResponseEntity<Void> logout(@Valid @RequestBody RefreshTokenRequest request) {
+        authService.logout(request.refreshToken());
+        return ResponseEntity.noContent().build();
+    }
+
+    @Operation(summary = "Get current authenticated user info")
+    @SecurityRequirement(name = "bearerAuth")
+    @GetMapping("/me")
+    public ResponseEntity<MeResponse> me(@AuthenticationPrincipal Long userId) {
+        User user = authService.getAuthenticatedUser(userId);
+        return ResponseEntity.ok(new MeResponse(
+                user.getId(), user.getUsername(), user.getEmail(), user.getFullName(), user.getRole()));
+    }
+}

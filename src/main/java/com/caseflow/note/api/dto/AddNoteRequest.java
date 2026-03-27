@@ -13,8 +13,5 @@ public record AddNoteRequest(
         String content,
 
         @NotNull
-        NoteType type,
-
-        @NotNull
-        Long createdBy
+        NoteType type
 ) {}

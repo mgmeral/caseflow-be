@@ -27,8 +27,10 @@ public interface NoteMapper {
     // ── Request → Entity ──────────────────────────────────────────────────────
 
     /**
-     * All four request fields (ticketId, content, type, createdBy) map directly.
+     * ticketId, content, type map directly.
+     * createdBy is resolved from SecurityContext in the controller — ignored here.
      * createdAt has no setter and is managed by @PrePersist — MapStruct skips it.
      */
+    @org.mapstruct.Mapping(target = "createdBy", ignore = true)
     Note toEntity(AddNoteRequest request);
 }

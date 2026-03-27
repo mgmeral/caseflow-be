@@ -9,8 +9,5 @@ public record AssignTicketRequest(
 
         Long assignedUserId,
 
-        Long assignedGroupId,
-
-        @NotNull
-        Long assignedBy
+        Long assignedGroupId
 ) {}

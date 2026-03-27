@@ -1,6 +1,8 @@
 package com.caseflow.note.api;
 
+import com.caseflow.auth.JwtTokenService;
 import com.caseflow.common.exception.NoteNotFoundException;
+import com.caseflow.common.security.SecurityConfig;
 import com.caseflow.note.api.dto.AddNoteRequest;
 import com.caseflow.note.api.dto.NoteResponse;
 import com.caseflow.note.api.mapper.NoteMapper;
@@ -12,6 +14,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
@@ -29,6 +32,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(NoteController.class)
+@Import(SecurityConfig.class)
 class NoteControllerTest {
 
     @Autowired
@@ -36,6 +40,9 @@ class NoteControllerTest {
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    @MockBean
+    private JwtTokenService jwtTokenService;
 
     @MockBean
     private NoteService noteService;
@@ -46,7 +53,7 @@ class NoteControllerTest {
     @Test
     @WithMockUser(roles = "AGENT")
     void addNote_returns201_withValidRequest() throws Exception {
-        AddNoteRequest request = new AddNoteRequest(10L, "Investigation started.", NoteType.INVESTIGATION, 1L);
+        AddNoteRequest request = new AddNoteRequest(10L, "Investigation started.", NoteType.INVESTIGATION);
         Note note = buildNote(1L, 10L);
         NoteResponse response = new NoteResponse(1L, 10L, "Investigation started.", NoteType.INVESTIGATION, 1L, Instant.now());
 
@@ -65,7 +72,7 @@ class NoteControllerTest {
     @Test
     @WithMockUser(roles = "AGENT")
     void addNote_returns400_whenContentIsBlank() throws Exception {
-        AddNoteRequest request = new AddNoteRequest(10L, "", NoteType.INFO, 1L);
+        AddNoteRequest request = new AddNoteRequest(10L, "", NoteType.INFO);
 
         mockMvc.perform(post("/api/notes")
                         .with(csrf())

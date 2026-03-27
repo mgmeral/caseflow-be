@@ -13,9 +13,6 @@ public record TransferTicketRequest(
         @NotNull
         Long toGroupId,
 
-        @NotNull
-        Long transferredBy,
-
         String reason,
 
         boolean clearAssignee

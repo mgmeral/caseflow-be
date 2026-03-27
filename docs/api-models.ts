@@ -5,6 +5,45 @@
  */
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Auth
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface LoginRequest {
+  username: string;
+  password: string;
+}
+
+export interface TokenResponse {
+  accessToken: string;
+  refreshToken: string;
+  expiresIn: number;  // milliseconds
+}
+
+export interface RefreshTokenRequest {
+  refreshToken: string;
+}
+
+export interface MeResponse {
+  id: number;
+  username: string;
+  email: string;
+  fullName: string;
+  role: 'ADMIN' | 'AGENT' | 'VIEWER';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pagination
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface PagedResponse<T> {
+  items: T[];
+  page: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Enums
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -55,7 +94,7 @@ export interface CreateTicketRequest {
   description?: string;
   priority: TicketPriority;  // required
   customerId?: number;
-  createdBy: number;         // required — user id
+  // createdBy resolved from JWT — do not send
 }
 
 export interface UpdateTicketRequest {
@@ -65,17 +104,13 @@ export interface UpdateTicketRequest {
 }
 
 export interface ChangeTicketStatusRequest {
-  status: TicketStatus;      // required
-  performedBy: number;       // required — user id
+  status: TicketStatus;  // required
+  // performedBy resolved from JWT
 }
 
-export interface CloseTicketRequest {
-  performedBy: number;       // required
-}
+export interface CloseTicketRequest {}  // empty body — performedBy from JWT
 
-export interface ReopenTicketRequest {
-  performedBy: number;       // required
-}
+export interface ReopenTicketRequest {}  // empty body — performedBy from JWT
 
 export interface TicketResponse {
   id: number;
@@ -277,10 +312,10 @@ export interface GroupSummaryResponse {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface AddNoteRequest {
-  ticketId: number;    // required
-  content: string;     // required
-  type: NoteType;      // required
-  createdBy: number;   // required — user id
+  ticketId: number;  // required
+  content: string;   // required
+  type: NoteType;    // required
+  // createdBy resolved from JWT
 }
 
 export interface NoteResponse {
@@ -308,19 +343,19 @@ export interface AssignTicketRequest {
   ticketId: number;          // required
   assignedUserId?: number;   // at least one of user/group required
   assignedGroupId?: number;
-  assignedBy: number;        // required — user id
+  // assignedBy resolved from JWT
 }
 
 export interface ReassignTicketRequest {
-  ticketId: number;          // required
+  ticketId: number;   // required
   newUserId?: number;
   newGroupId?: number;
-  reassignedBy: number;      // required — user id
+  // reassignedBy resolved from JWT
 }
 
 export interface UnassignTicketRequest {
-  ticketId: number;          // required
-  performedBy: number;       // required — user id
+  ticketId: number;  // required
+  // performedBy resolved from JWT
 }
 
 export interface AssignmentResponse {
@@ -351,9 +386,9 @@ export interface TransferTicketRequest {
   ticketId: number;       // required
   fromGroupId: number;    // required
   toGroupId: number;      // required
-  transferredBy: number;  // required — user id
   reason?: string;
   clearAssignee: boolean; // true = removes current user assignment
+  // transferredBy resolved from JWT
 }
 
 export interface TransferResponse {
@@ -375,8 +410,21 @@ export interface TransferSummaryResponse {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Emails (read-only)
+// Emails
 // ─────────────────────────────────────────────────────────────────────────────
+
+export interface IngestEmailRequest {
+  messageId: string;
+  inReplyTo?: string;
+  references?: string[];
+  subject: string;
+  from: string;
+  to: string[];
+  cc?: string[];
+  textBody?: string;
+  htmlBody?: string;
+  receivedAt: string;  // ISO 8601
+}
 
 export interface EmailDocumentResponse {
   id: string;          // MongoDB ObjectId string

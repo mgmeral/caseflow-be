@@ -1,6 +1,6 @@
 # CaseFlow — Current State
 
-**Last updated:** 2026-03-27 (CI/CD added)
+**Last updated:** 2026-03-27 (V2 auth + pagination + attachments + email ingest)
 
 ---
 
@@ -37,12 +37,13 @@
 - AttachmentService — metadata management + binary upload/download via ObjectStorageService
 
 ### API Layer
-- 9 REST controllers (Ticket, Customer, Contact, User, Group, Note, Assignment, Transfer, EmailDocument)
+- 11 REST controllers (Auth, Ticket, Customer, Contact, User, Group, Note, Assignment, Transfer, EmailDocument, Attachment)
 - All controllers use constructor injection, @Valid, ResponseEntity
 - All controllers tagged with @Tag for OpenAPI grouping
+- Audit fields (createdBy, performedBy, assignedBy, transferredBy) removed from request bodies — resolved from SecurityContext
 
 ### DTOs
-- 40 Java record DTOs across all modules
+- ~50 Java record DTOs across all modules
 - Full Jakarta validation annotations on request DTOs
 
 ### Mappers
@@ -65,17 +66,42 @@
 - `FieldViolation` record — per-field validation error (field, message, rejectedValue, code)
 - `GlobalExceptionHandler` (@RestControllerAdvice) — covers: not found, conflict, invalid state, validation, malformed request, missing params, type mismatch, auth exceptions, unexpected errors
 
-### Security
-- `SecurityConfig` — Spring Security with HTTP Basic auth
-- In-memory users: admin/admin123 (ADMIN), agent/agent123 (AGENT), viewer/viewer123 (VIEWER)
+### Security (V2 — JWT)
+- `SecurityConfig` — Spring Security, stateless JWT Bearer auth
+- `JwtAuthenticationFilter` — reads `Authorization: Bearer` header, sets Long principal
+- `JwtTokenService` — JJWT 0.12.6 HS256, access token (1h), refresh token (7d)
+- `RefreshToken` JPA entity + `RefreshTokenRepository` — DB-backed refresh tokens (stored as SHA-256 hash)
+- `CaseFlowUserDetails` + `CaseFlowUserDetailsService` — backed by `users` table
+- `AuthService` + `AuthController` — login, refresh (rotation), logout, /me
+- `SecurityContextHelper` — `requireCurrentUserId()` for controllers
+- `CorrelationIdFilter` — sets MDC `correlationId`, echoes `X-Correlation-Id` response header
 - Role-based access: VIEWER=GET, AGENT=POST/PUT/PATCH, ADMIN=DELETE
+- `AuthenticationEntryPoint` returns 401 for unauthenticated requests
 - CORS configured for localhost:3000 and localhost:5173
-- Swagger/OpenAPI endpoints publicly accessible
+- Swagger/OpenAPI + actuator endpoints publicly accessible
 
 ### OpenAPI / Swagger
-- `OpenApiConfig` — API info, basicAuth security scheme, module tags
-- All 9 controllers annotated with @Tag
+- `OpenApiConfig` — API info, bearerAuth JWT security scheme, module tags
+- All controllers annotated with @Tag
 - Swagger UI available at /swagger-ui.html
+
+### Pagination & Search
+- `PagedResponse<T>` record — wraps `List<T> items, page, size, totalElements, totalPages`
+- `TicketSpecification` — JPA Specifications for status, priority, userId, groupId, customerId, search, date range
+- `TicketRepository` implements `JpaSpecificationExecutor<Ticket>`
+- `TicketQueryService.search(...)` — builds dynamic spec chain, returns `Page<Ticket>`
+- `TicketController.listTickets(...)` — 12 optional query params, returns `PagedResponse<TicketSummaryResponse>`
+
+### Attachments (V2)
+- `AttachmentController` — `POST /api/attachments/upload` (multipart, 25 MB limit), GET metadata/by-ticket, GET download (streams binary), DELETE
+- `AttachmentService` — `upload()`, `download()`, `getById()`, `delete()` methods
+- Object key pattern: `tickets/{ticketId}/{uuid}_{sanitizedName}`
+
+### Email Ingest (V2)
+- `POST /api/emails/ingest` — accepts `IngestEmailRequest`, idempotent on `messageId` (409 on dup)
+- Real thread resolution via `inReplyTo` / `references` header chain
+- `DuplicateEmailException` → 409 Conflict
+- `EmailDocumentRepository.findByMessageId()` for idempotency check
 
 ### Storage
 - `ObjectStorageService` interface — store/retrieve/delete/exists

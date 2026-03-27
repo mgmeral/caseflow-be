@@ -6,8 +6,5 @@ import jakarta.validation.constraints.NotNull;
 public record ChangeTicketStatusRequest(
 
         @NotNull
-        TicketStatus status,
-
-        @NotNull
-        Long performedBy
+        TicketStatus status
 ) {}

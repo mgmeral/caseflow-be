@@ -16,8 +16,5 @@ public record CreateTicketRequest(
         @NotNull
         TicketPriority priority,
 
-        Long customerId,
-
-        @NotNull
-        Long createdBy
+        Long customerId
 ) {}

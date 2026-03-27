@@ -1,20 +1,22 @@
 package com.caseflow.email.service;
 
+import com.caseflow.common.exception.DuplicateEmailException;
 import com.caseflow.customer.repository.ContactRepository;
 import com.caseflow.email.document.EmailDocument;
 import com.caseflow.email.repository.EmailDocumentRepository;
 import com.caseflow.storage.service.AttachmentService;
 import com.caseflow.ticket.domain.Ticket;
 import com.caseflow.ticket.domain.TicketPriority;
+import com.caseflow.ticket.domain.TicketStatus;
 import com.caseflow.ticket.repository.TicketRepository;
 import com.caseflow.workflow.history.TicketHistoryService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 @Service
 public class EmailProcessingServiceImpl implements EmailProcessingService {
@@ -40,17 +42,25 @@ public class EmailProcessingServiceImpl implements EmailProcessingService {
     @Override
     @Transactional
     public EmailDocument process(ParsedEmail parsedEmail) {
+        // Idempotency — reject duplicate messageIds
+        if (parsedEmail.getMessageId() != null) {
+            emailDocumentRepository.findByMessageId(parsedEmail.getMessageId())
+                    .ifPresent(existing -> {
+                        throw new DuplicateEmailException(parsedEmail.getMessageId());
+                    });
+        }
+
         EmailDocument document = saveEmailDocument(parsedEmail);
-
-        Long ticketId = resolveTicket(parsedEmail, document);
-
+        Long ticketId = resolveTicket(parsedEmail);
         document.setTicketId(ticketId);
         emailDocumentRepository.save(document);
 
         saveAttachmentMetadata(parsedEmail, document.getId(), ticketId);
 
-        ticketHistoryService.record(ticketId, "EMAIL_LINKED", null,
-                "messageId=" + parsedEmail.getMessageId());
+        if (ticketId != null) {
+            ticketHistoryService.record(ticketId, "EMAIL_LINKED", null,
+                    "messageId=" + parsedEmail.getMessageId());
+        }
 
         return document;
     }
@@ -70,44 +80,49 @@ public class EmailProcessingServiceImpl implements EmailProcessingService {
         document.setTextBody(parsedEmail.getTextBody());
         document.setReceivedAt(parsedEmail.getReceivedAt());
         document.setParsedAt(Instant.now());
+        document.setThreadKey(deriveThreadKey(parsedEmail));
         return emailDocumentRepository.save(document);
     }
 
-    private Long resolveTicket(ParsedEmail parsedEmail, EmailDocument document) {
-        // TODO: extract ThreadResolutionService
-        //       Resolution must use messageId, inReplyTo, and references — not subject alone.
-        Optional<Long> existingTicketId = resolveThreadToTicket(
-                parsedEmail.getMessageId(),
-                parsedEmail.getInReplyTo(),
-                parsedEmail.getReferences()
-        );
-
-        if (existingTicketId.isPresent()) {
-            return existingTicketId.get();
+    private Long resolveTicket(ParsedEmail parsedEmail) {
+        // 1. Try thread resolution via In-Reply-To / References headers
+        Optional<Long> existing = resolveThreadToTicket(
+                parsedEmail.getInReplyTo(), parsedEmail.getReferences());
+        if (existing.isPresent()) {
+            return existing.get();
         }
 
-        // TODO: extract CustomerMatchingService
-        //       Matching logic should resolve by contact email, then domain fallback.
+        // 2. Match customer from sender email
         Long customerId = resolveCustomerId(parsedEmail.getFrom());
 
+        // 3. Create new ticket
         return createTicketFromEmail(parsedEmail, customerId);
     }
 
-    private Optional<Long> resolveThreadToTicket(String messageId, String inReplyTo,
-                                                  List<String> references) {
-        // TODO: implement ThreadResolutionService
-        //       1. Search EmailDocument collection by inReplyTo matching existing messageId
-        //       2. Search by references list intersection
-        //       3. Return ticketId from matched document if found
-        //       Do not rely on subject matching alone.
+    private Optional<Long> resolveThreadToTicket(String inReplyTo, List<String> references) {
+        // Look up parent email by inReplyTo messageId
+        if (inReplyTo != null && !inReplyTo.isBlank()) {
+            Optional<EmailDocument> parent = emailDocumentRepository.findByMessageId(inReplyTo);
+            if (parent.isPresent() && parent.get().getTicketId() != null) {
+                return Optional.of(parent.get().getTicketId());
+            }
+        }
+
+        // Walk references chain
+        if (references != null) {
+            for (String ref : references) {
+                Optional<EmailDocument> refDoc = emailDocumentRepository.findByMessageId(ref);
+                if (refDoc.isPresent() && refDoc.get().getTicketId() != null) {
+                    return Optional.of(refDoc.get().getTicketId());
+                }
+            }
+        }
+
         return Optional.empty();
     }
 
     private Long resolveCustomerId(String fromEmail) {
-        // TODO: implement CustomerMatchingService
-        //       1. Look up Contact by email (exact match)
-        //       2. Fall back to domain-based matching (extract domain from email)
-        //       3. If no match found, return null or create unknown customer placeholder
+        if (fromEmail == null) return null;
         return contactRepository.findByEmail(fromEmail)
                 .map(contact -> contact.getCustomer().getId())
                 .orElse(null);
@@ -115,9 +130,9 @@ public class EmailProcessingServiceImpl implements EmailProcessingService {
 
     private Long createTicketFromEmail(ParsedEmail parsedEmail, Long customerId) {
         Ticket ticket = new Ticket();
-        ticket.setTicketNo(generateTicketNo(parsedEmail.getMessageId()));
+        ticket.setTicketNo(generateTicketNo());
         ticket.setSubject(parsedEmail.getSubject() != null ? parsedEmail.getSubject() : "(no subject)");
-        ticket.setStatus(com.caseflow.ticket.domain.TicketStatus.NEW);
+        ticket.setStatus(TicketStatus.NEW);
         ticket.setPriority(TicketPriority.MEDIUM);
         ticket.setCustomerId(customerId);
         Ticket saved = ticketRepository.save(ticket);
@@ -126,25 +141,30 @@ public class EmailProcessingServiceImpl implements EmailProcessingService {
     }
 
     private void saveAttachmentMetadata(ParsedEmail parsedEmail, String emailId, Long ticketId) {
-        if (parsedEmail.getAttachments() == null || parsedEmail.getAttachments().isEmpty()) {
-            return;
-        }
+        if (parsedEmail.getAttachments() == null || parsedEmail.getAttachments().isEmpty()) return;
         for (ParsedEmail.ParsedAttachment attachment : parsedEmail.getAttachments()) {
-            attachmentService.saveMetadata(
-                    ticketId,
-                    emailId,
-                    attachment.getFileName(),
-                    attachment.getObjectKey(),
-                    attachment.getContentType(),
-                    attachment.getSize()
-            );
+            attachmentService.saveMetadata(ticketId, emailId,
+                    attachment.getFileName(), attachment.getObjectKey(),
+                    attachment.getContentType(), attachment.getSize());
         }
     }
 
-    private String generateTicketNo(String messageId) {
-        String seed = messageId != null
-                ? messageId.replaceAll("[^a-zA-Z0-9]", "")
-                : java.util.UUID.randomUUID().toString().replace("-", "");
-        return "TKT-" + seed.substring(0, Math.min(8, seed.length())).toUpperCase();
+    private String deriveThreadKey(ParsedEmail parsedEmail) {
+        // Inherit threadKey from parent email if it exists
+        if (parsedEmail.getInReplyTo() != null && !parsedEmail.getInReplyTo().isBlank()) {
+            return emailDocumentRepository.findByMessageId(parsedEmail.getInReplyTo())
+                    .map(EmailDocument::getThreadKey)
+                    .orElse(parsedEmail.getInReplyTo());
+        }
+        if (parsedEmail.getReferences() != null && !parsedEmail.getReferences().isEmpty()) {
+            return parsedEmail.getReferences().get(0);
+        }
+        return parsedEmail.getMessageId() != null
+                ? parsedEmail.getMessageId()
+                : UUID.randomUUID().toString();
+    }
+
+    private String generateTicketNo() {
+        return "TKT-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
     }
 }

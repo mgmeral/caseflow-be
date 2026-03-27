@@ -41,6 +41,12 @@ public class User {
     @Column(name = "last_login_at")
     private Instant lastLoginAt;
 
+    @Column(name = "password_hash")
+    private String passwordHash;
+
+    @Column(name = "role", nullable = false)
+    private String role = "VIEWER";
+
     @ManyToMany
     @JoinTable(
             name = "user_groups",
@@ -105,4 +111,9 @@ public class User {
     public List<Group> getGroups() {
         return groups;
     }
+
+    public String getPasswordHash() { return passwordHash; }
+    public void setPasswordHash(String passwordHash) { this.passwordHash = passwordHash; }
+    public String getRole() { return role; }
+    public void setRole(String role) { this.role = role; }
 }

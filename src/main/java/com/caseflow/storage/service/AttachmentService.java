@@ -67,13 +67,25 @@ public class AttachmentService {
         return saveMetadata(ticketId, emailId, fileName, objectKey, contentType, (long) data.length);
     }
 
+    @Transactional(readOnly = true)
+    public AttachmentMetadata getById(Long id) {
+        return attachmentMetadataRepository.findById(id)
+                .orElseThrow(() -> new AttachmentNotFoundException("id=" + id));
+    }
+
     /**
      * Retrieve binary content from storage.
      */
     @Transactional(readOnly = true)
     public InputStream download(String objectKey) {
-        // Validate metadata exists before retrieving from storage
         getByObjectKey(objectKey);
         return objectStorageService.retrieve(objectKey);
+    }
+
+    @Transactional
+    public void delete(Long id) {
+        AttachmentMetadata metadata = getById(id);
+        objectStorageService.delete(metadata.getObjectKey());
+        attachmentMetadataRepository.delete(metadata);
     }
 }

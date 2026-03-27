@@ -9,8 +9,5 @@ public record ReassignTicketRequest(
 
         Long newUserId,
 
-        Long newGroupId,
-
-        @NotNull
-        Long reassignedBy
+        Long newGroupId
 ) {}

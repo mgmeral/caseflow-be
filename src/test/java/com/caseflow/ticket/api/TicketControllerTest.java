@@ -1,6 +1,9 @@
 package com.caseflow.ticket.api;
 
+import com.caseflow.auth.JwtTokenService;
 import com.caseflow.common.exception.TicketNotFoundException;
+import com.caseflow.common.security.SecurityConfig;
+import com.caseflow.storage.service.AttachmentService;
 import com.caseflow.ticket.api.dto.CreateTicketRequest;
 import com.caseflow.ticket.api.dto.TicketResponse;
 import com.caseflow.ticket.api.dto.TicketSummaryResponse;
@@ -10,15 +13,17 @@ import com.caseflow.ticket.api.mapper.TicketMapper;
 import com.caseflow.ticket.domain.Ticket;
 import com.caseflow.ticket.domain.TicketPriority;
 import com.caseflow.ticket.domain.TicketStatus;
+import com.caseflow.ticket.repository.HistoryRepository;
 import com.caseflow.ticket.service.TicketQueryService;
 import com.caseflow.ticket.service.TicketService;
-import com.caseflow.common.security.SecurityConfig;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
@@ -28,7 +33,6 @@ import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -47,6 +51,9 @@ class TicketControllerTest {
     private ObjectMapper objectMapper;
 
     @MockBean
+    private JwtTokenService jwtTokenService;   // required by SecurityConfig
+
+    @MockBean
     private TicketService ticketService;
 
     @MockBean
@@ -59,7 +66,13 @@ class TicketControllerTest {
     private AttachmentMetadataMapper attachmentMetadataMapper;
 
     @MockBean
+    private AttachmentService attachmentService;
+
+    @MockBean
     private HistoryMapper historyMapper;
+
+    @MockBean
+    private HistoryRepository historyRepository;
 
     // ── GET /api/tickets/{id} ─────────────────────────────────────────────────
 
@@ -100,16 +113,18 @@ class TicketControllerTest {
 
     @Test
     @WithMockUser(roles = "VIEWER")
-    void listTickets_returns200_withSummaryList() throws Exception {
+    void listTickets_returns200_withPagedResponse() throws Exception {
         Ticket t = makeTicket(1L, "TKT-001");
         TicketSummaryResponse summary = makeTicketSummary(1L, "TKT-001");
 
-        when(ticketQueryService.findAll()).thenReturn(List.of(t));
+        when(ticketQueryService.search(any(), any(), any(), any(), any(), any(), any(), any(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(t)));
         when(ticketMapper.toSummaryResponse(t)).thenReturn(summary);
 
         mockMvc.perform(get("/api/tickets"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].ticketNo").value("TKT-001"));
+                .andExpect(jsonPath("$.items[0].ticketNo").value("TKT-001"))
+                .andExpect(jsonPath("$.totalElements").value(1));
     }
 
     // ── POST /api/tickets ─────────────────────────────────────────────────────
@@ -117,8 +132,9 @@ class TicketControllerTest {
     @Test
     @WithMockUser(roles = "AGENT")
     void createTicket_returns201_withValidRequest() throws Exception {
+        // createdBy is no longer in request body — resolved from SecurityContext
         CreateTicketRequest request = new CreateTicketRequest(
-                "Login broken", "description", TicketPriority.HIGH, 1L, 42L
+                "Login broken", "description", TicketPriority.HIGH, 1L
         );
         Ticket ticket = makeTicket(1L, "TKT-NEW");
         TicketResponse response = makeTicketResponse(1L, "TKT-NEW");
@@ -138,7 +154,7 @@ class TicketControllerTest {
     @WithMockUser(roles = "AGENT")
     void createTicket_returns400_whenSubjectIsBlank() throws Exception {
         CreateTicketRequest request = new CreateTicketRequest(
-                "", null, TicketPriority.MEDIUM, null, 1L
+                "", null, TicketPriority.MEDIUM, null
         );
 
         mockMvc.perform(post("/api/tickets")
@@ -154,7 +170,7 @@ class TicketControllerTest {
     @WithMockUser(roles = "VIEWER")
     void createTicket_returns403_whenViewerRole() throws Exception {
         CreateTicketRequest request = new CreateTicketRequest(
-                "Subject", null, TicketPriority.MEDIUM, null, 1L
+                "Subject", null, TicketPriority.MEDIUM, null
         );
 
         mockMvc.perform(post("/api/tickets")

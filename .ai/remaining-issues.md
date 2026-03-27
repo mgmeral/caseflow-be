@@ -1,50 +1,38 @@
 # CaseFlow — Remaining Issues
 
-**Last updated:** 2026-03-27 (CI/CD pass)
+**Last updated:** 2026-03-27 (V2 pass)
+
+---
+
+## Resolved in V2
+
+- ✅ JWT auth replaces HTTP Basic (`AuthController`, `JwtTokenService`, `SecurityConfig`)
+- ✅ Attachment upload/download endpoints (`AttachmentController`)
+- ✅ `POST /api/emails/ingest` — email ingestion with idempotency and thread resolution
+- ✅ `createdBy`/`performedBy` removed from request bodies — resolved from JWT SecurityContext
+- ✅ `GET /api/tickets/{id}/detail` — full response with attachments and history
+- ✅ `GET /api/tickets` — pagination with `PagedResponse<T>` and JPA Specifications
+- ✅ `CorrelationIdFilter` — MDC-based correlation IDs on all requests
 
 ---
 
 ## P1 — Blockers for Production Use
 
-### Security: Replace in-memory auth
-- `SecurityConfig` uses `InMemoryUserDetailsManager` with hardcoded dev passwords
-- Replace with a `UserDetailsService` backed by the `users` table (integrate with `User` JPA entity)
-- Add password field to `User` entity and `users` table migration
-- Consider JWT or session-based tokens depending on FE requirements
-
-### No attachment upload/download endpoints
-- `AttachmentService.upload()` and `download()` are implemented
-- No REST endpoints expose these operations yet
-- Suggested: `POST /api/tickets/{id}/attachments` (multipart), `GET /api/attachments/{objectKey}/download`
+(None remaining from original backlog)
 
 ---
 
 ## P2 — Important but Non-Blocking
-
-### Email processing entry point
-- `EmailProcessingServiceImpl` exists but has no inbound trigger
-- Missing: IMAP polling, webhook endpoint, or MQ listener to feed ParsedEmail into the processing pipeline
-- `POST /api/emails/ingest` or a Spring Integration flow would complete this
 
 ### Ticket number generation
 - `TicketService.createTicket()` needs to generate unique ticket numbers (e.g., TKT-00042)
 - Currently the field exists but generation strategy is not implemented
 - Suggest: DB sequence + zero-padded string, or UUID-based if human-readability is not required
 
-### createdBy/performedBy from SecurityContext
-- Controllers currently receive `createdBy`/`performedBy` from request bodies
-- Should be populated from `SecurityContextHolder` for authenticated users
-- Requires binding the `User.id` to the Spring Security principal
-
 ### MongoDB indexes not declared programmatically
 - `EmailDocument` fields `messageId`, `threadKey`, `ticketId` are indexed via `@Indexed` on the entity
 - These create indexes on startup by default in Spring Data MongoDB
 - Verify `spring.data.mongodb.auto-index-creation=true` (Spring Boot default) is acceptable, or add explicit `@Document`-level `@CompoundIndex` for query paths
-
-### TicketDetailResponse not wired to controller
-- `TicketDetailResponse` DTO exists with attachments + history
-- `TicketController` uses `TicketResponse` not `TicketDetailResponse` for GET /api/tickets/{id}
-- Consider adding `GET /api/tickets/{id}/detail` that calls attachment + history services and assembles the full response
 
 ---
 

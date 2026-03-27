@@ -34,6 +34,8 @@ public interface UserMapper {
     @Mapping(target = "isActive", ignore = true)
     @Mapping(target = "lastLoginAt", ignore = true)
     @Mapping(target = "groups", ignore = true)
+    @Mapping(target = "passwordHash", ignore = true)
+    @Mapping(target = "role", ignore = true)
     User toEntity(CreateUserRequest request);
 
     /**
@@ -45,5 +47,7 @@ public interface UserMapper {
     @Mapping(target = "isActive", ignore = true)
     @Mapping(target = "lastLoginAt", ignore = true)
     @Mapping(target = "groups", ignore = true)
+    @Mapping(target = "passwordHash", ignore = true)
+    @Mapping(target = "role", ignore = true)
     void updateEntity(UpdateUserRequest request, @MappingTarget User user);
 }

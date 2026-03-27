@@ -15,24 +15,27 @@ import java.util.List;
 @Configuration
 public class OpenApiConfig {
 
-    private static final String BASIC_AUTH_SCHEME = "basicAuth";
+    private static final String BEARER_AUTH = "bearerAuth";
 
     @Bean
     public OpenAPI caseFlowOpenAPI() {
         return new OpenAPI()
                 .info(new Info()
                         .title("CaseFlow API")
-                        .description("Ticket and mail-based case management system")
-                        .version("1.0.0")
+                        .description("Ticket and email-based case management system (V2). " +
+                                     "Authenticate via POST /api/auth/login to obtain a Bearer JWT access token.")
+                        .version("2.0.0")
                         .contact(new Contact().name("CaseFlow Team")))
                 .components(new Components()
-                        .addSecuritySchemes(BASIC_AUTH_SCHEME,
+                        .addSecuritySchemes(BEARER_AUTH,
                                 new SecurityScheme()
                                         .type(SecurityScheme.Type.HTTP)
-                                        .scheme("basic")
-                                        .description("HTTP Basic authentication. Use admin/agent/viewer credentials.")))
-                .addSecurityItem(new SecurityRequirement().addList(BASIC_AUTH_SCHEME))
+                                        .scheme("bearer")
+                                        .bearerFormat("JWT")
+                                        .description("JWT access token — obtain from POST /api/auth/login")))
+                .addSecurityItem(new SecurityRequirement().addList(BEARER_AUTH))
                 .tags(List.of(
+                        new Tag().name("Auth").description("Authentication — login, refresh, logout, me"),
                         new Tag().name("Tickets").description("Ticket lifecycle management"),
                         new Tag().name("Customers").description("Customer account management"),
                         new Tag().name("Contacts").description("Customer contact management"),
@@ -41,7 +44,8 @@ public class OpenApiConfig {
                         new Tag().name("Notes").description("Internal ticket notes"),
                         new Tag().name("Assignments").description("Ticket assignment workflow"),
                         new Tag().name("Transfers").description("Ticket transfer workflow"),
-                        new Tag().name("Emails").description("Email document queries")
+                        new Tag().name("Emails").description("Email document queries and ingest"),
+                        new Tag().name("Attachments").description("Attachment upload and download")
                 ));
     }
 }

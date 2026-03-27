@@ -24,6 +24,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.context.annotation.Profile;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,9 +32,12 @@ import java.time.Instant;
 import java.util.List;
 
 /**
- * Dev seed data loader.
- * Only active when the "dev" Spring profile is set.
- * Idempotent: checks for existing data before inserting.
+ * Dev seed data — active only with "dev" profile. Idempotent.
+ *
+ * V2 credentials:
+ *   alice / admin123  → ADMIN
+ *   bob   / agent123  → AGENT
+ *   carol / viewer123 → VIEWER
  */
 @Component
 @Profile("dev")
@@ -49,6 +53,7 @@ public class DevDataLoader implements ApplicationRunner {
     private final NoteRepository noteRepository;
     private final TicketHistoryService ticketHistoryService;
     private final EmailDocumentRepository emailDocumentRepository;
+    private final PasswordEncoder passwordEncoder;
 
     public DevDataLoader(GroupRepository groupRepository,
                          UserRepository userRepository,
@@ -57,7 +62,8 @@ public class DevDataLoader implements ApplicationRunner {
                          TicketRepository ticketRepository,
                          NoteRepository noteRepository,
                          TicketHistoryService ticketHistoryService,
-                         EmailDocumentRepository emailDocumentRepository) {
+                         EmailDocumentRepository emailDocumentRepository,
+                         PasswordEncoder passwordEncoder) {
         this.groupRepository = groupRepository;
         this.userRepository = userRepository;
         this.customerRepository = customerRepository;
@@ -66,6 +72,7 @@ public class DevDataLoader implements ApplicationRunner {
         this.noteRepository = noteRepository;
         this.ticketHistoryService = ticketHistoryService;
         this.emailDocumentRepository = emailDocumentRepository;
+        this.passwordEncoder = passwordEncoder;
     }
 
     @Override
@@ -78,31 +85,25 @@ public class DevDataLoader implements ApplicationRunner {
 
         log.info("[Dev] Loading seed data...");
 
-        // ── Groups ───────────────────────────────────────────────────────────
         Group support = createGroup("Support", GroupType.SUPPORT);
         Group ops     = createGroup("Operations", GroupType.OPERATIONS);
-        Group trade   = createGroup("Trade", GroupType.TRADE);
 
-        // ── Users ─────────────────────────────────────────────────────────────
-        User alice = createUser("alice", "alice@caseflow.dev", "Alice Admin");
-        User bob   = createUser("bob",   "bob@caseflow.dev",   "Bob Agent");
-        User carol = createUser("carol", "carol@caseflow.dev", "Carol Viewer");
+        User alice = createUser("alice", "alice@caseflow.dev", "Alice Admin",   "ADMIN",  "admin123");
+        User bob   = createUser("bob",   "bob@caseflow.dev",   "Bob Agent",    "AGENT",  "agent123");
+        User carol = createUser("carol", "carol@caseflow.dev", "Carol Viewer", "VIEWER", "viewer123");
 
         alice.getGroups().add(support);
         alice.getGroups().add(ops);
         bob.getGroups().add(support);
         userRepository.saveAll(List.of(alice, bob, carol));
 
-        // ── Customers ─────────────────────────────────────────────────────────
-        Customer acme  = createCustomer("ACME Corp", "ACME");
+        Customer acme   = createCustomer("ACME Corp",   "ACME");
         Customer globex = createCustomer("Globex Inc", "GLOBEX");
 
-        // ── Contacts ──────────────────────────────────────────────────────────
-        createContact(acme, "john.doe@acme.com", "John Doe", true);
-        createContact(acme, "jane.doe@acme.com", "Jane Doe", false);
-        createContact(globex, "burns@globex.com", "Mr Burns", true);
+        createContact(acme,   "john.doe@acme.com",  "John Doe",  true);
+        createContact(acme,   "jane.doe@acme.com",  "Jane Doe",  false);
+        createContact(globex, "burns@globex.com",   "Mr Burns",  true);
 
-        // ── Tickets ───────────────────────────────────────────────────────────
         Ticket t1 = createTicket("TKT-0001", "Login page is broken",
                 "Users cannot log in after the latest deploy.",
                 TicketStatus.NEW, TicketPriority.CRITICAL, acme.getId());
@@ -118,22 +119,19 @@ public class DevDataLoader implements ApplicationRunner {
         t3.setAssignedGroupId(support.getId());
         ticketRepository.save(t3);
 
-        // ── History ───────────────────────────────────────────────────────────
         ticketHistoryService.recordCreated(t1.getId(), alice.getId());
         ticketHistoryService.recordCreated(t2.getId(), alice.getId());
         ticketHistoryService.recordCreated(t3.getId(), bob.getId());
         ticketHistoryService.recordAssigned(t3.getId(), alice.getId(), bob.getId(), support.getId());
 
-        // ── Notes ─────────────────────────────────────────────────────────────
         createNote(t1.getId(), bob.getId(), NoteType.INVESTIGATION,
                 "Checked auth logs — JWT secret rotation may be the cause.");
         createNote(t3.getId(), bob.getId(), NoteType.INFO,
                 "Reproduced locally. Profiling the DB query now.");
 
-        // ── Sample EmailDocument (MongoDB) ────────────────────────────────────
         createSampleEmail(t1.getId());
 
-        log.info("[Dev] Seed data loaded: 3 groups, 3 users, 2 customers, 3 contacts, 3 tickets, 2 notes.");
+        log.info("[Dev] Seed data loaded: 2 groups, 3 users, 2 customers, 3 contacts, 3 tickets, 2 notes.");
     }
 
     private Group createGroup(String name, GroupType type) {
@@ -144,12 +142,14 @@ public class DevDataLoader implements ApplicationRunner {
         return groupRepository.save(g);
     }
 
-    private User createUser(String username, String email, String fullName) {
+    private User createUser(String username, String email, String fullName, String role, String password) {
         User u = new User();
         u.setUsername(username);
         u.setEmail(email);
         u.setFullName(fullName);
         u.setIsActive(true);
+        u.setRole(role);
+        u.setPasswordHash(passwordEncoder.encode(password));
         return userRepository.save(u);
     }
 
@@ -172,7 +172,7 @@ public class DevDataLoader implements ApplicationRunner {
     }
 
     private Ticket createTicket(String ticketNo, String subject, String description,
-                                 TicketStatus status, TicketPriority priority, Long customerId) {
+                                TicketStatus status, TicketPriority priority, Long customerId) {
         Ticket t = new Ticket();
         t.setTicketNo(ticketNo);
         t.setSubject(subject);

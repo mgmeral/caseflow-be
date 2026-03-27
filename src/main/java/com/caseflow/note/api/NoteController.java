@@ -1,9 +1,11 @@
 package com.caseflow.note.api;
 
+import com.caseflow.common.security.SecurityContextHelper;
 import com.caseflow.note.api.dto.AddNoteRequest;
 import com.caseflow.note.api.dto.NoteResponse;
 import com.caseflow.note.api.mapper.NoteMapper;
 import com.caseflow.note.service.NoteService;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -18,6 +20,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 
 @Tag(name = "Notes", description = "Internal ticket notes")
+@SecurityRequirement(name = "bearerAuth")
 @RestController
 @RequestMapping("/api/notes")
 public class NoteController {
@@ -32,13 +35,10 @@ public class NoteController {
 
     @PostMapping
     public ResponseEntity<NoteResponse> addNote(@Valid @RequestBody AddNoteRequest request) {
+        Long userId = SecurityContextHelper.requireCurrentUserId();
         return ResponseEntity.status(HttpStatus.CREATED).body(
                 noteMapper.toResponse(noteService.addNote(
-                        request.ticketId(),
-                        request.content(),
-                        request.type(),
-                        request.createdBy()
-                ))
+                        request.ticketId(), request.content(), request.type(), userId))
         );
     }
 

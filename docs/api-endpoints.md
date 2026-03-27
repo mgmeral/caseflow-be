@@ -1,22 +1,105 @@
 # CaseFlow — API Endpoint Map
 
 **Base URL:** `http://localhost:8080/api`
-**Auth:** HTTP Basic — include header on every request
+**Auth:** JWT Bearer — include `Authorization: Bearer <token>` on every request
 **Swagger UI:** `http://localhost:8080/swagger-ui.html`
 
 ---
 
 ## Authentication
 
+All protected endpoints require:
 ```
-Authorization: Basic <base64(username:password)>
+Authorization: Bearer <access_token>
 ```
 
-| Username | Password | Role | Allowed methods |
-|---|---|---|---|
-| `admin` | `admin123` | ADMIN | GET · POST · PUT · PATCH · DELETE |
-| `agent` | `agent123` | AGENT | GET · POST · PUT · PATCH |
-| `viewer` | `viewer123` | VIEWER | GET only |
+### Role permissions
+
+| Role | Allowed methods |
+|---|---|
+| ADMIN | GET · POST · PUT · PATCH · DELETE |
+| AGENT | GET · POST · PUT · PATCH |
+| VIEWER | GET only |
+
+### Seed users (dev profile)
+
+| Username | Password | Role |
+|---|---|---|
+| `alice` | `admin123` | ADMIN |
+| `bob` | `agent123` | AGENT |
+| `carol` | `viewer123` | VIEWER |
+
+---
+
+## Auth `/api/auth`
+
+### `POST /api/auth/login`
+Authenticate and receive a token pair.
+
+**Auth:** None (public)
+
+**Request body:**
+```json
+{ "username": "alice", "password": "admin123" }
+```
+
+**Response `200`:** `TokenResponse`
+```json
+{
+  "accessToken":  "eyJ...",
+  "refreshToken": "uuid-string",
+  "expiresIn":    3600000
+}
+```
+
+**Response `401`:** `INVALID_CREDENTIALS`
+
+---
+
+### `POST /api/auth/refresh`
+Exchange a valid refresh token for a new token pair (rotation — old refresh token is revoked).
+
+**Auth:** None (public)
+
+**Request body:**
+```json
+{ "refreshToken": "uuid-string" }
+```
+
+**Response `200`:** `TokenResponse`
+**Response `401`:** `INVALID_CREDENTIALS` (expired or revoked)
+
+---
+
+### `POST /api/auth/logout`
+Revoke the refresh token.
+
+**Auth:** None (public)
+
+**Request body:**
+```json
+{ "refreshToken": "uuid-string" }
+```
+
+**Response `204`:** no body
+
+---
+
+### `GET /api/auth/me`
+Return the currently authenticated user.
+
+**Auth:** Any authenticated role
+
+**Response `200`:** `MeResponse`
+```json
+{
+  "id":       1,
+  "username": "alice",
+  "email":    "alice@caseflow.dev",
+  "fullName": "Alice Admin",
+  "role":     "ADMIN"
+}
+```
 
 ---
 
@@ -71,10 +154,11 @@ Create a new ticket.
   "subject":     "string (required, max 255)",
   "description": "string (optional)",
   "priority":    "TicketPriority (required)",
-  "customerId":  123,
-  "createdBy":   456
+  "customerId":  123
 }
 ```
+
+> `createdBy` is resolved from the authenticated user's JWT — do not send it.
 
 **Response `201`:** `TicketResponse`
 ```json
@@ -97,33 +181,47 @@ Create a new ticket.
 ---
 
 ### `GET /api/tickets`
-List tickets with optional filters. Without filters, returns all tickets.
+List tickets with optional filters. Returns a paginated response.
 
 **Auth:** VIEWER+
 
-**Query params (all optional, mutually exclusive):**
+**Query params (all optional):**
 
-| Param | Type | Description |
-|---|---|---|
-| `status` | `TicketStatus` | Filter by status |
-| `userId` | `Long` | Filter by assigned user |
-| `groupId` | `Long` | Filter by assigned group |
-| `customerId` | `Long` | Filter by customer |
+| Param | Type | Default | Description |
+|---|---|---|---|
+| `status` | `TicketStatus` | — | Filter by status |
+| `priority` | `TicketPriority` | — | Filter by priority |
+| `userId` | `Long` | — | Filter by assigned user |
+| `groupId` | `Long` | — | Filter by assigned group |
+| `customerId` | `Long` | — | Filter by customer |
+| `search` | `String` | — | Full-text search on subject / ticket number |
+| `from` | ISO 8601 | — | Created on or after |
+| `to` | ISO 8601 | — | Created on or before |
+| `page` | `int` | `0` | Page index (0-based) |
+| `size` | `int` | `20` | Page size |
+| `sort` | `String` | `createdAt` | Sort field |
+| `direction` | `ASC`/`DESC` | `DESC` | Sort direction |
 
-**Response `200`:** `TicketSummaryResponse[]`
+**Response `200`:** `PagedResponse<TicketSummaryResponse>`
 ```json
-[
-  {
-    "id":              1,
-    "ticketNo":        "string",
-    "subject":         "string",
-    "status":          "NEW",
-    "priority":        "HIGH",
-    "assignedUserId":  null,
-    "assignedGroupId": null,
-    "createdAt":       "2026-03-27T10:00:00Z"
-  }
-]
+{
+  "items": [
+    {
+      "id":              1,
+      "ticketNo":        "TKT-0001",
+      "subject":         "string",
+      "status":          "NEW",
+      "priority":        "HIGH",
+      "assignedUserId":  null,
+      "assignedGroupId": null,
+      "createdAt":       "2026-03-27T10:00:00Z"
+    }
+  ],
+  "page":          0,
+  "size":          20,
+  "totalElements": 1,
+  "totalPages":    1
+}
 ```
 
 ---
@@ -135,6 +233,27 @@ Get a single ticket by database ID.
 
 **Response `200`:** `TicketResponse` (same shape as POST response)
 **Response `404`:** `TICKET_NOT_FOUND`
+
+---
+
+### `GET /api/tickets/{id}/detail`
+Get a ticket with its full attachment list and history timeline.
+
+**Auth:** VIEWER+
+
+**Response `200`:** `TicketDetailResponse`
+```json
+{
+  "id": 1, "ticketNo": "TKT-0001", "subject": "...",
+  "description": null, "status": "NEW", "priority": "HIGH",
+  "customerId": 1, "assignedUserId": null, "assignedGroupId": null,
+  "createdAt": "...", "updatedAt": "...", "closedAt": null,
+  "attachments": [],
+  "history": [
+    { "id": 1, "actionType": "CREATED", "performedBy": 1, "performedAt": "..." }
+  ]
+}
+```
 
 ---
 
@@ -173,11 +292,10 @@ Change ticket status to any valid target state.
 
 **Request body:**
 ```json
-{
-  "status":      "TicketStatus (required)",
-  "performedBy": 456
-}
+{ "status": "TicketStatus (required)" }
 ```
+
+> `performedBy` is resolved from the JWT.
 
 **Response `200`:** `TicketResponse`
 **Response `422`:** `INVALID_TICKET_STATE` (invalid transition)
@@ -189,12 +307,9 @@ Close a ticket. Shortcut for `status → CLOSED`.
 
 **Auth:** AGENT+
 
-**Request body:**
-```json
-{
-  "performedBy": 456
-}
-```
+**Request body:** empty `{}`
+
+> `performedBy` is resolved from the JWT.
 
 **Response `200`:** `TicketResponse`
 
@@ -205,12 +320,9 @@ Reopen a closed ticket. Transitions to `REOPENED`.
 
 **Auth:** AGENT+
 
-**Request body:**
-```json
-{
-  "performedBy": 456
-}
-```
+**Request body:** empty `{}`
+
+> `performedBy` is resolved from the JWT.
 
 **Response `200`:** `TicketResponse`
 
@@ -587,12 +699,13 @@ Add a note to a ticket.
 **Request body:**
 ```json
 {
-  "ticketId":  1,
-  "content":   "string (required)",
-  "type":      "NoteType (required)",
-  "createdBy": 456
+  "ticketId": 1,
+  "content":  "string (required)",
+  "type":     "NoteType (required)"
 }
 ```
+
+> `createdBy` is resolved from the JWT.
 
 **Response `201`:** `NoteResponse`
 ```json
@@ -639,10 +752,11 @@ Assign a ticket to a user and/or group. At least one of `assignedUserId` or `ass
 {
   "ticketId":        1,
   "assignedUserId":  456,
-  "assignedGroupId": 2,
-  "assignedBy":      789
+  "assignedGroupId": 2
 }
 ```
+
+> `assignedBy` is resolved from the JWT.
 
 **Response `200`:** `AssignmentResponse`
 ```json
@@ -670,12 +784,13 @@ Reassign a ticket that already has an active assignment.
 **Request body:**
 ```json
 {
-  "ticketId":     1,
-  "newUserId":    500,
-  "newGroupId":   3,
-  "reassignedBy": 789
+  "ticketId":   1,
+  "newUserId":  500,
+  "newGroupId": 3
 }
 ```
+
+> `reassignedBy` is resolved from the JWT.
 
 **Response `200`:** `AssignmentResponse` (the new active assignment)
 
@@ -688,11 +803,10 @@ Remove the active assignment from a ticket.
 
 **Request body:**
 ```json
-{
-  "ticketId":    1,
-  "performedBy": 789
-}
+{ "ticketId": 1 }
 ```
+
+> `performedBy` is resolved from the JWT.
 
 **Response `204`:** no body
 
@@ -721,11 +835,12 @@ Transfer a ticket from one group to another.
   "ticketId":      1,
   "fromGroupId":   2,
   "toGroupId":     3,
-  "transferredBy": 456,
   "reason":        "string (optional)",
   "clearAssignee": false
 }
 ```
+
+> `transferredBy` is resolved from the JWT.
 
 > `clearAssignee: true` removes the current user assignment after the transfer.
 
@@ -764,9 +879,99 @@ Get the full transfer history for a ticket.
 
 ---
 
+## Attachments `/api/attachments`
+
+### `POST /api/attachments/upload`
+Upload a file and link it to a ticket.
+
+**Auth:** AGENT+
+**Content-Type:** `multipart/form-data`
+
+**Form params:**
+| Param | Type | Description |
+|---|---|---|
+| `ticketId` | `Long` | Required — ticket to link |
+| `file` | `MultipartFile` | Required — max 25 MB |
+
+**Response `201`:** `AttachmentMetadataResponse`
+```json
+{
+  "id":          1,
+  "ticketId":    1,
+  "emailId":     null,
+  "fileName":    "screenshot.png",
+  "objectKey":   "tickets/1/uuid_screenshot.png",
+  "contentType": "image/png",
+  "size":        204800,
+  "uploadedAt":  "2026-03-27T10:00:00Z"
+}
+```
+
+---
+
+### `GET /api/attachments/{id}`
+Get attachment metadata.
+
+**Auth:** VIEWER+
+
+**Response `200`:** `AttachmentMetadataResponse`
+
+---
+
+### `GET /api/attachments/by-ticket/{ticketId}`
+List all attachment metadata for a ticket.
+
+**Auth:** VIEWER+
+
+**Response `200`:** `AttachmentMetadataResponse[]`
+
+---
+
+### `GET /api/attachments/{id}/download`
+Download the binary file. Response sets `Content-Disposition: attachment`.
+
+**Auth:** VIEWER+
+
+**Response `200`:** binary stream with correct `Content-Type`
+
+---
+
+### `DELETE /api/attachments/{id}`
+Delete an attachment (binary + metadata).
+
+**Auth:** ADMIN
+
+**Response `204`:** no body
+
+---
+
 ## Emails `/api/emails`
 
-Read-only — email documents are ingested by the backend, not created via API.
+### `POST /api/emails/ingest`
+Ingest an inbound email. Idempotent on `messageId` — duplicate ingestion returns `409`.
+
+**Auth:** AGENT+
+
+**Request body:**
+```json
+{
+  "messageId":  "<unique-id@mail.example.com>",
+  "inReplyTo":  "<parent-id@mail.example.com>",
+  "references": ["<root-id@mail.example.com>"],
+  "subject":    "Re: Login page is broken",
+  "from":       "john.doe@acme.com",
+  "to":         ["support@caseflow.dev"],
+  "cc":         [],
+  "textBody":   "string",
+  "htmlBody":   "string (optional)",
+  "receivedAt": "2026-03-27T09:00:00Z"
+}
+```
+
+**Response `201`:** `EmailDocumentResponse`
+**Response `409`:** `DUPLICATE_EMAIL` (messageId already seen)
+
+---
 
 ### `GET /api/emails/{id}`
 Get an email document by its MongoDB document ID.
@@ -842,13 +1047,15 @@ Start with `SPRING_PROFILES_ACTIVE=dev` to load:
 
 | Type | Records |
 |---|---|
-| Groups | `Support` (SUPPORT) · `Operations` (OPERATIONS) · `Trade` (TRADE) |
-| Users | `alice` (id 1) · `bob` (id 2) · `carol` (id 3) |
-| Customers | `ACME Corp` (id 1) · `Globex` (id 2) |
+| Groups | `Support` (SUPPORT) · `Operations` (OPERATIONS) |
+| Users | `alice/admin123` (ADMIN) · `bob/agent123` (AGENT) · `carol/viewer123` (VIEWER) |
+| Customers | `ACME Corp` · `Globex Inc` |
 | Contacts | 3 contacts linked to the two customers |
-| Tickets | 3 tickets in various statuses |
-| Notes | 2 notes on ticket id 1 |
+| Tickets | 3 tickets in various statuses (TKT-0001 through TKT-0003) |
+| Notes | 2 notes |
 | Email | 1 sample email document |
+
+Login with any seed user at `POST /api/auth/login` to get a Bearer token.
 
 ---
 
