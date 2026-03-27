@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: caseflow-config
+  namespace: caseflow
+data:
+  # PostgreSQL — service name matches k8s/infra/postgres.yaml
+  SPRING_DATASOURCE_URL: "jdbc:postgresql://postgres-svc:5432/caseflow"
+  # MongoDB — service name matches k8s/infra/mongo.yaml
+  SPRING_DATA_MONGODB_URI: "mongodb://mongo-svc:27017/caseflow"
+  # Storage — MinIO for cloud/K8s; service name matches k8s/infra/minio.yaml
+  CASEFLOW_STORAGE_PROVIDER: "minio"
+  CASEFLOW_MINIO_ENDPOINT: "http://minio-svc:9000"
+  CASEFLOW_MINIO_BUCKET: "caseflow"
+  # Actuator
+  MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS: "always"
+  MANAGEMENT_HEALTH_PROBES_ENABLED: "true"
+  # Logging
+  LOG_LEVEL_APP: "INFO"
+  # CORS — update for your actual frontend domain
+  CASEFLOW_CORS_ALLOWED_ORIGINS: "http://localhost:3000,http://localhost:5173"

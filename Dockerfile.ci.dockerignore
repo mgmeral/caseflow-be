@@ -1,0 +1,22 @@
+# .dockerignore for Dockerfile.ci — used by GitHub Actions CI.
+# Unlike the main .dockerignore, target/ is NOT excluded so the pre-built JAR
+# produced by the Maven 'test' job is included in the Docker build context.
+
+.git/
+.gitignore
+.idea/
+.vscode/
+*.iml
+*.log
+logs/
+storage-data/
+.env
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db
+docs/
+README.md
+.ai/
+.claude/
+k8s/

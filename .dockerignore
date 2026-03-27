@@ -1,0 +1,44 @@
+# Build output
+target/
+
+# Version control
+.git/
+.gitignore
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.swp
+*.swo
+
+# Maven wrapper (not present, but safe to list)
+.mvn/
+
+# Logs
+*.log
+logs/
+
+# Local storage data
+storage-data/
+
+# Environment files (do not bake secrets into image)
+.env
+.env.*
+!.env.example
+
+# OS artefacts
+.DS_Store
+Thumbs.db
+
+# Test reports
+target/surefire-reports/
+target/failsafe-reports/
+
+# Documentation (not needed in image)
+docs/
+README.md
+
+# AI context files
+.ai/
+.claude/

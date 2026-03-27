@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: caseflow
+  namespace: caseflow
+  labels:
+    app: caseflow
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: caseflow
+  template:
+    metadata:
+      labels:
+        app: caseflow
+    spec:
+      containers:
+        - name: caseflow
+          # Update image tag to match your registry, e.g.:
+          # image: ghcr.io/your-org/caseflow:latest
+          image: caseflow:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              name: http
+          envFrom:
+            - configMapRef:
+                name: caseflow-config
+            - secretRef:
+                name: caseflow-secret
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 5
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi

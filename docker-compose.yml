@@ -1,0 +1,107 @@
+services:
+
+  # ─── Application ────────────────────────────────────────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: caseflow:local
+    container_name: caseflow-app
+    ports:
+      - "${APP_PORT:-8080}:8080"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/caseflow
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-caseflow}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-caseflow_dev}
+      SPRING_DATA_MONGODB_URI: mongodb://mongo:27017/caseflow
+      # Storage: uses MinIO by default in Docker Compose
+      CASEFLOW_STORAGE_PROVIDER: minio
+      CASEFLOW_MINIO_ENDPOINT: http://minio:9000
+      CASEFLOW_MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      CASEFLOW_MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin123}
+      CASEFLOW_MINIO_BUCKET: ${MINIO_BUCKET:-caseflow}
+      CASEFLOW_CORS_ALLOWED_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:5173}
+      # Show full health details in local Docker so you can debug infra issues
+      MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS: always
+      # Set to 'dev' to load seed data on first start
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-}
+      LOG_LEVEL_APP: ${LOG_LEVEL_APP:-INFO}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+    restart: unless-stopped
+
+  # ─── PostgreSQL ─────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: caseflow-postgres
+    environment:
+      POSTGRES_DB: caseflow
+      POSTGRES_USER: ${POSTGRES_USER:-caseflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-caseflow_dev}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-caseflow} -d caseflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ─── MongoDB ────────────────────────────────────────────────────────────────
+  mongo:
+    image: mongo:7-jammy
+    container_name: caseflow-mongo
+    environment:
+      MONGO_INITDB_DATABASE: caseflow
+    ports:
+      - "${MONGO_PORT:-27017}:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ─── MinIO (S3-compatible object storage) ───────────────────────────────────
+  minio:
+    image: minio/minio:latest
+    container_name: caseflow-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin123}
+    ports:
+      - "${MINIO_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    name: caseflow_postgres_data
+  mongo_data:
+    name: caseflow_mongo_data
+  minio_data:
+    name: caseflow_minio_data

@@ -1,0 +1,20 @@
+# CI-optimised Dockerfile: copies the JAR already built by the Maven 'test' job.
+# For a fully self-contained local build (no pre-built JAR required) use Dockerfile.
+FROM eclipse-temurin:21-jre-alpine
+
+RUN addgroup -S caseflow && adduser -S caseflow -G caseflow
+
+WORKDIR /app
+
+COPY target/caseflow-0.0.1-SNAPSHOT.jar app.jar
+
+RUN mkdir -p /app/storage-data && chown caseflow:caseflow /app/storage-data
+
+USER caseflow
+
+EXPOSE 8080
+
+ENTRYPOINT ["java", \
+  "-XX:MaxRAMPercentage=75.0", \
+  "-Djava.security.egd=file:/dev/./urandom", \
+  "-jar", "app.jar"]
