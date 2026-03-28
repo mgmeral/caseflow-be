@@ -1,11 +1,13 @@
 package com.caseflow.auth.api;
 
 import com.caseflow.auth.AuthService;
+import com.caseflow.auth.CaseFlowUserDetails;
 import com.caseflow.auth.api.dto.LoginRequest;
 import com.caseflow.auth.api.dto.MeResponse;
 import com.caseflow.auth.api.dto.RefreshTokenRequest;
 import com.caseflow.auth.api.dto.TokenResponse;
-import com.caseflow.identity.domain.User;
+import com.caseflow.identity.domain.Permission;
+
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -60,13 +62,22 @@ public class AuthController {
         return ResponseEntity.noContent().build();
     }
 
-    @Operation(summary = "Get current authenticated user info")
+    @Operation(summary = "Get current authenticated user — includes roleId, permissionCodes, ticketScope, groupIds")
     @SecurityRequirement(name = "bearerAuth")
     @GetMapping("/me")
-    public ResponseEntity<MeResponse> me(@AuthenticationPrincipal Long userId) {
-        log.info("GET /auth/me — userId: {}", userId);
-        User user = authService.getAuthenticatedUser(userId);
+    public ResponseEntity<MeResponse> me(@AuthenticationPrincipal CaseFlowUserDetails currentUser) {
+        log.info("GET /auth/me — userId: {}", currentUser.getUserId());
         return ResponseEntity.ok(new MeResponse(
-                user.getId(), user.getUsername(), user.getEmail(), user.getFullName(), user.getRole()));
+                currentUser.getUserId(),
+                currentUser.getUsername(),
+                currentUser.getEmail(),
+                currentUser.getFullName(),
+                currentUser.getRoleId(),
+                currentUser.getRoleCode(),
+                currentUser.getRoleName(),
+                currentUser.getPermissions().stream().map(Permission::name).sorted().toList(),
+                currentUser.getTicketScope(),
+                currentUser.getGroupIds()
+        ));
     }
 }

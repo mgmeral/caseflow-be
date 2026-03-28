@@ -19,10 +19,15 @@ public class JwtTokenService {
         this.jwtProperties = jwtProperties;
     }
 
-    public String generateAccessToken(Long userId, String username, String role) {
+    /**
+     * Generates an access token containing only userId and username.
+     * Role and permissions are never embedded in the token — they are always
+     * loaded fresh from the database on each request so changes take effect immediately.
+     */
+    public String generateAccessToken(Long userId, String username) {
         return Jwts.builder()
                 .subject(String.valueOf(userId))
-                .claims(Map.of("username", username, "role", role))
+                .claims(Map.of("username", username))
                 .issuedAt(new Date())
                 .expiration(new Date(System.currentTimeMillis() + jwtProperties.getAccessTokenExpirationMs()))
                 .signWith(getSigningKey())
@@ -39,10 +44,6 @@ public class JwtTokenService {
 
     public Long extractUserId(String token) {
         return Long.valueOf(validateAndParseClaims(token).getSubject());
-    }
-
-    public String extractRole(String token) {
-        return validateAndParseClaims(token).get("role", String.class);
     }
 
     private SecretKey getSigningKey() {

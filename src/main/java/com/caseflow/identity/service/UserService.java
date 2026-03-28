@@ -1,11 +1,14 @@
 package com.caseflow.identity.service;
 
+import com.caseflow.common.exception.RoleNotFoundException;
 import com.caseflow.common.exception.UserNotFoundException;
 import com.caseflow.identity.api.dto.CreateUserRequest;
 import com.caseflow.identity.api.dto.UpdateUserRequest;
 import com.caseflow.identity.domain.Group;
+import com.caseflow.identity.domain.Role;
 import com.caseflow.identity.domain.User;
 import com.caseflow.identity.repository.GroupRepository;
+import com.caseflow.identity.repository.RoleRepository;
 import com.caseflow.identity.repository.UserRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,13 +25,16 @@ public class UserService {
     private static final Logger log = LoggerFactory.getLogger(UserService.class);
 
     private final UserRepository userRepository;
+    private final RoleRepository roleRepository;
     private final GroupRepository groupRepository;
     private final PasswordEncoder passwordEncoder;
 
     public UserService(UserRepository userRepository,
+                       RoleRepository roleRepository,
                        GroupRepository groupRepository,
                        PasswordEncoder passwordEncoder) {
         this.userRepository = userRepository;
+        this.roleRepository = roleRepository;
         this.groupRepository = groupRepository;
         this.passwordEncoder = passwordEncoder;
     }
@@ -36,12 +42,13 @@ public class UserService {
     @Transactional
     public User createUser(CreateUserRequest request) {
         log.info("Creating user — username: '{}'", request.username());
+        Role role = resolveRole(request.roleId());
         User user = new User();
         user.setUsername(request.username());
         user.setEmail(request.email());
         user.setFullName(request.fullName());
         user.setPasswordHash(passwordEncoder.encode(request.password()));
-        user.setRole(request.role());
+        user.setRole(role);
         user.setIsActive(request.isActive() != null ? request.isActive() : Boolean.TRUE);
 
         if (request.groupIds() != null && !request.groupIds().isEmpty()) {
@@ -58,9 +65,10 @@ public class UserService {
     public User updateUser(Long userId, UpdateUserRequest request) {
         log.info("Updating user {}", userId);
         User user = findOrThrow(userId);
+        Role role = resolveRole(request.roleId());
         user.setEmail(request.email());
         user.setFullName(request.fullName());
-        user.setRole(request.role());
+        user.setRole(role);
         user.setIsActive(request.isActive());
 
         if (request.password() != null && !request.password().isBlank()) {
@@ -118,6 +126,13 @@ public class UserService {
     @Transactional(readOnly = true)
     public List<User> findAll() {
         return userRepository.findAll();
+    }
+
+    // ── Private ───────────────────────────────────────────────────────────────
+
+    private Role resolveRole(Long roleId) {
+        return roleRepository.findById(roleId)
+                .orElseThrow(() -> new RoleNotFoundException(roleId));
     }
 
     private User findOrThrow(Long userId) {

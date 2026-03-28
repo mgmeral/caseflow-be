@@ -4,6 +4,7 @@ public record UserSummaryResponse(
         Long id,
         String username,
         String fullName,
-        String role,
+        Long roleId,
+        String roleCode,
         Boolean isActive
 ) {}

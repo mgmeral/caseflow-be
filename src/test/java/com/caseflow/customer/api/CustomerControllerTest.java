@@ -1,5 +1,6 @@
 package com.caseflow.customer.api;
 
+import com.caseflow.auth.CaseFlowUserDetailsService;
 import com.caseflow.auth.JwtTokenService;
 import com.caseflow.common.exception.CustomerNotFoundException;
 import com.caseflow.common.security.SecurityConfig;
@@ -42,6 +43,9 @@ class CustomerControllerTest {
 
     @MockBean
     private JwtTokenService jwtTokenService;
+
+    @MockBean
+    private CaseFlowUserDetailsService userDetailsService;
 
     @MockBean
     private CustomerService customerService;

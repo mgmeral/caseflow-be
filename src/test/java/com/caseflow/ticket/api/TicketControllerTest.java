@@ -1,5 +1,6 @@
 package com.caseflow.ticket.api;
 
+import com.caseflow.auth.CaseFlowUserDetailsService;
 import com.caseflow.auth.JwtTokenService;
 import com.caseflow.common.exception.TicketNotFoundException;
 import com.caseflow.common.security.SecurityConfig;
@@ -47,6 +48,9 @@ class TicketControllerTest {
 
     @MockBean
     private JwtTokenService jwtTokenService;   // required by SecurityConfig
+
+    @MockBean
+    private CaseFlowUserDetailsService userDetailsService;
 
     @MockBean
     private TicketService ticketService;
@@ -139,20 +143,6 @@ class TicketControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
                 .andExpect(jsonPath("$.details").isArray());
-    }
-
-    @Test
-    @WithMockUser(roles = "VIEWER")
-    void createTicket_returns403_whenViewerRole() throws Exception {
-        CreateTicketRequest request = new CreateTicketRequest(
-                "Subject", null, TicketPriority.MEDIUM, null
-        );
-
-        mockMvc.perform(post("/api/tickets")
-                        .with(csrf())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isForbidden());
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

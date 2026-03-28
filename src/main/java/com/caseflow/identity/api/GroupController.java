@@ -12,6 +12,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -39,6 +40,7 @@ public class GroupController {
     }
 
     @PostMapping
+    @PreAuthorize("hasAuthority('PERM_GROUP_MANAGE')")
     public ResponseEntity<GroupResponse> createGroup(@Valid @RequestBody CreateGroupRequest request) {
         log.info("POST /groups — name: '{}', groupTypeId: {}", request.name(), request.groupTypeId());
         GroupResponse response = groupMapper.toResponse(groupService.createGroup(request));
@@ -63,6 +65,7 @@ public class GroupController {
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasAuthority('PERM_GROUP_MANAGE')")
     public ResponseEntity<GroupResponse> updateGroup(@PathVariable Long id,
                                                      @Valid @RequestBody UpdateGroupRequest request) {
         log.info("PUT /groups/{} — name: '{}', groupTypeId: {}", id, request.name(), request.groupTypeId());
@@ -72,6 +75,7 @@ public class GroupController {
     }
 
     @PatchMapping("/{id}/activate")
+    @PreAuthorize("hasAuthority('PERM_GROUP_MANAGE')")
     public ResponseEntity<Void> activate(@PathVariable Long id) {
         log.info("PATCH /groups/{}/activate", id);
         groupService.activate(id);
@@ -79,6 +83,7 @@ public class GroupController {
     }
 
     @PatchMapping("/{id}/deactivate")
+    @PreAuthorize("hasAuthority('PERM_GROUP_MANAGE')")
     public ResponseEntity<Void> deactivate(@PathVariable Long id) {
         log.info("PATCH /groups/{}/deactivate", id);
         groupService.deactivate(id);

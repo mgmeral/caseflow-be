@@ -1,12 +1,12 @@
 package com.caseflow.common.security;
 
+import com.caseflow.auth.CaseFlowUserDetailsService;
 import com.caseflow.auth.JwtAuthenticationFilter;
 import com.caseflow.auth.JwtTokenService;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
@@ -26,18 +26,11 @@ import java.util.Arrays;
 import java.util.List;
 
 /**
- * V2 Security configuration — JWT Bearer tokens, stateless sessions.
+ * Security configuration — JWT Bearer tokens, stateless sessions, permission-based access.
  *
- * Auth flow:
- *   POST /api/auth/login           → access token + refresh token
- *   POST /api/auth/refresh         → rotated token pair
- *   POST /api/auth/logout          → revoke refresh token
- *   GET  /api/auth/me              → current user info
- *
- * Roles: ADMIN > AGENT > VIEWER
- *   VIEWER — GET /api/**
- *   AGENT  — GET + POST/PUT/PATCH /api/**
- *   ADMIN  — all of the above + DELETE /api/**
+ * HTTP layer: keeps /api/** authenticated.
+ * Business authorization: method-level @PreAuthorize("hasAuthority('PERM_...')").
+ * Role names are never used in authorization decisions — only permission codes.
  */
 @Configuration
 @EnableWebSecurity
@@ -59,9 +52,12 @@ public class SecurityConfig {
     private String[] allowedOrigins;
 
     private final JwtTokenService jwtTokenService;
+    private final CaseFlowUserDetailsService userDetailsService;
 
-    public SecurityConfig(JwtTokenService jwtTokenService) {
+    public SecurityConfig(JwtTokenService jwtTokenService,
+                          CaseFlowUserDetailsService userDetailsService) {
         this.jwtTokenService = jwtTokenService;
+        this.userDetailsService = userDetailsService;
     }
 
     @Bean
@@ -70,15 +66,10 @@ public class SecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .addFilterBefore(new JwtAuthenticationFilter(jwtTokenService),
+                .addFilterBefore(new JwtAuthenticationFilter(jwtTokenService, userDetailsService),
                         UsernamePasswordAuthenticationFilter.class)
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(PUBLIC_PATHS).permitAll()
-                        .requestMatchers(HttpMethod.GET,    "/api/**").hasAnyRole("VIEWER", "AGENT", "ADMIN")
-                        .requestMatchers(HttpMethod.POST,   "/api/**").hasAnyRole("AGENT", "ADMIN")
-                        .requestMatchers(HttpMethod.PUT,    "/api/**").hasAnyRole("AGENT", "ADMIN")
-                        .requestMatchers(HttpMethod.PATCH,  "/api/**").hasAnyRole("AGENT", "ADMIN")
-                        .requestMatchers(HttpMethod.DELETE, "/api/**").hasRole("ADMIN")
                         .anyRequest().authenticated()
                 )
                 .exceptionHandling(ex -> ex

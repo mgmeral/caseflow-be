@@ -6,7 +6,9 @@ import com.caseflow.common.exception.AttachmentNotFoundException;
 import com.caseflow.common.exception.ContactNotFoundException;
 import com.caseflow.common.exception.CustomerNotFoundException;
 import com.caseflow.common.exception.GroupNotFoundException;
+import com.caseflow.common.exception.AdminLockoutException;
 import com.caseflow.common.exception.GroupTypeNotFoundException;
+import com.caseflow.common.exception.RoleNotFoundException;
 import com.caseflow.common.exception.InvalidTicketStateException;
 import com.caseflow.common.exception.NoteNotFoundException;
 import com.caseflow.common.exception.TicketNotFoundException;
@@ -43,6 +45,7 @@ public class GlobalExceptionHandler {
             UserNotFoundException.class,
             GroupNotFoundException.class,
             GroupTypeNotFoundException.class,
+            RoleNotFoundException.class,
             NoteNotFoundException.class,
             AttachmentNotFoundException.class
     })
@@ -57,6 +60,17 @@ public class GlobalExceptionHandler {
                 request.getRequestURI()
         );
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(body);
+    }
+
+    // ── 409 Admin Lockout ─────────────────────────────────────────────────────
+
+    @ExceptionHandler(AdminLockoutException.class)
+    public ResponseEntity<ErrorResponse> handleAdminLockout(AdminLockoutException ex,
+                                                            HttpServletRequest request) {
+        ErrorResponse body = ErrorResponse.of(
+                HttpStatus.CONFLICT.value(), HttpStatus.CONFLICT.getReasonPhrase(),
+                "ADMIN_LOCKOUT", ex.getMessage(), request.getRequestURI());
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(body);
     }
 
     // ── 409 Conflict ──────────────────────────────────────────────────────────

@@ -102,7 +102,7 @@ public class AuthService {
     }
 
     private TokenPair generateTokenPair(User user) {
-        String accessToken = jwtTokenService.generateAccessToken(user.getId(), user.getUsername(), user.getRole());
+        String accessToken = jwtTokenService.generateAccessToken(user.getId(), user.getUsername());
 
         String rawRefreshToken = UUID.randomUUID().toString();
         RefreshToken rt = new RefreshToken();

@@ -1,5 +1,6 @@
 package com.caseflow.email.api;
 
+import com.caseflow.auth.CaseFlowUserDetailsService;
 import com.caseflow.auth.JwtTokenService;
 import com.caseflow.common.security.SecurityConfig;
 import com.caseflow.email.api.dto.EmailAttachmentResponse;
@@ -44,6 +45,9 @@ class EmailDocumentControllerTest {
 
     @MockBean
     private JwtTokenService jwtTokenService;
+
+    @MockBean
+    private CaseFlowUserDetailsService userDetailsService;
 
     @MockBean
     private EmailDocumentQueryService emailDocumentQueryService;

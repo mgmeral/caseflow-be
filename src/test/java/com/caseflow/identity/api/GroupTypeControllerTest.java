@@ -1,5 +1,6 @@
 package com.caseflow.identity.api;
 
+import com.caseflow.auth.CaseFlowUserDetailsService;
 import com.caseflow.auth.JwtTokenService;
 import com.caseflow.common.exception.GroupTypeNotFoundException;
 import com.caseflow.common.security.SecurityConfig;
@@ -47,6 +48,9 @@ class GroupTypeControllerTest {
 
     @MockBean
     private JwtTokenService jwtTokenService;
+
+    @MockBean
+    private CaseFlowUserDetailsService userDetailsService;
 
     @MockBean
     private GroupTypeService groupTypeService;

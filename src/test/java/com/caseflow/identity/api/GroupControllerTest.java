@@ -1,5 +1,6 @@
 package com.caseflow.identity.api;
 
+import com.caseflow.auth.CaseFlowUserDetailsService;
 import com.caseflow.auth.JwtTokenService;
 import com.caseflow.common.exception.GroupNotFoundException;
 import com.caseflow.common.security.SecurityConfig;
@@ -49,6 +50,9 @@ class GroupControllerTest {
     private JwtTokenService jwtTokenService;
 
     @MockBean
+    private CaseFlowUserDetailsService userDetailsService;
+
+    @MockBean
     private GroupService groupService;
 
     @MockBean
@@ -57,7 +61,7 @@ class GroupControllerTest {
     // ── POST /api/groups ──────────────────────────────────────────────────────
 
     @Test
-    @WithMockUser(roles = "ADMIN")
+    @WithMockUser(authorities = "PERM_GROUP_MANAGE")
     void createGroup_returns201_withMembers() throws Exception {
         CreateGroupRequest request = new CreateGroupRequest(
                 "Support", 1L, "Handles support tickets", List.of(1L, 2L));
@@ -80,7 +84,7 @@ class GroupControllerTest {
     }
 
     @Test
-    @WithMockUser(roles = "ADMIN")
+    @WithMockUser(authorities = "PERM_GROUP_MANAGE")
     void createGroup_returns201_withNoMembers() throws Exception {
         CreateGroupRequest request = new CreateGroupRequest("Ops", 2L, null, null);
         Group group = new Group();
@@ -98,7 +102,7 @@ class GroupControllerTest {
     }
 
     @Test
-    @WithMockUser(roles = "ADMIN")
+    @WithMockUser(authorities = "PERM_GROUP_MANAGE")
     void createGroup_returns400_whenNameIsBlank() throws Exception {
         CreateGroupRequest request = new CreateGroupRequest("", 1L, null, null);
 
@@ -111,7 +115,7 @@ class GroupControllerTest {
     }
 
     @Test
-    @WithMockUser(roles = "ADMIN")
+    @WithMockUser(authorities = "PERM_GROUP_MANAGE")
     void createGroup_returns400_whenGroupTypeIdIsNull() throws Exception {
         CreateGroupRequest request = new CreateGroupRequest("Support", null, null, null);
 
@@ -176,7 +180,7 @@ class GroupControllerTest {
     // ── PUT /api/groups/{id} ──────────────────────────────────────────────────
 
     @Test
-    @WithMockUser(roles = "ADMIN")
+    @WithMockUser(authorities = "PERM_GROUP_MANAGE")
     void updateGroup_returns200_replacingMembers() throws Exception {
         UpdateGroupRequest request = new UpdateGroupRequest(
                 "Support v2", 1L, "Updated", List.of(3L, 4L));
@@ -197,7 +201,7 @@ class GroupControllerTest {
     }
 
     @Test
-    @WithMockUser(roles = "ADMIN")
+    @WithMockUser(authorities = "PERM_GROUP_MANAGE")
     void updateGroup_returns200_leavingMembersUnchangedWhenUserIdsIsNull() throws Exception {
         // userIds: null means no membership change
         UpdateGroupRequest request = new UpdateGroupRequest(
@@ -219,7 +223,7 @@ class GroupControllerTest {
     // ── PATCH activate/deactivate ─────────────────────────────────────────────
 
     @Test
-    @WithMockUser(roles = "ADMIN")
+    @WithMockUser(authorities = "PERM_GROUP_MANAGE")
     void activate_returns204() throws Exception {
         mockMvc.perform(patch("/api/groups/3/activate").with(csrf()))
                 .andExpect(status().isNoContent());
@@ -227,7 +231,7 @@ class GroupControllerTest {
     }
 
     @Test
-    @WithMockUser(roles = "ADMIN")
+    @WithMockUser(authorities = "PERM_GROUP_MANAGE")
     void deactivate_returns204() throws Exception {
         mockMvc.perform(patch("/api/groups/3/deactivate").with(csrf()))
                 .andExpect(status().isNoContent());

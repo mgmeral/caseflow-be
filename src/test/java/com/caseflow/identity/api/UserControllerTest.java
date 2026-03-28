@@ -1,5 +1,6 @@
 package com.caseflow.identity.api;
 
+import com.caseflow.auth.CaseFlowUserDetailsService;
 import com.caseflow.auth.JwtTokenService;
 import com.caseflow.common.exception.UserNotFoundException;
 import com.caseflow.common.security.SecurityConfig;
@@ -49,6 +50,9 @@ class UserControllerTest {
     private JwtTokenService jwtTokenService;
 
     @MockBean
+    private CaseFlowUserDetailsService userDetailsService;
+
+    @MockBean
     private UserService userService;
 
     @MockBean
@@ -57,14 +61,14 @@ class UserControllerTest {
     // ── POST /api/users ───────────────────────────────────────────────────────
 
     @Test
-    @WithMockUser(roles = "ADMIN")
+    @WithMockUser(authorities = "PERM_USER_MANAGE")
     void createUser_returns201_withValidRequest() throws Exception {
         CreateUserRequest request = new CreateUserRequest(
                 "jsmith", "j.smith@example.com", "John Smith",
-                "password123", "AGENT", List.of(1L, 2L), true
+                "password123", 2L, List.of(1L, 2L), true
         );
         User user = new User();
-        UserResponse response = makeUserResponse(10L, "jsmith", "AGENT");
+        UserResponse response = makeUserResponse(10L, "jsmith", 2L, "AGENT");
 
         when(userService.createUser(any(CreateUserRequest.class))).thenReturn(user);
         when(userMapper.toResponse(user)).thenReturn(response);
@@ -76,15 +80,15 @@ class UserControllerTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.id").value(10))
                 .andExpect(jsonPath("$.username").value("jsmith"))
-                .andExpect(jsonPath("$.role").value("AGENT"));
+                .andExpect(jsonPath("$.roleCode").value("AGENT"));
     }
 
     @Test
-    @WithMockUser(roles = "ADMIN")
+    @WithMockUser(authorities = "PERM_USER_MANAGE")
     void createUser_returns400_whenUsernameIsBlank() throws Exception {
         CreateUserRequest request = new CreateUserRequest(
                 "", "j.smith@example.com", "John Smith",
-                "password123", "AGENT", null, null
+                "password123", 2L, null, null
         );
 
         mockMvc.perform(post("/api/users")
@@ -96,11 +100,11 @@ class UserControllerTest {
     }
 
     @Test
-    @WithMockUser(roles = "ADMIN")
+    @WithMockUser(authorities = "PERM_USER_MANAGE")
     void createUser_returns400_whenPasswordTooShort() throws Exception {
         CreateUserRequest request = new CreateUserRequest(
                 "jsmith", "j.smith@example.com", "John Smith",
-                "short", "AGENT", null, null
+                "short", 2L, null, null
         );
 
         mockMvc.perform(post("/api/users")
@@ -112,11 +116,11 @@ class UserControllerTest {
     }
 
     @Test
-    @WithMockUser(roles = "ADMIN")
-    void createUser_returns400_whenRoleIsInvalid() throws Exception {
+    @WithMockUser(authorities = "PERM_USER_MANAGE")
+    void createUser_returns400_whenRoleIdIsNull() throws Exception {
         CreateUserRequest request = new CreateUserRequest(
                 "jsmith", "j.smith@example.com", "John Smith",
-                "password123", "SUPERUSER", null, null
+                "password123", null, null, null
         );
 
         mockMvc.perform(post("/api/users")
@@ -125,15 +129,30 @@ class UserControllerTest {
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+    }
+
+    @Test
+    @WithMockUser
+    void createUser_returns403_withoutPermission() throws Exception {
+        CreateUserRequest request = new CreateUserRequest(
+                "jsmith", "j.smith@example.com", "John Smith",
+                "password123", 2L, null, null
+        );
+
+        mockMvc.perform(post("/api/users")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isForbidden());
     }
 
     // ── GET /api/users/{id} ───────────────────────────────────────────────────
 
     @Test
-    @WithMockUser(roles = "ADMIN")
+    @WithMockUser
     void getById_returns200_withUserResponse() throws Exception {
         User user = new User();
-        UserResponse response = makeUserResponse(5L, "alice", "ADMIN");
+        UserResponse response = makeUserResponse(5L, "alice", 1L, "ADMIN");
 
         when(userService.getById(5L)).thenReturn(user);
         when(userMapper.toResponse(user)).thenReturn(response);
@@ -142,13 +161,13 @@ class UserControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(5))
                 .andExpect(jsonPath("$.username").value("alice"))
-                .andExpect(jsonPath("$.role").value("ADMIN"))
+                .andExpect(jsonPath("$.roleCode").value("ADMIN"))
                 .andExpect(jsonPath("$.groupIds").isArray())
                 .andExpect(jsonPath("$.groupNames").isArray());
     }
 
     @Test
-    @WithMockUser(roles = "ADMIN")
+    @WithMockUser
     void getById_returns404_whenUserNotFound() throws Exception {
         when(userService.getById(999L)).thenThrow(new UserNotFoundException(999L));
 
@@ -166,10 +185,10 @@ class UserControllerTest {
     // ── GET /api/users ────────────────────────────────────────────────────────
 
     @Test
-    @WithMockUser(roles = "ADMIN")
+    @WithMockUser
     void listUsers_returns200_withSummaryList() throws Exception {
         User user = new User();
-        UserSummaryResponse summary = new UserSummaryResponse(1L, "alice", "Alice Admin", "ADMIN", true);
+        UserSummaryResponse summary = new UserSummaryResponse(1L, "alice", "Alice Admin", 1L, "ADMIN", true);
 
         when(userService.findAll()).thenReturn(List.of(user));
         when(userMapper.toSummaryResponse(user)).thenReturn(summary);
@@ -177,19 +196,19 @@ class UserControllerTest {
         mockMvc.perform(get("/api/users"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].username").value("alice"))
-                .andExpect(jsonPath("$[0].role").value("ADMIN"));
+                .andExpect(jsonPath("$[0].roleCode").value("ADMIN"));
     }
 
     // ── PUT /api/users/{id} ───────────────────────────────────────────────────
 
     @Test
-    @WithMockUser(roles = "ADMIN")
+    @WithMockUser(authorities = "PERM_USER_MANAGE")
     void updateUser_returns200_withUpdatedResponse() throws Exception {
         UpdateUserRequest request = new UpdateUserRequest(
-                "new@example.com", "New Name", "VIEWER", true, List.of(3L), null
+                "new@example.com", "New Name", 3L, true, List.of(3L), null
         );
         User user = new User();
-        UserResponse response = makeUserResponse(7L, "bob", "VIEWER");
+        UserResponse response = makeUserResponse(7L, "bob", 3L, "VIEWER");
 
         when(userService.updateUser(eq(7L), any(UpdateUserRequest.class))).thenReturn(user);
         when(userMapper.toResponse(user)).thenReturn(response);
@@ -199,14 +218,14 @@ class UserControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.role").value("VIEWER"));
+                .andExpect(jsonPath("$.roleCode").value("VIEWER"));
     }
 
     @Test
-    @WithMockUser(roles = "ADMIN")
+    @WithMockUser(authorities = "PERM_USER_MANAGE")
     void updateUser_returns400_whenIsActiveIsNull() throws Exception {
         UpdateUserRequest request = new UpdateUserRequest(
-                "new@example.com", "New Name", "AGENT", null, null, null
+                "new@example.com", "New Name", 2L, null, null, null
         );
 
         mockMvc.perform(put("/api/users/7")
@@ -220,27 +239,26 @@ class UserControllerTest {
     // ── PATCH /api/users/{id}/activate & deactivate ───────────────────────────
 
     @Test
-    @WithMockUser(roles = "ADMIN")
+    @WithMockUser(authorities = "PERM_USER_MANAGE")
     void activate_returns204() throws Exception {
         mockMvc.perform(patch("/api/users/3/activate").with(csrf()))
                 .andExpect(status().isNoContent());
-
         verify(userService).activate(3L);
     }
 
     @Test
-    @WithMockUser(roles = "ADMIN")
+    @WithMockUser(authorities = "PERM_USER_MANAGE")
     void deactivate_returns204() throws Exception {
         mockMvc.perform(patch("/api/users/3/deactivate").with(csrf()))
                 .andExpect(status().isNoContent());
-
         verify(userService).deactivate(3L);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private UserResponse makeUserResponse(Long id, String username, String role) {
+    private UserResponse makeUserResponse(Long id, String username, Long roleId, String roleCode) {
         return new UserResponse(id, username, username + "@example.com", "Full Name",
-                role, true, List.of(1L), List.of("Support"), Instant.now(), null);
+                roleId, roleCode, roleCode + " Role", true,
+                List.of(1L), List.of("Support"), Instant.now(), null);
     }
 }

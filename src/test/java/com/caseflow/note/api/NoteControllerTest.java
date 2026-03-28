@@ -1,5 +1,6 @@
 package com.caseflow.note.api;
 
+import com.caseflow.auth.CaseFlowUserDetailsService;
 import com.caseflow.auth.JwtTokenService;
 import com.caseflow.common.exception.NoteNotFoundException;
 import com.caseflow.common.security.SecurityConfig;
@@ -43,6 +44,9 @@ class NoteControllerTest {
 
     @MockBean
     private JwtTokenService jwtTokenService;
+
+    @MockBean
+    private CaseFlowUserDetailsService userDetailsService;
 
     @MockBean
     private NoteService noteService;

@@ -8,9 +8,11 @@ import com.caseflow.email.document.EmailDocument;
 import com.caseflow.email.repository.EmailDocumentRepository;
 import com.caseflow.identity.domain.Group;
 import com.caseflow.identity.domain.GroupType;
+import com.caseflow.identity.domain.Role;
 import com.caseflow.identity.domain.User;
 import com.caseflow.identity.repository.GroupRepository;
 import com.caseflow.identity.repository.GroupTypeRepository;
+import com.caseflow.identity.repository.RoleRepository;
 import com.caseflow.identity.repository.UserRepository;
 import com.caseflow.note.domain.Note;
 import com.caseflow.note.domain.NoteType;
@@ -48,6 +50,7 @@ public class DevDataLoader implements ApplicationRunner {
 
     private final GroupRepository groupRepository;
     private final GroupTypeRepository groupTypeRepository;
+    private final RoleRepository roleRepository;
     private final UserRepository userRepository;
     private final CustomerRepository customerRepository;
     private final ContactRepository contactRepository;
@@ -59,6 +62,7 @@ public class DevDataLoader implements ApplicationRunner {
 
     public DevDataLoader(GroupRepository groupRepository,
                          GroupTypeRepository groupTypeRepository,
+                         RoleRepository roleRepository,
                          UserRepository userRepository,
                          CustomerRepository customerRepository,
                          ContactRepository contactRepository,
@@ -69,6 +73,7 @@ public class DevDataLoader implements ApplicationRunner {
                          PasswordEncoder passwordEncoder) {
         this.groupRepository = groupRepository;
         this.groupTypeRepository = groupTypeRepository;
+        this.roleRepository = roleRepository;
         this.userRepository = userRepository;
         this.customerRepository = customerRepository;
         this.contactRepository = contactRepository;
@@ -95,9 +100,13 @@ public class DevDataLoader implements ApplicationRunner {
         Group support = createGroup("Support", supportType);
         Group ops     = createGroup("Operations", opsType);
 
-        User alice = createUser("alice", "alice@caseflow.dev", "Alice Admin",   "ADMIN",  "admin123");
-        User bob   = createUser("bob",   "bob@caseflow.dev",   "Bob Agent",    "AGENT",  "agent123");
-        User carol = createUser("carol", "carol@caseflow.dev", "Carol Viewer", "VIEWER", "viewer123");
+        Role adminRole  = roleRepository.findByCode("ADMIN").orElseThrow();
+        Role agentRole  = roleRepository.findByCode("AGENT").orElseThrow();
+        Role viewerRole = roleRepository.findByCode("VIEWER").orElseThrow();
+
+        User alice = createUser("alice", "alice@caseflow.dev", "Alice Admin",   adminRole,  "admin123");
+        User bob   = createUser("bob",   "bob@caseflow.dev",   "Bob Agent",    agentRole,  "agent123");
+        User carol = createUser("carol", "carol@caseflow.dev", "Carol Viewer", viewerRole, "viewer123");
 
         alice.getGroups().add(support);
         alice.getGroups().add(ops);
@@ -158,7 +167,7 @@ public class DevDataLoader implements ApplicationRunner {
         return groupRepository.save(g);
     }
 
-    private User createUser(String username, String email, String fullName, String role, String password) {
+    private User createUser(String username, String email, String fullName, Role role, String password) {
         User u = new User();
         u.setUsername(username);
         u.setEmail(email);

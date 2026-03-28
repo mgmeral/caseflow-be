@@ -3,7 +3,6 @@ package com.caseflow.identity.api.dto;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 import java.util.List;
@@ -20,8 +19,7 @@ public record UpdateUserRequest(
         String fullName,
 
         @NotNull
-        @Pattern(regexp = "ADMIN|AGENT|VIEWER", message = "role must be ADMIN, AGENT, or VIEWER")
-        String role,
+        Long roleId,
 
         @NotNull
         Boolean isActive,
