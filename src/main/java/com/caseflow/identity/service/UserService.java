@@ -110,22 +110,23 @@ public class UserService {
 
     @Transactional(readOnly = true)
     public User getById(Long userId) {
-        return findOrThrow(userId);
+        return userRepository.findByIdWithRole(userId)
+                .orElseThrow(() -> new UserNotFoundException(userId));
     }
 
     @Transactional(readOnly = true)
     public Optional<User> findByUsername(String username) {
-        return userRepository.findByUsername(username);
+        return userRepository.findByUsernameWithRoleAndGroups(username);
     }
 
     @Transactional(readOnly = true)
     public Optional<User> findByEmail(String email) {
-        return userRepository.findByEmail(email);
+        return userRepository.findByEmailWithRoleAndGroups(email);
     }
 
     @Transactional(readOnly = true)
     public List<User> findAll() {
-        return userRepository.findAll();
+        return userRepository.findAllWithRole();
     }
 
     // ── Private ───────────────────────────────────────────────────────────────
