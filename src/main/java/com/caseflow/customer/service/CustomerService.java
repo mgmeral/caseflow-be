@@ -3,6 +3,8 @@ package com.caseflow.customer.service;
 import com.caseflow.common.exception.CustomerNotFoundException;
 import com.caseflow.customer.domain.Customer;
 import com.caseflow.customer.repository.CustomerRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -10,6 +12,8 @@ import java.util.List;
 
 @Service
 public class CustomerService {
+
+    private static final Logger log = LoggerFactory.getLogger(CustomerService.class);
 
     private final CustomerRepository customerRepository;
 
@@ -19,33 +23,43 @@ public class CustomerService {
 
     @Transactional
     public Customer createCustomer(String name, String code) {
+        log.info("Creating customer — name: '{}', code: '{}'", name, code);
         Customer customer = new Customer();
         customer.setName(name);
         customer.setCode(code);
         customer.setIsActive(true);
-        return customerRepository.save(customer);
+        Customer saved = customerRepository.save(customer);
+        log.info("Customer created — customerId: {}", saved.getId());
+        return saved;
     }
 
     @Transactional
     public Customer updateCustomer(Long customerId, String name, String code) {
+        log.info("Updating customer {} — name: '{}', code: '{}'", customerId, name, code);
         Customer customer = findOrThrow(customerId);
         customer.setName(name);
         customer.setCode(code);
-        return customerRepository.save(customer);
+        Customer saved = customerRepository.save(customer);
+        log.info("Customer {} updated", customerId);
+        return saved;
     }
 
     @Transactional
     public void activate(Long customerId) {
+        log.info("Activating customer {}", customerId);
         Customer customer = findOrThrow(customerId);
         customer.setIsActive(true);
         customerRepository.save(customer);
+        log.info("Customer {} activated", customerId);
     }
 
     @Transactional
     public void deactivate(Long customerId) {
+        log.info("Deactivating customer {}", customerId);
         Customer customer = findOrThrow(customerId);
         customer.setIsActive(false);
         customerRepository.save(customer);
+        log.info("Customer {} deactivated", customerId);
     }
 
     @Transactional(readOnly = true)

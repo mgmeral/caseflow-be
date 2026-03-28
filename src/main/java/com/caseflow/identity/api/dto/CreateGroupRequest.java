@@ -1,9 +1,10 @@
 package com.caseflow.identity.api.dto;
 
-import com.caseflow.identity.domain.GroupType;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
+
+import java.util.List;
 
 public record CreateGroupRequest(
 
@@ -12,5 +13,10 @@ public record CreateGroupRequest(
         String name,
 
         @NotNull
-        GroupType type
+        Long groupTypeId,
+
+        @Size(max = 1000)
+        String description,
+
+        List<Long> userIds
 ) {}

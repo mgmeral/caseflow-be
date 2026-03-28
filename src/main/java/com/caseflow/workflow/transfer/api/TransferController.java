@@ -9,6 +9,8 @@ import com.caseflow.workflow.transfer.mapper.TransferMapper;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -26,6 +28,8 @@ import java.util.List;
 @RequestMapping("/api/transfers")
 public class TransferController {
 
+    private static final Logger log = LoggerFactory.getLogger(TransferController.class);
+
     private final TransferService transferService;
     private final TransferMapper transferMapper;
 
@@ -37,12 +41,14 @@ public class TransferController {
     @PostMapping
     public ResponseEntity<TransferResponse> transfer(@Valid @RequestBody TransferTicketRequest request) {
         Long userId = SecurityContextHelper.requireCurrentUserId();
-        return ResponseEntity.status(HttpStatus.CREATED).body(
-                transferMapper.toResponse(
-                        transferService.transfer(
-                                request.ticketId(), request.fromGroupId(), request.toGroupId(),
-                                userId, request.reason(), request.clearAssignee()))
-        );
+        log.info("POST /transfers — ticketId: {}, fromGroupId: {}, toGroupId: {}, clearAssignee: {}, by: {}",
+                request.ticketId(), request.fromGroupId(), request.toGroupId(), request.clearAssignee(), userId);
+        TransferResponse response = transferMapper.toResponse(
+                transferService.transfer(
+                        request.ticketId(), request.fromGroupId(), request.toGroupId(),
+                        userId, request.reason(), request.clearAssignee()));
+        log.info("POST /transfers succeeded — ticketId: {}", request.ticketId());
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     @GetMapping("/by-ticket/{ticketId}")

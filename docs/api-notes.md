@@ -15,19 +15,28 @@ OpenAPI JSON: `http://localhost:8080/v3/api-docs`
 
 ## Authentication
 
-CaseFlow uses **HTTP Basic Authentication**.
+CaseFlow uses **JWT Bearer authentication**.
 
-### Dev credentials
+1. Call `POST /api/auth/login` with username + password → receive `accessToken` and `refreshToken`.
+2. Include `Authorization: Bearer <accessToken>` on every subsequent request.
+3. When the access token expires (1 hour), call `POST /api/auth/refresh` with the refresh token to receive a rotated token pair.
+4. Call `POST /api/auth/logout` to revoke the refresh token on sign-out.
 
-| Username | Password  | Role   | Permissions                          |
-|----------|-----------|--------|--------------------------------------|
-| admin    | admin123  | ADMIN  | Full access including DELETE         |
-| agent    | agent123  | AGENT  | Read + operational mutations (POST/PUT/PATCH) |
-| viewer   | viewer123 | VIEWER | Read-only (GET)                      |
+### Dev credentials (dev profile)
 
-Pass credentials as `Authorization: Basic <base64(username:password)>`.
+| Username | Password   | Role   | Permissions                                   |
+|----------|------------|--------|-----------------------------------------------|
+| alice    | admin123   | ADMIN  | Full access including DELETE                  |
+| bob      | agent123   | AGENT  | Read + operational mutations (POST/PUT/PATCH) |
+| carol    | viewer123  | VIEWER | Read-only (GET)                               |
 
-**Important:** Replace in-memory users with a proper UserDetailsService backed by the `users` table before deploying to production.
+### Role permission map
+
+| Role   | Allowed methods            |
+|--------|----------------------------|
+| ADMIN  | GET · POST · PUT · PATCH · DELETE |
+| AGENT  | GET · POST · PUT · PATCH   |
+| VIEWER | GET only                   |
 
 ---
 
@@ -95,6 +104,15 @@ All errors return this consistent JSON structure:
 
 ## Endpoints Overview
 
+### Auth — `/api/auth`
+
+| Method | Path                  | Role        | Description                                |
+|--------|-----------------------|-------------|--------------------------------------------|
+| POST   | /api/auth/login       | Public      | Authenticate; returns token pair           |
+| POST   | /api/auth/refresh     | Public      | Rotate token pair using refresh token      |
+| POST   | /api/auth/logout      | Public      | Revoke refresh token                       |
+| GET    | /api/auth/me          | Any auth    | Return current user info                   |
+
 ### Tickets — `/api/tickets`
 
 | Method | Path                          | Role   | Description                       |
@@ -108,7 +126,7 @@ All errors return this consistent JSON structure:
 | POST   | /api/tickets/{id}/close       | AGENT  | Close a ticket                    |
 | POST   | /api/tickets/{id}/reopen      | AGENT  | Reopen a closed ticket            |
 
-**Filter params for GET /api/tickets:** `status`, `userId`, `groupId`, `customerId`
+**Filter params for GET /api/tickets:** `status`, `priority`, `userId`, `groupId`, `customerId`, `search`, `from`, `to`, `page` (default 0), `size` (default 20, max 100), `sort` (default `createdAt`), `direction` (`asc`/`desc`, default `desc`)
 
 ### Customers — `/api/customers`
 
@@ -147,13 +165,15 @@ All errors return this consistent JSON structure:
 
 ### Groups — `/api/groups`
 
-| Method | Path                     | Role  | Description       |
-|--------|--------------------------|-------|-------------------|
-| GET    | /api/groups              | VIEWER| List active groups|
-| GET    | /api/groups/{id}         | VIEWER| Get group by ID   |
-| GET    | /api/groups/by-type      | VIEWER| Filter by type    |
-| POST   | /api/groups              | ADMIN | Create group      |
-| PUT    | /api/groups/{id}         | ADMIN | Update group      |
+| Method | Path                           | Role  | Description        |
+|--------|--------------------------------|-------|--------------------|
+| GET    | /api/groups                    | VIEWER| List active groups |
+| GET    | /api/groups/{id}               | VIEWER| Get group by ID    |
+| GET    | /api/groups/by-type            | VIEWER| Filter by type     |
+| POST   | /api/groups                    | ADMIN | Create group       |
+| PUT    | /api/groups/{id}               | ADMIN | Update group       |
+| PATCH  | /api/groups/{id}/activate      | ADMIN | Activate group     |
+| PATCH  | /api/groups/{id}/deactivate    | ADMIN | Deactivate group   |
 
 ### Notes — `/api/notes`
 
@@ -181,11 +201,22 @@ All errors return this consistent JSON structure:
 
 ### Emails — `/api/emails`
 
-| Method | Path                         | Role  | Description                    |
-|--------|------------------------------|-------|--------------------------------|
-| GET    | /api/emails/{id}             | VIEWER| Get email document by ID       |
-| GET    | /api/emails/by-ticket/{id}   | VIEWER| Get emails linked to ticket    |
-| GET    | /api/emails/by-thread/{key}  | VIEWER| Get emails by thread key       |
+| Method | Path                         | Role  | Description                                     |
+|--------|------------------------------|-------|-------------------------------------------------|
+| POST   | /api/emails/ingest           | AGENT | Ingest an email (idempotent on messageId → 409) |
+| GET    | /api/emails/{id}             | VIEWER| Get email document by ID                        |
+| GET    | /api/emails/by-ticket/{id}   | VIEWER| Get emails linked to ticket                     |
+| GET    | /api/emails/by-thread/{key}  | VIEWER| Get emails by thread key                        |
+
+### Attachments — `/api/attachments`
+
+| Method | Path                              | Role  | Description                              |
+|--------|-----------------------------------|-------|------------------------------------------|
+| POST   | /api/attachments/upload           | AGENT | Upload file (multipart, max 25 MB)       |
+| GET    | /api/attachments/{id}             | VIEWER| Get attachment metadata                  |
+| GET    | /api/attachments/by-ticket/{id}   | VIEWER| List attachments for a ticket            |
+| GET    | /api/attachments/{id}/download    | VIEWER| Download attachment binary               |
+| DELETE | /api/attachments/{id}             | ADMIN | Delete attachment                        |
 
 ---
 
@@ -218,9 +249,10 @@ Seeded: 3 groups · 3 users · 2 customers · 3 contacts · 3 tickets · 2 notes
 
 ## Storage
 
-Attachments are stored locally under `./storage-data` by default.
-Configure with `caseflow.storage.root-path`.
+Attachments are stored locally under `./storage-data` by default (MinIO in Docker Compose).
+Configure the storage root with `caseflow.storage.root-path`.
 
 Upload/download flow:
-- Upload: `POST /api/tickets/{id}/attachments` (not yet wired — service layer ready)
-- Download: retrieve via `AttachmentService.download(objectKey)`
+- Upload: `POST /api/attachments/upload` — multipart `file` field, max 25 MB, returns `AttachmentMetadataResponse`
+- Download: `GET /api/attachments/{id}/download` — streams binary with original `Content-Type`
+- Object key pattern: `tickets/{ticketId}/{uuid}_{sanitizedName}`

@@ -8,6 +8,8 @@ import com.caseflow.customer.api.mapper.ContactMapper;
 import com.caseflow.customer.service.ContactService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -26,6 +28,8 @@ import java.util.List;
 @RequestMapping("/api/contacts")
 public class ContactController {
 
+    private static final Logger log = LoggerFactory.getLogger(ContactController.class);
+
     private final ContactService contactService;
     private final ContactMapper contactMapper;
 
@@ -36,18 +40,20 @@ public class ContactController {
 
     @PostMapping
     public ResponseEntity<ContactResponse> createContact(@Valid @RequestBody CreateContactRequest request) {
-        return ResponseEntity.status(HttpStatus.CREATED).body(
-                contactMapper.toResponse(contactService.createContact(
-                        request.customerId(),
-                        request.email(),
-                        request.name(),
-                        request.isPrimary()
-                ))
-        );
+        log.info("POST /contacts — customerId: {}, isPrimary: {}", request.customerId(), request.isPrimary());
+        ContactResponse response = contactMapper.toResponse(contactService.createContact(
+                request.customerId(),
+                request.email(),
+                request.name(),
+                request.isPrimary()
+        ));
+        log.info("POST /contacts succeeded — contactId: {}", response.id());
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     @GetMapping("/{id}")
     public ResponseEntity<ContactResponse> getById(@PathVariable Long id) {
+        log.info("GET /contacts/{}", id);
         return ResponseEntity.ok(contactMapper.toResponse(contactService.getById(id)));
     }
 
@@ -77,10 +83,10 @@ public class ContactController {
     @PutMapping("/{id}")
     public ResponseEntity<ContactResponse> updateContact(@PathVariable Long id,
                                                          @Valid @RequestBody UpdateContactRequest request) {
-        return ResponseEntity.ok(
-                contactMapper.toResponse(
-                        contactService.updateContact(id, request.name(), request.isPrimary(), request.isActive())
-                )
-        );
+        log.info("PUT /contacts/{} — isPrimary: {}, isActive: {}", id, request.isPrimary(), request.isActive());
+        ContactResponse response = contactMapper.toResponse(
+                contactService.updateContact(id, request.name(), request.isPrimary(), request.isActive()));
+        log.info("PUT /contacts/{} succeeded", id);
+        return ResponseEntity.ok(response);
     }
 }

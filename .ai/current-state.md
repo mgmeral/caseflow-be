@@ -132,9 +132,12 @@
   - NoteControllerTest — 6 tests (add 201/400, getById 200/404, getByTicket 200/401)
 
 ### FE Integration
-- `docs/api-notes.md` — endpoint reference, auth, error shapes, enum values, CORS, seed data
+- `docs/frontend-contract.md` — compact frontend contract (auth flow, all endpoints, shapes, enums)
+- `docs/api-endpoints.md` — full per-endpoint request/response examples
+- `docs/api-models.ts` — TypeScript types matching backend Java records
+- `docs/api-notes.md` — endpoint overview, error shapes, enum values, CORS, seed data (JWT auth)
 - Consistent JSON error responses with FE-friendly field violation structure
-- CORS pre-configured for common FE dev server ports
+- CORS pre-configured for localhost:3000 and localhost:5173
 - Enum serialization uses string names by default (Spring Boot default)
 
 ---

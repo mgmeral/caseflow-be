@@ -2,6 +2,8 @@ package com.caseflow.workflow.state;
 
 import com.caseflow.common.exception.InvalidTicketStateException;
 import com.caseflow.ticket.domain.TicketStatus;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.EnumMap;
@@ -11,6 +13,8 @@ import java.util.Set;
 
 @Service
 public class TicketStateMachineService {
+
+    private static final Logger log = LoggerFactory.getLogger(TicketStateMachineService.class);
 
     private static final Map<TicketStatus, Set<TicketStatus>> VALID_TRANSITIONS = new EnumMap<>(TicketStatus.class);
 
@@ -31,6 +35,7 @@ public class TicketStateMachineService {
 
     public void validateTransition(TicketStatus from, TicketStatus to) {
         if (!canTransition(from, to)) {
+            log.warn("Invalid ticket state transition: {} -> {}", from, to);
             throw new InvalidTicketStateException(from, to);
         }
     }

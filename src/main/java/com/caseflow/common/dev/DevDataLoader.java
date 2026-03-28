@@ -10,6 +10,7 @@ import com.caseflow.identity.domain.Group;
 import com.caseflow.identity.domain.GroupType;
 import com.caseflow.identity.domain.User;
 import com.caseflow.identity.repository.GroupRepository;
+import com.caseflow.identity.repository.GroupTypeRepository;
 import com.caseflow.identity.repository.UserRepository;
 import com.caseflow.note.domain.Note;
 import com.caseflow.note.domain.NoteType;
@@ -46,6 +47,7 @@ public class DevDataLoader implements ApplicationRunner {
     private static final Logger log = LoggerFactory.getLogger(DevDataLoader.class);
 
     private final GroupRepository groupRepository;
+    private final GroupTypeRepository groupTypeRepository;
     private final UserRepository userRepository;
     private final CustomerRepository customerRepository;
     private final ContactRepository contactRepository;
@@ -56,6 +58,7 @@ public class DevDataLoader implements ApplicationRunner {
     private final PasswordEncoder passwordEncoder;
 
     public DevDataLoader(GroupRepository groupRepository,
+                         GroupTypeRepository groupTypeRepository,
                          UserRepository userRepository,
                          CustomerRepository customerRepository,
                          ContactRepository contactRepository,
@@ -65,6 +68,7 @@ public class DevDataLoader implements ApplicationRunner {
                          EmailDocumentRepository emailDocumentRepository,
                          PasswordEncoder passwordEncoder) {
         this.groupRepository = groupRepository;
+        this.groupTypeRepository = groupTypeRepository;
         this.userRepository = userRepository;
         this.customerRepository = customerRepository;
         this.contactRepository = contactRepository;
@@ -85,8 +89,11 @@ public class DevDataLoader implements ApplicationRunner {
 
         log.info("[Dev] Loading seed data...");
 
-        Group support = createGroup("Support", GroupType.SUPPORT);
-        Group ops     = createGroup("Operations", GroupType.OPERATIONS);
+        GroupType supportType = createGroupType("SUPPORT", "Support", "Handles support tickets");
+        GroupType opsType     = createGroupType("OPERATIONS", "Operations", "Operations team");
+
+        Group support = createGroup("Support", supportType);
+        Group ops     = createGroup("Operations", opsType);
 
         User alice = createUser("alice", "alice@caseflow.dev", "Alice Admin",   "ADMIN",  "admin123");
         User bob   = createUser("bob",   "bob@caseflow.dev",   "Bob Agent",    "AGENT",  "agent123");
@@ -131,13 +138,22 @@ public class DevDataLoader implements ApplicationRunner {
 
         createSampleEmail(t1.getId());
 
-        log.info("[Dev] Seed data loaded: 2 groups, 3 users, 2 customers, 3 contacts, 3 tickets, 2 notes.");
+        log.info("[Dev] Seed data loaded: 2 group types, 2 groups, 3 users, 2 customers, 3 contacts, 3 tickets, 2 notes.");
     }
 
-    private Group createGroup(String name, GroupType type) {
+    private GroupType createGroupType(String code, String name, String description) {
+        GroupType gt = new GroupType();
+        gt.setCode(code);
+        gt.setName(name);
+        gt.setDescription(description);
+        gt.setIsActive(true);
+        return groupTypeRepository.save(gt);
+    }
+
+    private Group createGroup(String name, GroupType groupType) {
         Group g = new Group();
         g.setName(name);
-        g.setType(type);
+        g.setGroupType(groupType);
         g.setIsActive(true);
         return groupRepository.save(g);
     }

@@ -13,8 +13,11 @@ public record TicketResponse(
         TicketStatus status,
         TicketPriority priority,
         Long customerId,
+        String customerName,
         Long assignedUserId,
+        String assignedUserName,
         Long assignedGroupId,
+        String assignedGroupName,
         Instant createdAt,
         Instant updatedAt,
         Instant closedAt

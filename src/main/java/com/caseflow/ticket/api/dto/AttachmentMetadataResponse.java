@@ -8,6 +8,7 @@ public record AttachmentMetadataResponse(
         String emailId,
         String fileName,
         String objectKey,
+        String downloadPath,
         String contentType,
         Long size,
         Instant uploadedAt

@@ -5,6 +5,7 @@ import java.time.Instant;
 public record EmailDocumentSummaryResponse(
         String id,
         String messageId,
+        String threadKey,
         String subject,
         String from,
         Instant receivedAt,

@@ -10,6 +10,8 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -23,6 +25,8 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/auth")
 public class AuthController {
 
+    private static final Logger log = LoggerFactory.getLogger(AuthController.class);
+
     private final AuthService authService;
 
     public AuthController(AuthService authService) {
@@ -32,21 +36,27 @@ public class AuthController {
     @Operation(summary = "Login with username and password")
     @PostMapping("/login")
     public ResponseEntity<TokenResponse> login(@Valid @RequestBody LoginRequest request) {
+        log.info("POST /auth/login — username: {}", request.username());
         AuthService.TokenPair pair = authService.login(request.username(), request.password());
+        log.info("POST /auth/login succeeded — username: {}", request.username());
         return ResponseEntity.ok(TokenResponse.of(pair.accessToken(), pair.refreshToken(), pair.expiresIn()));
     }
 
     @Operation(summary = "Refresh access token using a valid refresh token")
     @PostMapping("/refresh")
     public ResponseEntity<TokenResponse> refresh(@Valid @RequestBody RefreshTokenRequest request) {
+        log.info("POST /auth/refresh");
         AuthService.TokenPair pair = authService.refresh(request.refreshToken());
+        log.info("POST /auth/refresh succeeded");
         return ResponseEntity.ok(TokenResponse.of(pair.accessToken(), pair.refreshToken(), pair.expiresIn()));
     }
 
     @Operation(summary = "Logout — revokes the provided refresh token")
     @PostMapping("/logout")
     public ResponseEntity<Void> logout(@Valid @RequestBody RefreshTokenRequest request) {
+        log.info("POST /auth/logout");
         authService.logout(request.refreshToken());
+        log.info("POST /auth/logout succeeded");
         return ResponseEntity.noContent().build();
     }
 
@@ -54,6 +64,7 @@ public class AuthController {
     @SecurityRequirement(name = "bearerAuth")
     @GetMapping("/me")
     public ResponseEntity<MeResponse> me(@AuthenticationPrincipal Long userId) {
+        log.info("GET /auth/me — userId: {}", userId);
         User user = authService.getAuthenticatedUser(userId);
         return ResponseEntity.ok(new MeResponse(
                 user.getId(), user.getUsername(), user.getEmail(), user.getFullName(), user.getRole()));

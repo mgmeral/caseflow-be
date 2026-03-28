@@ -4,6 +4,8 @@ import com.caseflow.common.exception.AttachmentNotFoundException;
 import com.caseflow.storage.ObjectStorageService;
 import com.caseflow.ticket.domain.AttachmentMetadata;
 import com.caseflow.ticket.repository.AttachmentMetadataRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -13,6 +15,8 @@ import java.util.Optional;
 
 @Service
 public class AttachmentService {
+
+    private static final Logger log = LoggerFactory.getLogger(AttachmentService.class);
 
     private final AttachmentMetadataRepository attachmentMetadataRepository;
     private final ObjectStorageService objectStorageService;
@@ -63,8 +67,11 @@ public class AttachmentService {
     @Transactional
     public AttachmentMetadata upload(Long ticketId, String emailId, String fileName,
                                      String objectKey, String contentType, byte[] data) {
+        log.info("Storing attachment — objectKey: '{}', ticketId: {}, size: {} bytes", objectKey, ticketId, data.length);
         objectStorageService.store(objectKey, data, contentType);
-        return saveMetadata(ticketId, emailId, fileName, objectKey, contentType, (long) data.length);
+        AttachmentMetadata saved = saveMetadata(ticketId, emailId, fileName, objectKey, contentType, (long) data.length);
+        log.info("Attachment stored — attachmentId: {}, objectKey: '{}'", saved.getId(), objectKey);
+        return saved;
     }
 
     @Transactional(readOnly = true)
@@ -85,7 +92,9 @@ public class AttachmentService {
     @Transactional
     public void delete(Long id) {
         AttachmentMetadata metadata = getById(id);
+        log.info("Deleting attachment — attachmentId: {}, objectKey: '{}'", id, metadata.getObjectKey());
         objectStorageService.delete(metadata.getObjectKey());
         attachmentMetadataRepository.delete(metadata);
+        log.info("Attachment {} deleted", id);
     }
 }

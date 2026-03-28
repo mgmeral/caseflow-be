@@ -6,6 +6,7 @@ import com.caseflow.common.exception.AttachmentNotFoundException;
 import com.caseflow.common.exception.ContactNotFoundException;
 import com.caseflow.common.exception.CustomerNotFoundException;
 import com.caseflow.common.exception.GroupNotFoundException;
+import com.caseflow.common.exception.GroupTypeNotFoundException;
 import com.caseflow.common.exception.InvalidTicketStateException;
 import com.caseflow.common.exception.NoteNotFoundException;
 import com.caseflow.common.exception.TicketNotFoundException;
@@ -41,6 +42,7 @@ public class GlobalExceptionHandler {
             ContactNotFoundException.class,
             UserNotFoundException.class,
             GroupNotFoundException.class,
+            GroupTypeNotFoundException.class,
             NoteNotFoundException.class,
             AttachmentNotFoundException.class
     })

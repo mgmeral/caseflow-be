@@ -3,18 +3,13 @@ package com.caseflow.ticket.api;
 import com.caseflow.auth.JwtTokenService;
 import com.caseflow.common.exception.TicketNotFoundException;
 import com.caseflow.common.security.SecurityConfig;
-import com.caseflow.storage.service.AttachmentService;
 import com.caseflow.ticket.api.dto.CreateTicketRequest;
 import com.caseflow.ticket.api.dto.TicketResponse;
 import com.caseflow.ticket.api.dto.TicketSummaryResponse;
-import com.caseflow.ticket.api.mapper.AttachmentMetadataMapper;
-import com.caseflow.ticket.api.mapper.HistoryMapper;
-import com.caseflow.ticket.api.mapper.TicketMapper;
 import com.caseflow.ticket.domain.Ticket;
 import com.caseflow.ticket.domain.TicketPriority;
 import com.caseflow.ticket.domain.TicketStatus;
-import com.caseflow.ticket.repository.HistoryRepository;
-import com.caseflow.ticket.service.TicketQueryService;
+import com.caseflow.ticket.service.TicketReadService;
 import com.caseflow.ticket.service.TicketService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -57,33 +52,16 @@ class TicketControllerTest {
     private TicketService ticketService;
 
     @MockBean
-    private TicketQueryService ticketQueryService;
-
-    @MockBean
-    private TicketMapper ticketMapper;
-
-    @MockBean
-    private AttachmentMetadataMapper attachmentMetadataMapper;
-
-    @MockBean
-    private AttachmentService attachmentService;
-
-    @MockBean
-    private HistoryMapper historyMapper;
-
-    @MockBean
-    private HistoryRepository historyRepository;
+    private TicketReadService ticketReadService;
 
     // ── GET /api/tickets/{id} ─────────────────────────────────────────────────
 
     @Test
     @WithMockUser(roles = "VIEWER")
     void getById_returns200_withTicketResponse() throws Exception {
-        Ticket ticket = makeTicket(1L, "TKT-001");
         TicketResponse response = makeTicketResponse(1L, "TKT-001");
 
-        when(ticketQueryService.getById(1L)).thenReturn(ticket);
-        when(ticketMapper.toResponse(ticket)).thenReturn(response);
+        when(ticketReadService.getResponse(1L)).thenReturn(response);
 
         mockMvc.perform(get("/api/tickets/1"))
                 .andExpect(status().isOk())
@@ -95,7 +73,7 @@ class TicketControllerTest {
     @Test
     @WithMockUser(roles = "VIEWER")
     void getById_returns404_whenTicketNotFound() throws Exception {
-        when(ticketQueryService.getById(999L)).thenThrow(new TicketNotFoundException(999L));
+        when(ticketReadService.getResponse(999L)).thenThrow(new TicketNotFoundException(999L));
 
         mockMvc.perform(get("/api/tickets/999"))
                 .andExpect(status().isNotFound())
@@ -114,12 +92,10 @@ class TicketControllerTest {
     @Test
     @WithMockUser(roles = "VIEWER")
     void listTickets_returns200_withPagedResponse() throws Exception {
-        Ticket t = makeTicket(1L, "TKT-001");
         TicketSummaryResponse summary = makeTicketSummary(1L, "TKT-001");
 
-        when(ticketQueryService.search(any(), any(), any(), any(), any(), any(), any(), any(), any(Pageable.class)))
-                .thenReturn(new PageImpl<>(List.of(t)));
-        when(ticketMapper.toSummaryResponse(t)).thenReturn(summary);
+        when(ticketReadService.search(any(), any(), any(), any(), any(), any(), any(), any(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(summary)));
 
         mockMvc.perform(get("/api/tickets"))
                 .andExpect(status().isOk())
@@ -132,7 +108,6 @@ class TicketControllerTest {
     @Test
     @WithMockUser(roles = "AGENT")
     void createTicket_returns201_withValidRequest() throws Exception {
-        // createdBy is no longer in request body — resolved from SecurityContext
         CreateTicketRequest request = new CreateTicketRequest(
                 "Login broken", "description", TicketPriority.HIGH, 1L
         );
@@ -140,7 +115,7 @@ class TicketControllerTest {
         TicketResponse response = makeTicketResponse(1L, "TKT-NEW");
 
         when(ticketService.createTicket(any(), any(), any(), anyLong(), anyLong())).thenReturn(ticket);
-        when(ticketMapper.toResponse(ticket)).thenReturn(response);
+        when(ticketReadService.getResponse(1L)).thenReturn(response);
 
         mockMvc.perform(post("/api/tickets")
                         .with(csrf())
@@ -200,12 +175,15 @@ class TicketControllerTest {
 
     private TicketResponse makeTicketResponse(Long id, String ticketNo) {
         return new TicketResponse(id, ticketNo, "Test", null,
-                TicketStatus.NEW, TicketPriority.MEDIUM, null, null, null,
+                TicketStatus.NEW, TicketPriority.MEDIUM,
+                null, null, null, null, null, null,
                 Instant.now(), Instant.now(), null);
     }
 
     private TicketSummaryResponse makeTicketSummary(Long id, String ticketNo) {
         return new TicketSummaryResponse(id, ticketNo, "Test",
-                TicketStatus.NEW, TicketPriority.MEDIUM, null, null, Instant.now());
+                TicketStatus.NEW, TicketPriority.MEDIUM,
+                null, null, null, null, null, null,
+                Instant.now(), Instant.now());
     }
 }

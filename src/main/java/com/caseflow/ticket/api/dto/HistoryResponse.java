@@ -7,6 +7,7 @@ public record HistoryResponse(
         Long ticketId,
         String actionType,
         Long performedBy,
+        String performedByName,
         Instant performedAt,
         String details
 ) {}

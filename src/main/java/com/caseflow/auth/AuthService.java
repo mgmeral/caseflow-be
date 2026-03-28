@@ -2,6 +2,8 @@ package com.caseflow.auth;
 
 import com.caseflow.identity.domain.User;
 import com.caseflow.identity.repository.UserRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -16,6 +18,8 @@ import java.util.UUID;
 
 @Service
 public class AuthService {
+
+    private static final Logger log = LoggerFactory.getLogger(AuthService.class);
 
     private final UserRepository userRepository;
     private final RefreshTokenRepository refreshTokenRepository;
@@ -37,17 +41,23 @@ public class AuthService {
 
     @Transactional
     public TokenPair login(String username, String password) {
+        log.info("Login attempt — username: {}", username);
         User user = userRepository.findByUsername(username)
                 .filter(u -> Boolean.TRUE.equals(u.getIsActive()))
-                .orElseThrow(() -> new BadCredentialsException("Invalid credentials"));
+                .orElseGet(() -> {
+                    log.warn("Login failed — user not found or inactive: {}", username);
+                    throw new BadCredentialsException("Invalid credentials");
+                });
 
         if (user.getPasswordHash() == null || !passwordEncoder.matches(password, user.getPasswordHash())) {
+            log.warn("Login failed — invalid password for username: {}", username);
             throw new BadCredentialsException("Invalid credentials");
         }
 
         user.setLastLoginAt(Instant.now());
         userRepository.save(user);
 
+        log.info("Login successful — username: {}, userId: {}", username, user.getId());
         return generateTokenPair(user);
     }
 
@@ -55,9 +65,13 @@ public class AuthService {
     public TokenPair refresh(String rawRefreshToken) {
         String hash = hashToken(rawRefreshToken);
         RefreshToken stored = refreshTokenRepository.findByTokenHash(hash)
-                .orElseThrow(() -> new BadCredentialsException("Invalid refresh token"));
+                .orElseGet(() -> {
+                    log.warn("Token refresh failed — refresh token not found");
+                    throw new BadCredentialsException("Invalid refresh token");
+                });
 
         if (stored.isRevoked() || stored.getExpiresAt().isBefore(Instant.now())) {
+            log.warn("Token refresh failed — token expired or revoked for userId: {}", stored.getUserId());
             throw new BadCredentialsException("Refresh token expired or revoked");
         }
 
@@ -67,6 +81,7 @@ public class AuthService {
         User user = userRepository.findById(stored.getUserId())
                 .orElseThrow(() -> new BadCredentialsException("User not found"));
 
+        log.info("Token refresh successful — userId: {}", user.getId());
         return generateTokenPair(user);
     }
 
@@ -76,6 +91,7 @@ public class AuthService {
         refreshTokenRepository.findByTokenHash(hash).ifPresent(rt -> {
             rt.setRevoked(true);
             refreshTokenRepository.save(rt);
+            log.info("Logout — refresh token revoked for userId: {}", rt.getUserId());
         });
     }
 

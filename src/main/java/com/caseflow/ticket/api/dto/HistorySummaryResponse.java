@@ -6,5 +6,6 @@ public record HistorySummaryResponse(
         Long id,
         String actionType,
         Long performedBy,
+        String performedByName,
         Instant performedAt
 ) {}

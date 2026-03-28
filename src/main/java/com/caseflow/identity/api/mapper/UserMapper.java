@@ -1,15 +1,11 @@
 package com.caseflow.identity.api.mapper;
 
-import com.caseflow.identity.api.dto.CreateUserRequest;
-import com.caseflow.identity.api.dto.UpdateUserRequest;
 import com.caseflow.identity.api.dto.UserResponse;
 import com.caseflow.identity.api.dto.UserSummaryResponse;
+import com.caseflow.identity.domain.Group;
 import com.caseflow.identity.domain.User;
-import org.mapstruct.BeanMapping;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
-import org.mapstruct.MappingTarget;
-import org.mapstruct.NullValuePropertyMappingStrategy;
 import org.mapstruct.ReportingPolicy;
 
 @Mapper(
@@ -19,35 +15,11 @@ import org.mapstruct.ReportingPolicy;
 )
 public interface UserMapper {
 
-    // ── Entity → Response ─────────────────────────────────────────────────────
-
+    @Mapping(target = "groupIds",
+             expression = "java(user.getGroups().stream().map(com.caseflow.identity.domain.Group::getId).toList())")
+    @Mapping(target = "groupNames",
+             expression = "java(user.getGroups().stream().map(com.caseflow.identity.domain.Group::getName).toList())")
     UserResponse toResponse(User user);
 
     UserSummaryResponse toSummaryResponse(User user);
-
-    // ── Request → Entity ──────────────────────────────────────────────────────
-
-    /**
-     * isActive is set to true by the service on creation.
-     * lastLoginAt is managed by authentication infrastructure.
-     */
-    @Mapping(target = "isActive", ignore = true)
-    @Mapping(target = "lastLoginAt", ignore = true)
-    @Mapping(target = "groups", ignore = true)
-    @Mapping(target = "passwordHash", ignore = true)
-    @Mapping(target = "role", ignore = true)
-    User toEntity(CreateUserRequest request);
-
-    /**
-     * Only email and fullName are updatable via this request.
-     * username, isActive, and lastLoginAt are service-managed.
-     */
-    @BeanMapping(nullValuePropertyMappingStrategy = NullValuePropertyMappingStrategy.IGNORE)
-    @Mapping(target = "username", ignore = true)
-    @Mapping(target = "isActive", ignore = true)
-    @Mapping(target = "lastLoginAt", ignore = true)
-    @Mapping(target = "groups", ignore = true)
-    @Mapping(target = "passwordHash", ignore = true)
-    @Mapping(target = "role", ignore = true)
-    void updateEntity(UpdateUserRequest request, @MappingTarget User user);
 }

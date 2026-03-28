@@ -8,6 +8,8 @@ import com.caseflow.identity.api.mapper.UserMapper;
 import com.caseflow.identity.service.UserService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -27,6 +29,8 @@ import java.util.List;
 @RequestMapping("/api/users")
 public class UserController {
 
+    private static final Logger log = LoggerFactory.getLogger(UserController.class);
+
     private final UserService userService;
     private final UserMapper userMapper;
 
@@ -37,13 +41,15 @@ public class UserController {
 
     @PostMapping
     public ResponseEntity<UserResponse> createUser(@Valid @RequestBody CreateUserRequest request) {
-        return ResponseEntity.status(HttpStatus.CREATED).body(
-                userMapper.toResponse(userService.createUser(request.username(), request.email(), request.fullName()))
-        );
+        log.info("POST /users — username: '{}'", request.username());
+        UserResponse response = userMapper.toResponse(userService.createUser(request));
+        log.info("POST /users succeeded — userId: {}, username: '{}'", response.id(), request.username());
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     @GetMapping("/{id}")
     public ResponseEntity<UserResponse> getById(@PathVariable Long id) {
+        log.info("GET /users/{}", id);
         return ResponseEntity.ok(userMapper.toResponse(userService.getById(id)));
     }
 
@@ -56,6 +62,7 @@ public class UserController {
 
     @GetMapping("/by-username")
     public ResponseEntity<UserResponse> getByUsername(@RequestParam String username) {
+        log.info("GET /users/by-username — username: '{}'", username);
         return userService.findByUsername(username)
                 .map(user -> ResponseEntity.ok(userMapper.toResponse(user)))
                 .orElse(ResponseEntity.notFound().build());
@@ -71,19 +78,22 @@ public class UserController {
     @PutMapping("/{id}")
     public ResponseEntity<UserResponse> updateUser(@PathVariable Long id,
                                                    @Valid @RequestBody UpdateUserRequest request) {
-        return ResponseEntity.ok(
-                userMapper.toResponse(userService.updateUser(id, request.email(), request.fullName()))
-        );
+        log.info("PUT /users/{}", id);
+        UserResponse response = userMapper.toResponse(userService.updateUser(id, request));
+        log.info("PUT /users/{} succeeded", id);
+        return ResponseEntity.ok(response);
     }
 
     @PatchMapping("/{id}/activate")
     public ResponseEntity<Void> activate(@PathVariable Long id) {
+        log.info("PATCH /users/{}/activate", id);
         userService.activate(id);
         return ResponseEntity.noContent().build();
     }
 
     @PatchMapping("/{id}/deactivate")
     public ResponseEntity<Void> deactivate(@PathVariable Long id) {
+        log.info("PATCH /users/{}/deactivate", id);
         userService.deactivate(id);
         return ResponseEntity.noContent().build();
     }

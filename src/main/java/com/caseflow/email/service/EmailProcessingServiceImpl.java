@@ -10,6 +10,8 @@ import com.caseflow.ticket.domain.TicketPriority;
 import com.caseflow.ticket.domain.TicketStatus;
 import com.caseflow.ticket.repository.TicketRepository;
 import com.caseflow.workflow.history.TicketHistoryService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,6 +22,8 @@ import java.util.UUID;
 
 @Service
 public class EmailProcessingServiceImpl implements EmailProcessingService {
+
+    private static final Logger log = LoggerFactory.getLogger(EmailProcessingServiceImpl.class);
 
     private final EmailDocumentRepository emailDocumentRepository;
     private final TicketRepository ticketRepository;
@@ -42,10 +46,13 @@ public class EmailProcessingServiceImpl implements EmailProcessingService {
     @Override
     @Transactional
     public EmailDocument process(ParsedEmail parsedEmail) {
+        log.info("Processing email — messageId: '{}', from: '{}'", parsedEmail.getMessageId(), parsedEmail.getFrom());
         // Idempotency — reject duplicate messageIds
         if (parsedEmail.getMessageId() != null) {
             emailDocumentRepository.findByMessageId(parsedEmail.getMessageId())
                     .ifPresent(existing -> {
+                        log.warn("Duplicate email rejected — messageId: '{}' already exists as docId: '{}'",
+                                parsedEmail.getMessageId(), existing.getId());
                         throw new DuplicateEmailException(parsedEmail.getMessageId());
                     });
         }
@@ -62,6 +69,8 @@ public class EmailProcessingServiceImpl implements EmailProcessingService {
                     "messageId=" + parsedEmail.getMessageId());
         }
 
+        log.info("Email processed — docId: '{}', ticketId: {}, threadKey: '{}'",
+                document.getId(), ticketId, document.getThreadKey());
         return document;
     }
 
@@ -104,6 +113,8 @@ public class EmailProcessingServiceImpl implements EmailProcessingService {
         if (inReplyTo != null && !inReplyTo.isBlank()) {
             Optional<EmailDocument> parent = emailDocumentRepository.findByMessageId(inReplyTo);
             if (parent.isPresent() && parent.get().getTicketId() != null) {
+                log.info("Email threaded to existing ticket {} via In-Reply-To: '{}'",
+                        parent.get().getTicketId(), inReplyTo);
                 return Optional.of(parent.get().getTicketId());
             }
         }
@@ -113,6 +124,7 @@ public class EmailProcessingServiceImpl implements EmailProcessingService {
             for (String ref : references) {
                 Optional<EmailDocument> refDoc = emailDocumentRepository.findByMessageId(ref);
                 if (refDoc.isPresent() && refDoc.get().getTicketId() != null) {
+                    log.info("Email threaded to existing ticket {} via References header", refDoc.get().getTicketId());
                     return Optional.of(refDoc.get().getTicketId());
                 }
             }
@@ -129,6 +141,8 @@ public class EmailProcessingServiceImpl implements EmailProcessingService {
     }
 
     private Long createTicketFromEmail(ParsedEmail parsedEmail, Long customerId) {
+        log.info("Creating new ticket from email — customerId: {}, subject: '{}'",
+                customerId, parsedEmail.getSubject());
         Ticket ticket = new Ticket();
         ticket.setTicketNo(generateTicketNo());
         ticket.setSubject(parsedEmail.getSubject() != null ? parsedEmail.getSubject() : "(no subject)");
@@ -137,6 +151,7 @@ public class EmailProcessingServiceImpl implements EmailProcessingService {
         ticket.setCustomerId(customerId);
         Ticket saved = ticketRepository.save(ticket);
         ticketHistoryService.recordCreated(saved.getId(), null);
+        log.info("New ticket {} ({}) created from email", saved.getId(), saved.getTicketNo());
         return saved.getId();
     }
 

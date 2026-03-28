@@ -13,5 +13,8 @@ public record EmailDocumentResponse(
         List<String> cc,
         Instant receivedAt,
         Instant parsedAt,
-        Long ticketId
+        Long ticketId,
+        String textBody,
+        String htmlBody,
+        List<EmailAttachmentResponse> attachments
 ) {}

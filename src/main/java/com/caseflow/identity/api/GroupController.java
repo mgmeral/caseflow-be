@@ -5,10 +5,11 @@ import com.caseflow.identity.api.dto.GroupResponse;
 import com.caseflow.identity.api.dto.GroupSummaryResponse;
 import com.caseflow.identity.api.dto.UpdateGroupRequest;
 import com.caseflow.identity.api.mapper.GroupMapper;
-import com.caseflow.identity.domain.GroupType;
 import com.caseflow.identity.service.GroupService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -18,7 +19,6 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -27,6 +27,8 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/groups")
 public class GroupController {
+
+    private static final Logger log = LoggerFactory.getLogger(GroupController.class);
 
     private final GroupService groupService;
     private final GroupMapper groupMapper;
@@ -38,19 +40,20 @@ public class GroupController {
 
     @PostMapping
     public ResponseEntity<GroupResponse> createGroup(@Valid @RequestBody CreateGroupRequest request) {
-        return ResponseEntity.status(HttpStatus.CREATED).body(
-                groupMapper.toResponse(groupService.createGroup(request.name(), request.type()))
-        );
+        log.info("POST /groups — name: '{}', groupTypeId: {}", request.name(), request.groupTypeId());
+        GroupResponse response = groupMapper.toResponse(groupService.createGroup(request));
+        log.info("POST /groups succeeded — groupId: {}", response.id());
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     @GetMapping("/{id}")
     public ResponseEntity<GroupResponse> getById(@PathVariable Long id) {
+        log.info("GET /groups/{}", id);
         return ResponseEntity.ok(groupMapper.toResponse(groupService.getById(id)));
     }
 
     /**
-     * Returns all active groups by default. For all groups of a specific type,
-     * use /by-type?type=... instead.
+     * Returns all active groups.
      */
     @GetMapping
     public ResponseEntity<List<GroupSummaryResponse>> listGroups() {
@@ -59,29 +62,25 @@ public class GroupController {
         );
     }
 
-    @GetMapping("/by-type")
-    public ResponseEntity<List<GroupSummaryResponse>> getByType(@RequestParam GroupType type) {
-        return ResponseEntity.ok(
-                groupService.findByType(type).stream().map(groupMapper::toSummaryResponse).toList()
-        );
-    }
-
     @PutMapping("/{id}")
     public ResponseEntity<GroupResponse> updateGroup(@PathVariable Long id,
                                                      @Valid @RequestBody UpdateGroupRequest request) {
-        return ResponseEntity.ok(
-                groupMapper.toResponse(groupService.updateGroup(id, request.name(), request.type()))
-        );
+        log.info("PUT /groups/{} — name: '{}', groupTypeId: {}", id, request.name(), request.groupTypeId());
+        GroupResponse response = groupMapper.toResponse(groupService.updateGroup(id, request));
+        log.info("PUT /groups/{} succeeded", id);
+        return ResponseEntity.ok(response);
     }
 
     @PatchMapping("/{id}/activate")
     public ResponseEntity<Void> activate(@PathVariable Long id) {
+        log.info("PATCH /groups/{}/activate", id);
         groupService.activate(id);
         return ResponseEntity.noContent().build();
     }
 
     @PatchMapping("/{id}/deactivate")
     public ResponseEntity<Void> deactivate(@PathVariable Long id) {
+        log.info("PATCH /groups/{}/deactivate", id);
         groupService.deactivate(id);
         return ResponseEntity.noContent().build();
     }

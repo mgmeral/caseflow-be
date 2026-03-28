@@ -18,7 +18,7 @@ curl http://localhost:8080/actuator/health
 
 Open Swagger UI: [http://localhost:8080/swagger-ui.html](http://localhost:8080/swagger-ui.html)
 
-Default credentials: `admin / admin123` · `agent / agent123` · `viewer / viewer123`
+Seed credentials (dev profile): `alice / admin123` · `bob / agent123` · `carol / viewer123`
 
 See [docs/deployment-local.md](docs/deployment-local.md) for the full guide.
 
@@ -64,4 +64,7 @@ See [docs/deployment-k8s.md](docs/deployment-k8s.md) for K8s manifests and deplo
 
 ## API Documentation
 
-See [docs/api-notes.md](docs/api-notes.md) for endpoint reference, auth model, and error shapes.
+- [docs/frontend-contract.md](docs/frontend-contract.md) — compact contract for frontend developers (auth flow, all endpoints, response shapes, enums)
+- [docs/api-endpoints.md](docs/api-endpoints.md) — full per-endpoint request/response examples
+- [docs/api-models.ts](docs/api-models.ts) — TypeScript type definitions matching backend DTOs
+- [docs/api-notes.md](docs/api-notes.md) — error codes, enum values, CORS, seed data reference

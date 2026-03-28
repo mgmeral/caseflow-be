@@ -2,12 +2,13 @@ package com.caseflow.identity.domain;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToMany;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 
@@ -26,9 +27,12 @@ public class Group {
     @Column(nullable = false, unique = true)
     private String name;
 
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
-    private GroupType type;
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "group_type_id", nullable = false)
+    private GroupType groupType;
+
+    @Column(columnDefinition = "TEXT")
+    private String description;
 
     @Column(name = "is_active", nullable = false)
     private Boolean isActive;
@@ -56,12 +60,20 @@ public class Group {
         this.name = name;
     }
 
-    public GroupType getType() {
-        return type;
+    public GroupType getGroupType() {
+        return groupType;
     }
 
-    public void setType(GroupType type) {
-        this.type = type;
+    public void setGroupType(GroupType groupType) {
+        this.groupType = groupType;
+    }
+
+    public String getDescription() {
+        return description;
+    }
+
+    public void setDescription(String description) {
+        this.description = description;
     }
 
     public Boolean getIsActive() {

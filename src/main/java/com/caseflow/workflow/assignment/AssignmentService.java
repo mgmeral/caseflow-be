@@ -7,6 +7,8 @@ import com.caseflow.ticket.repository.TicketRepository;
 import com.caseflow.workflow.domain.Assignment;
 import com.caseflow.workflow.history.TicketHistoryService;
 import com.caseflow.workflow.repository.AssignmentRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -15,6 +17,8 @@ import java.util.Optional;
 
 @Service
 public class AssignmentService {
+
+    private static final Logger log = LoggerFactory.getLogger(AssignmentService.class);
 
     // Concurrency note: findByTicketIdAndUnassignedAtIsNull followed by save is not atomic.
     // Two concurrent assign calls for the same ticket can both pass the active-assignment check.
@@ -35,7 +39,12 @@ public class AssignmentService {
 
     @Transactional
     public Assignment assign(Long ticketId, Long userId, Long groupId, Long assignedBy) {
+        if (userId == null && groupId == null) {
+            throw new IllegalArgumentException("Assignment must target at least one of: userId, groupId");
+        }
+        log.info("Assigning ticket {} — userId: {}, groupId: {}, assignedBy: {}", ticketId, userId, groupId, assignedBy);
         if (assignmentRepository.findByTicketIdAndUnassignedAtIsNull(ticketId).isPresent()) {
+            log.warn("Assign failed — active assignment already exists for ticket {}", ticketId);
             throw new ActiveAssignmentAlreadyExistsException(ticketId);
         }
 
@@ -48,11 +57,16 @@ public class AssignmentService {
         Assignment saved = assignmentRepository.save(assignment);
 
         ticketHistoryService.recordAssigned(ticketId, assignedBy, userId, groupId);
+        log.info("Ticket {} assigned — userId: {}, groupId: {}", ticketId, userId, groupId);
         return saved;
     }
 
     @Transactional
     public Assignment reassign(Long ticketId, Long newUserId, Long newGroupId, Long reassignedBy) {
+        if (newUserId == null && newGroupId == null) {
+            throw new IllegalArgumentException("Reassignment must target at least one of: newUserId, newGroupId");
+        }
+        log.info("Reassigning ticket {} — newUserId: {}, newGroupId: {}, reassignedBy: {}", ticketId, newUserId, newGroupId, reassignedBy);
         assignmentRepository.findByTicketIdAndUnassignedAtIsNull(ticketId).ifPresent(active -> {
             active.setUnassignedAt(Instant.now());
             assignmentRepository.save(active);
@@ -67,14 +81,18 @@ public class AssignmentService {
         Assignment saved = assignmentRepository.save(assignment);
 
         ticketHistoryService.recordReassigned(ticketId, reassignedBy, newUserId, newGroupId);
+        log.info("Ticket {} reassigned — newUserId: {}, newGroupId: {}", ticketId, newUserId, newGroupId);
         return saved;
     }
 
     @Transactional
     public void unassign(Long ticketId, Long performedBy) {
+        log.info("Unassigning ticket {} — performedBy: {}", ticketId, performedBy);
         Assignment active = assignmentRepository.findByTicketIdAndUnassignedAtIsNull(ticketId)
-                .orElseThrow(() -> new IllegalStateException(
-                        "No active assignment found for ticket: " + ticketId));
+                .orElseThrow(() -> {
+                    log.warn("Unassign failed — no active assignment for ticket {}", ticketId);
+                    return new IllegalStateException("No active assignment found for ticket: " + ticketId);
+                });
         active.setUnassignedAt(Instant.now());
         assignmentRepository.save(active);
 
@@ -84,6 +102,7 @@ public class AssignmentService {
         ticketRepository.save(ticket);
 
         ticketHistoryService.recordUnassigned(ticketId, performedBy);
+        log.info("Ticket {} unassigned", ticketId);
     }
 
     @Transactional(readOnly = true)

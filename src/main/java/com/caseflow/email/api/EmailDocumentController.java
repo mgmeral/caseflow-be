@@ -11,6 +11,8 @@ import com.caseflow.email.service.ParsedEmail;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -27,6 +29,8 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/emails")
 public class EmailDocumentController {
+
+    private static final Logger log = LoggerFactory.getLogger(EmailDocumentController.class);
 
     private final EmailDocumentQueryService emailDocumentQueryService;
     private final EmailDocumentMapper emailDocumentMapper;
@@ -46,6 +50,8 @@ public class EmailDocumentController {
      */
     @PostMapping("/ingest")
     public ResponseEntity<EmailDocumentResponse> ingest(@Valid @RequestBody IngestEmailRequest request) {
+        log.info("POST /emails/ingest — messageId: '{}', from: '{}', subject: '{}'",
+                request.messageId(), request.from(), request.subject());
         ParsedEmail parsed = new ParsedEmail();
         parsed.setMessageId(request.messageId());
         parsed.setInReplyTo(request.inReplyTo());
@@ -61,11 +67,13 @@ public class EmailDocumentController {
         parsed.setReceivedAt(request.receivedAt());
 
         EmailDocument doc = emailProcessingService.process(parsed);
+        log.info("POST /emails/ingest succeeded — docId: '{}', ticketId: {}", doc.getId(), doc.getTicketId());
         return ResponseEntity.status(HttpStatus.CREATED).body(emailDocumentMapper.toResponse(doc));
     }
 
     @GetMapping("/{id}")
     public ResponseEntity<EmailDocumentResponse> getById(@PathVariable String id) {
+        log.info("GET /emails/{}", id);
         return emailDocumentQueryService.findById(id)
                 .map(doc -> ResponseEntity.ok(emailDocumentMapper.toResponse(doc)))
                 .orElse(ResponseEntity.notFound().build());
@@ -73,6 +81,7 @@ public class EmailDocumentController {
 
     @GetMapping("/by-ticket/{ticketId}")
     public ResponseEntity<List<EmailDocumentSummaryResponse>> getByTicket(@PathVariable Long ticketId) {
+        log.info("GET /emails/by-ticket/{}", ticketId);
         return ResponseEntity.ok(
                 emailDocumentMapper.toSummaryResponseList(
                         emailDocumentQueryService.findByTicketId(ticketId)));
@@ -80,6 +89,7 @@ public class EmailDocumentController {
 
     @GetMapping("/by-thread/{threadKey}")
     public ResponseEntity<List<EmailDocumentSummaryResponse>> getByThread(@PathVariable String threadKey) {
+        log.info("GET /emails/by-thread/{}", threadKey);
         return ResponseEntity.ok(
                 emailDocumentMapper.toSummaryResponseList(
                         emailDocumentQueryService.findByThreadKey(threadKey)));

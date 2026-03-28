@@ -6,6 +6,8 @@ import com.caseflow.ticket.api.mapper.AttachmentMetadataMapper;
 import com.caseflow.ticket.domain.AttachmentMetadata;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
@@ -32,6 +34,8 @@ import java.util.UUID;
 @RequestMapping("/api/attachments")
 public class AttachmentController {
 
+    private static final Logger log = LoggerFactory.getLogger(AttachmentController.class);
+
     private static final long MAX_BYTES = 25 * 1024 * 1024L; // 25 MB
 
     private final AttachmentService attachmentService;
@@ -49,9 +53,11 @@ public class AttachmentController {
             @RequestParam MultipartFile file) throws IOException {
 
         if (file.isEmpty()) {
+            log.warn("Upload rejected — empty file for ticketId: {}", ticketId);
             throw new IllegalArgumentException("File must not be empty");
         }
         if (file.getSize() > MAX_BYTES) {
+            log.warn("Upload rejected — file size {} bytes exceeds 25 MB limit for ticketId: {}", file.getSize(), ticketId);
             throw new IllegalArgumentException("File size exceeds limit of 25 MB");
         }
 
@@ -59,8 +65,11 @@ public class AttachmentController {
         String safeFileName = sanitize(file.getOriginalFilename());
         String objectKey = "tickets/" + ticketId + "/" + UUID.randomUUID() + "_" + safeFileName;
 
+        log.info("Uploading attachment — ticketId: {}, fileName: '{}', size: {}, contentType: '{}'",
+                ticketId, file.getOriginalFilename(), file.getSize(), contentType);
         AttachmentMetadata metadata = attachmentService.upload(
                 ticketId, null, file.getOriginalFilename(), objectKey, contentType, file.getBytes());
+        log.info("Attachment uploaded — attachmentId: {}, objectKey: '{}'", metadata.getId(), objectKey);
 
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(attachmentMetadataMapper.toResponse(metadata));
@@ -80,6 +89,8 @@ public class AttachmentController {
     @GetMapping("/{id}/download")
     public ResponseEntity<InputStreamResource> download(@PathVariable Long id) {
         AttachmentMetadata metadata = attachmentService.getById(id);
+        log.info("Downloading attachment — attachmentId: {}, fileName: '{}', objectKey: '{}'",
+                id, metadata.getFileName(), metadata.getObjectKey());
         InputStream stream = attachmentService.download(metadata.getObjectKey());
 
         HttpHeaders headers = new HttpHeaders();
@@ -94,7 +105,9 @@ public class AttachmentController {
 
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(@PathVariable Long id) {
+        log.info("Deleting attachment {}", id);
         attachmentService.delete(id);
+        log.info("Attachment {} deleted", id);
         return ResponseEntity.noContent().build();
     }
 

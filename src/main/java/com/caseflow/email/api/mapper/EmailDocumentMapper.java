@@ -1,5 +1,6 @@
 package com.caseflow.email.api.mapper;
 
+import com.caseflow.email.api.dto.EmailAttachmentResponse;
 import com.caseflow.email.api.dto.EmailDocumentResponse;
 import com.caseflow.email.api.dto.EmailDocumentSummaryResponse;
 import com.caseflow.email.document.EmailDocument;
@@ -16,12 +17,17 @@ import java.util.List;
 public interface EmailDocumentMapper {
 
     /**
-     * Internal-only fields not present in the DTO (inReplyTo, references,
-     * normalizedSubject, htmlBody, textBody, bcc, attachments) are silently
-     * dropped via unmappedSourcePolicy = IGNORE.
+     * Full detail mapping. Includes body content and attachment metadata.
+     * Internal-only fields (inReplyTo, references, normalizedSubject, bcc)
+     * are silently dropped via unmappedSourcePolicy = IGNORE.
      */
     EmailDocumentResponse toResponse(EmailDocument document);
 
+    EmailAttachmentResponse toAttachmentResponse(EmailDocument.AttachmentMetadata metadata);
+
+    /**
+     * Lightweight summary — body and attachments omitted by design.
+     */
     EmailDocumentSummaryResponse toSummaryResponse(EmailDocument document);
 
     List<EmailDocumentSummaryResponse> toSummaryResponseList(List<EmailDocument> documents);

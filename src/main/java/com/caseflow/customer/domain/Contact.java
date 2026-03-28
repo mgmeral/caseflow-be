@@ -6,17 +6,17 @@ import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
-import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 
 import java.time.Instant;
 
 @Entity
-@Table(name = "contacts", indexes = {
-        @Index(name = "idx_contacts_email", columnList = "email")
+@Table(name = "contacts", uniqueConstraints = {
+        @UniqueConstraint(name = "uq_contacts_email", columnNames = "email")
 })
 public class Contact {
 
@@ -28,7 +28,7 @@ public class Contact {
     @JoinColumn(name = "customer_id", nullable = false)
     private Customer customer;
 
-    @Column(nullable = false)
+    @Column(nullable = false, unique = true)
     private String email;
 
     @Column(name = "name")

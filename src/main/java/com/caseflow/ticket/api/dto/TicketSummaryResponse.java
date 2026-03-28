@@ -11,7 +11,12 @@ public record TicketSummaryResponse(
         String subject,
         TicketStatus status,
         TicketPriority priority,
+        Long customerId,
+        String customerName,
         Long assignedUserId,
+        String assignedUserName,
         Long assignedGroupId,
-        Instant createdAt
+        String assignedGroupName,
+        Instant createdAt,
+        Instant updatedAt
 ) {}

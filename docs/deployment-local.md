@@ -77,17 +77,25 @@ Seed data is idempotent — it checks if tickets already exist before inserting.
 
 ## Authentication
 
-The app uses HTTP Basic authentication. Default dev credentials:
+The app uses **JWT Bearer authentication**. Obtain a token via `POST /api/auth/login`, then pass it as `Authorization: Bearer <token>`.
+
+Default dev credentials (requires `SPRING_PROFILES_ACTIVE=dev` to seed):
 
 | Username | Password   | Role   |
 |----------|------------|--------|
-| admin    | admin123   | ADMIN  |
-| agent    | agent123   | AGENT  |
-| viewer   | viewer123  | VIEWER |
+| alice    | admin123   | ADMIN  |
+| bob      | agent123   | AGENT  |
+| carol    | viewer123  | VIEWER |
 
 Test with curl:
 ```bash
-curl -u agent:agent123 http://localhost:8080/api/tickets
+# 1. Login to get a token
+TOKEN=$(curl -s -X POST http://localhost:8080/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"bob","password":"agent123"}' | jq -r .accessToken)
+
+# 2. Use the token
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/tickets
 ```
 
 ---
@@ -190,5 +198,4 @@ docker compose build
 ## Assumptions
 
 - Docker Desktop v2.x or later (uses `docker compose` v2 plugin, not `docker-compose` v1)
-- Ports 8080, 5432, 27017 are free on your machine (configure alternatives in `.env`)
-- For production deployment, replace in-memory authentication with a DB-backed UserDetailsService
+- Ports 8080, 5432, 27017, 9000, 9001 are free on your machine (configure alternatives in `.env`)

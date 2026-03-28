@@ -16,7 +16,8 @@ export interface LoginRequest {
 export interface TokenResponse {
   accessToken: string;
   refreshToken: string;
-  expiresIn: number;  // milliseconds
+  expiresIn: number;   // milliseconds
+  tokenType: string;   // always "Bearer"
 }
 
 export interface RefreshTokenRequest {
