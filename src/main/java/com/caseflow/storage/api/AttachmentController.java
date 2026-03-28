@@ -14,6 +14,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -48,6 +49,7 @@ public class AttachmentController {
     }
 
     @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("@ticketAuth.canReadTicket(authentication, #ticketId)")
     public ResponseEntity<AttachmentMetadataResponse> upload(
             @RequestParam Long ticketId,
             @RequestParam MultipartFile file) throws IOException {
@@ -76,17 +78,20 @@ public class AttachmentController {
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("@ticketAuth.canReadAttachmentById(authentication, #id)")
     public ResponseEntity<AttachmentMetadataResponse> getMetadata(@PathVariable Long id) {
         return ResponseEntity.ok(attachmentMetadataMapper.toResponse(attachmentService.getById(id)));
     }
 
     @GetMapping("/by-ticket/{ticketId}")
+    @PreAuthorize("@ticketAuth.canReadTicket(authentication, #ticketId)")
     public ResponseEntity<List<AttachmentMetadataResponse>> getByTicket(@PathVariable Long ticketId) {
         return ResponseEntity.ok(
                 attachmentMetadataMapper.toResponseList(attachmentService.findByTicketId(ticketId)));
     }
 
     @GetMapping("/{id}/download")
+    @PreAuthorize("@ticketAuth.canReadAttachmentById(authentication, #id)")
     public ResponseEntity<InputStreamResource> download(@PathVariable Long id) {
         AttachmentMetadata metadata = attachmentService.getById(id);
         log.info("Downloading attachment — attachmentId: {}, fileName: '{}', objectKey: '{}'",
@@ -104,6 +109,7 @@ public class AttachmentController {
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("@ticketAuth.canDeleteAttachmentById(authentication, #id)")
     public ResponseEntity<Void> delete(@PathVariable Long id) {
         log.info("Deleting attachment {}", id);
         attachmentService.delete(id);

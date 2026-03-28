@@ -13,6 +13,7 @@ import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -37,6 +38,7 @@ public class AssignmentController {
     }
 
     @PostMapping("/assign")
+    @PreAuthorize("@ticketAuth.canAssignTicket(authentication, #request.ticketId, #request.assignedUserId, #request.assignedGroupId)")
     public ResponseEntity<AssignmentResponse> assign(@Valid @RequestBody AssignTicketRequest request) {
         Long userId = SecurityContextHelper.requireCurrentUserId();
         log.info("POST /assignments/assign — ticketId: {}, assignedUserId: {}, assignedGroupId: {}, by: {}",
@@ -50,6 +52,7 @@ public class AssignmentController {
     }
 
     @PostMapping("/reassign")
+    @PreAuthorize("@ticketAuth.canAssignTicket(authentication, #request.ticketId, #request.newUserId, #request.newGroupId)")
     public ResponseEntity<AssignmentResponse> reassign(@Valid @RequestBody ReassignTicketRequest request) {
         Long userId = SecurityContextHelper.requireCurrentUserId();
         log.info("POST /assignments/reassign — ticketId: {}, newUserId: {}, newGroupId: {}, by: {}",
@@ -63,6 +66,7 @@ public class AssignmentController {
     }
 
     @PostMapping("/unassign")
+    @PreAuthorize("@ticketAuth.canAssignTicket(authentication, #request.ticketId, null, null)")
     public ResponseEntity<Void> unassign(@Valid @RequestBody UnassignTicketRequest request) {
         Long userId = SecurityContextHelper.requireCurrentUserId();
         log.info("POST /assignments/unassign — ticketId: {}, by: {}", request.ticketId(), userId);
@@ -72,6 +76,7 @@ public class AssignmentController {
     }
 
     @GetMapping("/by-ticket/{ticketId}")
+    @PreAuthorize("@ticketAuth.canReadTicket(authentication, #ticketId)")
     public ResponseEntity<AssignmentResponse> getActiveAssignment(@PathVariable Long ticketId) {
         return assignmentService.getActiveAssignment(ticketId)
                 .map(a -> ResponseEntity.ok(assignmentMapper.toResponse(a)))

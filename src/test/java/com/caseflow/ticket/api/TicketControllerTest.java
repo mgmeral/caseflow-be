@@ -10,9 +10,11 @@ import com.caseflow.ticket.api.dto.TicketSummaryResponse;
 import com.caseflow.ticket.domain.Ticket;
 import com.caseflow.ticket.domain.TicketPriority;
 import com.caseflow.ticket.domain.TicketStatus;
+import com.caseflow.ticket.security.TicketAuthorizationService;
 import com.caseflow.ticket.service.TicketReadService;
 import com.caseflow.ticket.service.TicketService;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -21,6 +23,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.MediaType;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -47,7 +50,7 @@ class TicketControllerTest {
     private ObjectMapper objectMapper;
 
     @MockBean
-    private JwtTokenService jwtTokenService;   // required by SecurityConfig
+    private JwtTokenService jwtTokenService;
 
     @MockBean
     private CaseFlowUserDetailsService userDetailsService;
@@ -58,10 +61,24 @@ class TicketControllerTest {
     @MockBean
     private TicketReadService ticketReadService;
 
+    @MockBean(name = "ticketAuth")
+    private TicketAuthorizationService ticketAuth;
+
+    @BeforeEach
+    void allowAll() {
+        when(ticketAuth.canReadTicket(any(Authentication.class), anyLong())).thenReturn(true);
+        when(ticketAuth.canReadTicketByNo(any(Authentication.class), any())).thenReturn(true);
+        when(ticketAuth.canChangePriority(any(Authentication.class), anyLong())).thenReturn(true);
+        when(ticketAuth.canChangeTicketStatus(any(Authentication.class), anyLong())).thenReturn(true);
+        when(ticketAuth.canCloseTicket(any(Authentication.class), anyLong())).thenReturn(true);
+        when(ticketAuth.canViewAdminPool(any(Authentication.class))).thenReturn(true);
+        when(ticketAuth.canSendCustomerReply(any(Authentication.class), anyLong())).thenReturn(true);
+    }
+
     // ── GET /api/tickets/{id} ─────────────────────────────────────────────────
 
     @Test
-    @WithMockUser(roles = "VIEWER")
+    @WithMockUser(authorities = "PERM_TICKET_READ")
     void getById_returns200_withTicketResponse() throws Exception {
         TicketResponse response = makeTicketResponse(1L, "TKT-001");
 
@@ -75,7 +92,7 @@ class TicketControllerTest {
     }
 
     @Test
-    @WithMockUser(roles = "VIEWER")
+    @WithMockUser(authorities = "PERM_TICKET_READ")
     void getById_returns404_whenTicketNotFound() throws Exception {
         when(ticketReadService.getResponse(999L)).thenThrow(new TicketNotFoundException(999L));
 
@@ -94,11 +111,11 @@ class TicketControllerTest {
     // ── GET /api/tickets ──────────────────────────────────────────────────────
 
     @Test
-    @WithMockUser(roles = "VIEWER")
+    @WithMockUser(authorities = "PERM_TICKET_READ")
     void listTickets_returns200_withPagedResponse() throws Exception {
         TicketSummaryResponse summary = makeTicketSummary(1L, "TKT-001");
 
-        when(ticketReadService.search(any(), any(), any(), any(), any(), any(), any(), any(), any(Pageable.class)))
+        when(ticketReadService.search(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(summary)));
 
         mockMvc.perform(get("/api/tickets"))
@@ -110,7 +127,7 @@ class TicketControllerTest {
     // ── POST /api/tickets ─────────────────────────────────────────────────────
 
     @Test
-    @WithMockUser(roles = "AGENT")
+    @WithMockUser(authorities = "PERM_TICKET_STATUS_CHANGE")
     void createTicket_returns201_withValidRequest() throws Exception {
         CreateTicketRequest request = new CreateTicketRequest(
                 "Login broken", "description", TicketPriority.HIGH, 1L
@@ -130,7 +147,7 @@ class TicketControllerTest {
     }
 
     @Test
-    @WithMockUser(roles = "AGENT")
+    @WithMockUser(authorities = "PERM_TICKET_STATUS_CHANGE")
     void createTicket_returns400_whenSubjectIsBlank() throws Exception {
         CreateTicketRequest request = new CreateTicketRequest(
                 "", null, TicketPriority.MEDIUM, null

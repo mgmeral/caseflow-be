@@ -18,6 +18,7 @@ import com.caseflow.ticket.domain.TicketStatus;
 import com.caseflow.ticket.repository.HistoryRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -71,10 +72,17 @@ public class TicketReadService {
     public Page<TicketSummaryResponse> search(TicketStatus status, TicketPriority priority,
                                               Long assignedUserId, Long assignedGroupId,
                                               Long customerId, String searchText,
-                                              Instant from, Instant to, Pageable pageable) {
+                                              Instant from, Instant to,
+                                              Specification<Ticket> scopeSpec, Pageable pageable) {
         Page<Ticket> page = ticketQueryService.search(
-                status, priority, assignedUserId, assignedGroupId, customerId, searchText, from, to, pageable);
+                status, priority, assignedUserId, assignedGroupId, customerId, searchText, from, to,
+                scopeSpec, pageable);
         return enrichPage(page);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<TicketSummaryResponse> searchScoped(Specification<Ticket> spec, Pageable pageable) {
+        return enrichPage(ticketQueryService.searchWithSpec(spec, pageable));
     }
 
     @Transactional(readOnly = true)

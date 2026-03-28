@@ -15,6 +15,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -49,6 +50,7 @@ public class EmailDocumentController {
      * Idempotent: returns 409 if messageId already exists.
      */
     @PostMapping("/ingest")
+    @PreAuthorize("hasAuthority('PERM_TICKET_STATUS_CHANGE')")
     public ResponseEntity<EmailDocumentResponse> ingest(@Valid @RequestBody IngestEmailRequest request) {
         log.info("POST /emails/ingest — messageId: '{}', from: '{}', subject: '{}'",
                 request.messageId(), request.from(), request.subject());
@@ -72,6 +74,7 @@ public class EmailDocumentController {
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasAuthority('PERM_TICKET_READ')")
     public ResponseEntity<EmailDocumentResponse> getById(@PathVariable String id) {
         log.info("GET /emails/{}", id);
         return emailDocumentQueryService.findById(id)
@@ -80,6 +83,7 @@ public class EmailDocumentController {
     }
 
     @GetMapping("/by-ticket/{ticketId}")
+    @PreAuthorize("@ticketAuth.canReadTicket(authentication, #ticketId)")
     public ResponseEntity<List<EmailDocumentSummaryResponse>> getByTicket(@PathVariable Long ticketId) {
         log.info("GET /emails/by-ticket/{}", ticketId);
         return ResponseEntity.ok(
@@ -88,6 +92,7 @@ public class EmailDocumentController {
     }
 
     @GetMapping("/by-thread/{threadKey}")
+    @PreAuthorize("hasAuthority('PERM_TICKET_READ')")
     public ResponseEntity<List<EmailDocumentSummaryResponse>> getByThread(@PathVariable String threadKey) {
         log.info("GET /emails/by-thread/{}", threadKey);
         return ResponseEntity.ok(

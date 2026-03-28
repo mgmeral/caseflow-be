@@ -11,13 +11,16 @@ import com.caseflow.email.api.mapper.EmailDocumentMapper;
 import com.caseflow.email.document.EmailDocument;
 import com.caseflow.email.service.EmailDocumentQueryService;
 import com.caseflow.email.service.EmailProcessingService;
+import com.caseflow.ticket.security.TicketAuthorizationService;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -26,6 +29,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -58,10 +62,18 @@ class EmailDocumentControllerTest {
     @MockBean
     private EmailProcessingService emailProcessingService;
 
+    @MockBean(name = "ticketAuth")
+    private TicketAuthorizationService ticketAuth;
+
+    @BeforeEach
+    void allowAll() {
+        when(ticketAuth.canReadTicket(any(Authentication.class), anyLong())).thenReturn(true);
+    }
+
     // ── GET /api/emails/{id} ──────────────────────────────────────────────────
 
     @Test
-    @WithMockUser(roles = "AGENT")
+    @WithMockUser(authorities = "PERM_TICKET_READ")
     void getById_returns200_withFullDetail() throws Exception {
         EmailDocument doc = new EmailDocument();
         EmailDocumentResponse response = makeDetailResponse("doc-1", 42L, "Hello, world", "<p>Hello</p>");
@@ -80,7 +92,7 @@ class EmailDocumentControllerTest {
     }
 
     @Test
-    @WithMockUser(roles = "AGENT")
+    @WithMockUser(authorities = "PERM_TICKET_READ")
     void getById_returns404_whenNotFound() throws Exception {
         when(emailDocumentQueryService.findById("missing")).thenReturn(Optional.empty());
 
@@ -97,7 +109,7 @@ class EmailDocumentControllerTest {
     // ── GET /api/emails/by-ticket/{ticketId} ─────────────────────────────────
 
     @Test
-    @WithMockUser(roles = "AGENT")
+    @WithMockUser(authorities = "PERM_TICKET_READ")
     void getByTicket_returns200_withSummaryList() throws Exception {
         EmailDocument doc = new EmailDocument();
         EmailDocumentSummaryResponse summary = makeSummaryResponse("doc-1", "thread-A", 42L);
@@ -113,7 +125,7 @@ class EmailDocumentControllerTest {
     }
 
     @Test
-    @WithMockUser(roles = "AGENT")
+    @WithMockUser(authorities = "PERM_TICKET_READ")
     void getByTicket_returns200_withEmptyList_whenNoEmails() throws Exception {
         when(emailDocumentQueryService.findByTicketId(99L)).thenReturn(List.of());
         when(emailDocumentMapper.toSummaryResponseList(List.of())).thenReturn(List.of());
@@ -126,7 +138,7 @@ class EmailDocumentControllerTest {
     // ── GET /api/emails/by-thread/{threadKey} ─────────────────────────────────
 
     @Test
-    @WithMockUser(roles = "AGENT")
+    @WithMockUser(authorities = "PERM_TICKET_READ")
     void getByThread_returns200_withSummaryList() throws Exception {
         EmailDocument doc = new EmailDocument();
         EmailDocumentSummaryResponse summary = makeSummaryResponse("doc-2", "thread-B", 5L);
@@ -142,7 +154,7 @@ class EmailDocumentControllerTest {
     // ── POST /api/emails/ingest ───────────────────────────────────────────────
 
     @Test
-    @WithMockUser(roles = "ADMIN")
+    @WithMockUser(authorities = "PERM_TICKET_STATUS_CHANGE")
     void ingest_returns201_withDetailResponse() throws Exception {
         IngestEmailRequest request = new IngestEmailRequest(
                 "<msg-001@test.com>", null, null,
@@ -168,7 +180,7 @@ class EmailDocumentControllerTest {
     }
 
     @Test
-    @WithMockUser(roles = "ADMIN")
+    @WithMockUser(authorities = "PERM_TICKET_STATUS_CHANGE")
     void ingest_returns400_whenMessageIdIsBlank() throws Exception {
         IngestEmailRequest request = new IngestEmailRequest(
                 "", null, null, "Subject", "from@test.com",

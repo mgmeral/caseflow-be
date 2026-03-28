@@ -13,6 +13,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -39,6 +40,7 @@ public class TransferController {
     }
 
     @PostMapping
+    @PreAuthorize("@ticketAuth.canTransferTicket(authentication, #request.ticketId, #request.toGroupId)")
     public ResponseEntity<TransferResponse> transfer(@Valid @RequestBody TransferTicketRequest request) {
         Long userId = SecurityContextHelper.requireCurrentUserId();
         log.info("POST /transfers — ticketId: {}, fromGroupId: {}, toGroupId: {}, clearAssignee: {}, by: {}",
@@ -52,6 +54,7 @@ public class TransferController {
     }
 
     @GetMapping("/by-ticket/{ticketId}")
+    @PreAuthorize("@ticketAuth.canReadTicket(authentication, #ticketId)")
     public ResponseEntity<List<TransferSummaryResponse>> getTransferHistory(@PathVariable Long ticketId) {
         return ResponseEntity.ok(
                 transferMapper.toSummaryResponseList(transferService.getTransferHistory(ticketId)));

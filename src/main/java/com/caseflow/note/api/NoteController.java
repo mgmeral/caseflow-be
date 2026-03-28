@@ -12,6 +12,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -38,6 +39,7 @@ public class NoteController {
     }
 
     @PostMapping
+    @PreAuthorize("@ticketAuth.canAddInternalNote(authentication, #request.ticketId)")
     public ResponseEntity<NoteResponse> addNote(@Valid @RequestBody AddNoteRequest request) {
         Long userId = SecurityContextHelper.requireCurrentUserId();
         log.info("POST /notes — ticketId: {}, type: {}, userId: {}", request.ticketId(), request.type(), userId);
@@ -48,12 +50,14 @@ public class NoteController {
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("@ticketAuth.canReadNoteById(authentication, #id)")
     public ResponseEntity<NoteResponse> getById(@PathVariable Long id) {
         log.info("GET /notes/{}", id);
         return ResponseEntity.ok(noteMapper.toResponse(noteService.getById(id)));
     }
 
     @GetMapping("/by-ticket/{ticketId}")
+    @PreAuthorize("@ticketAuth.canReadTicket(authentication, #ticketId)")
     public ResponseEntity<List<NoteResponse>> getByTicket(@PathVariable Long ticketId) {
         log.info("GET /notes/by-ticket/{}", ticketId);
         return ResponseEntity.ok(noteMapper.toResponseList(noteService.listByTicket(ticketId)));

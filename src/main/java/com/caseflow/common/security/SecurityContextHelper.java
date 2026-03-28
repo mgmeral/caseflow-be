@@ -1,5 +1,6 @@
 package com.caseflow.common.security;
 
+import com.caseflow.auth.CaseFlowUserDetails;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -25,6 +26,9 @@ public final class SecurityContextHelper {
         Object principal = auth.getPrincipal();
         if (principal instanceof Long id) {
             return Optional.of(id);
+        }
+        if (principal instanceof CaseFlowUserDetails details) {
+            return Optional.of(details.getUserId());
         }
         // @WithMockUser / UserDetails-based auth (tests and Basic Auth fallback)
         if (principal instanceof UserDetails ud) {

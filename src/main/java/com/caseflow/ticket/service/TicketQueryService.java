@@ -61,10 +61,15 @@ public class TicketQueryService {
         return ticketRepository.findAll();
     }
 
+    /**
+     * Composable search with optional scope enforcement.
+     * {@code scopeSpec} is ANDed in when non-null; pass null for no scope restriction.
+     */
     @Transactional(readOnly = true)
     public Page<Ticket> search(TicketStatus status, TicketPriority priority,
                                Long assignedUserId, Long assignedGroupId, Long customerId,
-                               String searchText, Instant from, Instant to, Pageable pageable) {
+                               String searchText, Instant from, Instant to,
+                               Specification<Ticket> scopeSpec, Pageable pageable) {
         Specification<Ticket> spec = Specification.where(TicketSpecification.hasStatus(status))
                 .and(TicketSpecification.hasPriority(priority))
                 .and(TicketSpecification.hasAssignedUserId(assignedUserId))
@@ -72,8 +77,15 @@ public class TicketQueryService {
                 .and(TicketSpecification.hasCustomerId(customerId))
                 .and(TicketSpecification.subjectOrTicketNoContains(searchText))
                 .and(TicketSpecification.createdAfter(from))
-                .and(TicketSpecification.createdBefore(to));
+                .and(TicketSpecification.createdBefore(to))
+                .and(scopeSpec);
 
+        return ticketRepository.findAll(spec, pageable);
+    }
+
+    /** Run an arbitrary pre-built specification with pagination — used for admin pool. */
+    @Transactional(readOnly = true)
+    public Page<Ticket> searchWithSpec(Specification<Ticket> spec, Pageable pageable) {
         return ticketRepository.findAll(spec, pageable);
     }
 }

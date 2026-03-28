@@ -10,13 +10,16 @@ import com.caseflow.note.api.mapper.NoteMapper;
 import com.caseflow.note.domain.Note;
 import com.caseflow.note.domain.NoteType;
 import com.caseflow.note.service.NoteService;
+import com.caseflow.ticket.security.TicketAuthorizationService;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -54,8 +57,18 @@ class NoteControllerTest {
     @MockBean
     private NoteMapper noteMapper;
 
+    @MockBean(name = "ticketAuth")
+    private TicketAuthorizationService ticketAuth;
+
+    @BeforeEach
+    void allowAll() {
+        when(ticketAuth.canAddInternalNote(any(Authentication.class), anyLong())).thenReturn(true);
+        when(ticketAuth.canReadNoteById(any(Authentication.class), anyLong())).thenReturn(true);
+        when(ticketAuth.canReadTicket(any(Authentication.class), anyLong())).thenReturn(true);
+    }
+
     @Test
-    @WithMockUser(roles = "AGENT")
+    @WithMockUser(authorities = "PERM_INTERNAL_NOTE_ADD")
     void addNote_returns201_withValidRequest() throws Exception {
         AddNoteRequest request = new AddNoteRequest(10L, "Investigation started.", NoteType.INVESTIGATION);
         Note note = buildNote(1L, 10L);
@@ -74,7 +87,7 @@ class NoteControllerTest {
     }
 
     @Test
-    @WithMockUser(roles = "AGENT")
+    @WithMockUser(authorities = "PERM_INTERNAL_NOTE_ADD")
     void addNote_returns400_whenContentIsBlank() throws Exception {
         AddNoteRequest request = new AddNoteRequest(10L, "", NoteType.INFO);
 
@@ -87,7 +100,7 @@ class NoteControllerTest {
     }
 
     @Test
-    @WithMockUser(roles = "VIEWER")
+    @WithMockUser(authorities = "PERM_TICKET_READ")
     void getById_returns200_whenFound() throws Exception {
         Note note = buildNote(5L, 10L);
         NoteResponse response = new NoteResponse(5L, 10L, "Some content.", NoteType.INFO, 1L, Instant.now());
@@ -101,7 +114,7 @@ class NoteControllerTest {
     }
 
     @Test
-    @WithMockUser(roles = "VIEWER")
+    @WithMockUser(authorities = "PERM_TICKET_READ")
     void getById_returns404_whenNotFound() throws Exception {
         when(noteService.getById(99L)).thenThrow(new NoteNotFoundException(99L));
 
@@ -111,7 +124,7 @@ class NoteControllerTest {
     }
 
     @Test
-    @WithMockUser(roles = "VIEWER")
+    @WithMockUser(authorities = "PERM_TICKET_READ")
     void getByTicket_returns200_withNoteList() throws Exception {
         Note n = buildNote(1L, 10L);
         NoteResponse r = new NoteResponse(1L, 10L, "Content.", NoteType.INFO, 1L, Instant.now());
