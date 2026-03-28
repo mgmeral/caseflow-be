@@ -5,9 +5,12 @@ import com.caseflow.common.exception.DuplicateEmailException;
 import com.caseflow.common.exception.AttachmentNotFoundException;
 import com.caseflow.common.exception.ContactNotFoundException;
 import com.caseflow.common.exception.CustomerNotFoundException;
+import com.caseflow.common.exception.EmailDispatchException;
 import com.caseflow.common.exception.GroupNotFoundException;
 import com.caseflow.common.exception.AdminLockoutException;
 import com.caseflow.common.exception.GroupTypeNotFoundException;
+import com.caseflow.common.exception.IngressEventNotFoundException;
+import com.caseflow.common.exception.MailboxNotFoundException;
 import com.caseflow.common.exception.RoleNotFoundException;
 import com.caseflow.common.exception.InvalidTicketStateException;
 import com.caseflow.common.exception.NoteNotFoundException;
@@ -47,7 +50,9 @@ public class GlobalExceptionHandler {
             GroupTypeNotFoundException.class,
             RoleNotFoundException.class,
             NoteNotFoundException.class,
-            AttachmentNotFoundException.class
+            AttachmentNotFoundException.class,
+            MailboxNotFoundException.class,
+            IngressEventNotFoundException.class
     })
     public ResponseEntity<ErrorResponse> handleNotFound(RuntimeException ex,
                                                         HttpServletRequest request) {
@@ -182,6 +187,18 @@ public class GlobalExceptionHandler {
                 request.getRequestURI()
         );
         return ResponseEntity.badRequest().body(body);
+    }
+
+    // ── 503 Email Dispatch (SMTP unconfigured or transient failure) ───────────
+
+    @ExceptionHandler(EmailDispatchException.class)
+    public ResponseEntity<ErrorResponse> handleEmailDispatch(EmailDispatchException ex,
+                                                             HttpServletRequest request) {
+        log.error("Email dispatch error: {}", ex.getMessage());
+        ErrorResponse body = ErrorResponse.of(
+                HttpStatus.SERVICE_UNAVAILABLE.value(), "Service Unavailable",
+                "EMAIL_DISPATCH_ERROR", ex.getMessage(), request.getRequestURI());
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(body);
     }
 
     // ── 409 Duplicate Email ───────────────────────────────────────────────────

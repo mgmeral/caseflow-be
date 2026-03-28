@@ -2,12 +2,13 @@ package com.caseflow.email.api;
 
 import com.caseflow.email.api.dto.EmailDocumentResponse;
 import com.caseflow.email.api.dto.EmailDocumentSummaryResponse;
+import com.caseflow.email.api.dto.IngressEventResponse;
 import com.caseflow.email.api.dto.IngestEmailRequest;
 import com.caseflow.email.api.mapper.EmailDocumentMapper;
-import com.caseflow.email.document.EmailDocument;
+import com.caseflow.email.api.mapper.IngressEventMapper;
+import com.caseflow.email.domain.EmailIngressEvent;
 import com.caseflow.email.service.EmailDocumentQueryService;
-import com.caseflow.email.service.EmailProcessingService;
-import com.caseflow.email.service.ParsedEmail;
+import com.caseflow.email.service.EmailIngressService;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -35,42 +36,40 @@ public class EmailDocumentController {
 
     private final EmailDocumentQueryService emailDocumentQueryService;
     private final EmailDocumentMapper emailDocumentMapper;
-    private final EmailProcessingService emailProcessingService;
+    private final EmailIngressService emailIngressService;
+    private final IngressEventMapper ingressEventMapper;
 
     public EmailDocumentController(EmailDocumentQueryService emailDocumentQueryService,
                                    EmailDocumentMapper emailDocumentMapper,
-                                   EmailProcessingService emailProcessingService) {
+                                   EmailIngressService emailIngressService,
+                                   IngressEventMapper ingressEventMapper) {
         this.emailDocumentQueryService = emailDocumentQueryService;
         this.emailDocumentMapper = emailDocumentMapper;
-        this.emailProcessingService = emailProcessingService;
+        this.emailIngressService = emailIngressService;
+        this.ingressEventMapper = ingressEventMapper;
     }
 
     /**
-     * Manually ingest a parsed inbound email.
-     * Idempotent: returns 409 if messageId already exists.
+     * Stage-1 ingest: stores the inbound email as a durable event (RECEIVED) and returns 202.
+     * Stage-2 processing (threading, routing, ticket creation) happens via the retry scheduler
+     * or can be triggered manually via POST /api/admin/ingress-events/{id}/process.
+     * Idempotent: duplicate messageIds return the existing event.
      */
     @PostMapping("/ingest")
     @PreAuthorize("hasAuthority('PERM_TICKET_STATUS_CHANGE')")
-    public ResponseEntity<EmailDocumentResponse> ingest(@Valid @RequestBody IngestEmailRequest request) {
+    public ResponseEntity<IngressEventResponse> ingest(@Valid @RequestBody IngestEmailRequest request) {
         log.info("POST /emails/ingest — messageId: '{}', from: '{}', subject: '{}'",
                 request.messageId(), request.from(), request.subject());
-        ParsedEmail parsed = new ParsedEmail();
-        parsed.setMessageId(request.messageId());
-        parsed.setInReplyTo(request.inReplyTo());
-        parsed.setReferences(request.references());
-        parsed.setSubject(request.subject());
-        parsed.setNormalizedSubject(normalizeSubject(request.subject()));
-        parsed.setFrom(request.from());
-        parsed.setTo(request.to() != null ? request.to() : List.of());
-        parsed.setCc(request.cc() != null ? request.cc() : List.of());
-        parsed.setBcc(List.of());
-        parsed.setTextBody(request.textBody());
-        parsed.setHtmlBody(request.htmlBody());
-        parsed.setReceivedAt(request.receivedAt());
-
-        EmailDocument doc = emailProcessingService.process(parsed);
-        log.info("POST /emails/ingest succeeded — docId: '{}', ticketId: {}", doc.getId(), doc.getTicketId());
-        return ResponseEntity.status(HttpStatus.CREATED).body(emailDocumentMapper.toResponse(doc));
+        EmailIngressEvent event = emailIngressService.receiveEvent(
+                request.messageId(),
+                request.from(),
+                request.to() != null ? String.join(", ", request.to()) : null,
+                request.subject(),
+                request.mailboxId(),
+                request.receivedAt()
+        );
+        log.info("Ingress event stored — eventId: {}, messageId: '{}'", event.getId(), event.getMessageId());
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(ingressEventMapper.toResponse(event));
     }
 
     @GetMapping("/{id}")
@@ -100,8 +99,4 @@ public class EmailDocumentController {
                         emailDocumentQueryService.findByThreadKey(threadKey)));
     }
 
-    private String normalizeSubject(String subject) {
-        if (subject == null) return null;
-        return subject.replaceAll("(?i)^(re:|fwd?:|aw:)\\s*", "").trim();
-    }
 }

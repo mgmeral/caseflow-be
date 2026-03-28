@@ -33,5 +33,11 @@ public record IngestEmailRequest(
         String htmlBody,
 
         @NotNull
-        Instant receivedAt
+        Instant receivedAt,
+
+        /** Optional: ID of the CaseFlow mailbox this email was received on. */
+        Long mailboxId,
+
+        /** Optional: the actual SMTP envelope recipient (may differ from To: header). */
+        String envelopeRecipient
 ) {}

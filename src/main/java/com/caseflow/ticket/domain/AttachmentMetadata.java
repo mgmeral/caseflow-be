@@ -2,6 +2,8 @@ package com.caseflow.ticket.domain;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -35,6 +37,10 @@ public class AttachmentMetadata {
 
     @Column(nullable = false)
     private Long size;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "source_type", nullable = false, length = 50)
+    private AttachmentSourceType sourceType = AttachmentSourceType.UPLOAD;
 
     @Column(name = "uploaded_at", nullable = false, updatable = false)
     private Instant uploadedAt;
@@ -94,6 +100,14 @@ public class AttachmentMetadata {
 
     public void setSize(Long size) {
         this.size = size;
+    }
+
+    public AttachmentSourceType getSourceType() {
+        return sourceType;
+    }
+
+    public void setSourceType(AttachmentSourceType sourceType) {
+        this.sourceType = sourceType;
     }
 
     public Instant getUploadedAt() {

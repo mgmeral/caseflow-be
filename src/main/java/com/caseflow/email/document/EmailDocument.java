@@ -1,5 +1,6 @@
 package com.caseflow.email.document;
 
+import com.caseflow.email.domain.EmailDirection;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
@@ -47,6 +48,19 @@ public class EmailDocument {
 
     @Indexed
     private Long ticketId;
+
+    private EmailDirection direction;
+
+    @Indexed
+    private Long mailboxId;
+
+    @Indexed
+    private Long customerId;
+
+    private String providerEventId;
+
+    /** First 500 chars of textBody — used in list views without loading full body. */
+    private String bodyPreview;
 
     public String getId() {
         return id;
@@ -179,6 +193,21 @@ public class EmailDocument {
     public void setTicketId(Long ticketId) {
         this.ticketId = ticketId;
     }
+
+    public EmailDirection getDirection() { return direction; }
+    public void setDirection(EmailDirection direction) { this.direction = direction; }
+
+    public Long getMailboxId() { return mailboxId; }
+    public void setMailboxId(Long mailboxId) { this.mailboxId = mailboxId; }
+
+    public Long getCustomerId() { return customerId; }
+    public void setCustomerId(Long customerId) { this.customerId = customerId; }
+
+    public String getProviderEventId() { return providerEventId; }
+    public void setProviderEventId(String providerEventId) { this.providerEventId = providerEventId; }
+
+    public String getBodyPreview() { return bodyPreview; }
+    public void setBodyPreview(String bodyPreview) { this.bodyPreview = bodyPreview; }
 
     public static class AttachmentMetadata {
 

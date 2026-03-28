@@ -8,6 +8,7 @@ public enum Permission {
     USER_MANAGE,
     ROLE_MANAGE,
     GROUP_MANAGE,
+    ADMIN_CONFIG,
     TICKET_READ,
     ADMIN_POOL_VIEW,
     TICKET_ASSIGN,

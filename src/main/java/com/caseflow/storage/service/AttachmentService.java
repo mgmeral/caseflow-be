@@ -3,6 +3,7 @@ package com.caseflow.storage.service;
 import com.caseflow.common.exception.AttachmentNotFoundException;
 import com.caseflow.storage.ObjectStorageService;
 import com.caseflow.ticket.domain.AttachmentMetadata;
+import com.caseflow.ticket.domain.AttachmentSourceType;
 import com.caseflow.ticket.repository.AttachmentMetadataRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,6 +31,13 @@ public class AttachmentService {
     @Transactional
     public AttachmentMetadata saveMetadata(Long ticketId, String emailId, String fileName,
                                            String objectKey, String contentType, Long size) {
+        return saveMetadata(ticketId, emailId, fileName, objectKey, contentType, size, AttachmentSourceType.UPLOAD);
+    }
+
+    @Transactional
+    public AttachmentMetadata saveMetadata(Long ticketId, String emailId, String fileName,
+                                           String objectKey, String contentType, Long size,
+                                           AttachmentSourceType sourceType) {
         AttachmentMetadata metadata = new AttachmentMetadata();
         metadata.setTicketId(ticketId);
         metadata.setEmailId(emailId);
@@ -37,7 +45,19 @@ public class AttachmentService {
         metadata.setObjectKey(objectKey);
         metadata.setContentType(contentType);
         metadata.setSize(size);
+        metadata.setSourceType(sourceType);
         return attachmentMetadataRepository.save(metadata);
+    }
+
+    /**
+     * Saves attachment metadata for an email ingest without uploading binary data
+     * (the binary is already in object storage from the email processing pipeline).
+     */
+    @Transactional
+    public AttachmentMetadata saveEmailAttachment(Long ticketId, String emailId, String fileName,
+                                                   String objectKey, String contentType, Long size) {
+        return saveMetadata(ticketId, emailId, fileName, objectKey, contentType, size,
+                AttachmentSourceType.EMAIL_INBOUND);
     }
 
     @Transactional(readOnly = true)

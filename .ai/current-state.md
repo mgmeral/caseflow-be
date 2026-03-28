@@ -1,13 +1,13 @@
 # CaseFlow — Current State
 
-**Last updated:** 2026-03-27 (V2 auth + pagination + attachments + email ingest)
+**Last updated:** 2026-03-29 (V5 — durable email platform)
 
 ---
 
 ## Build Status
 
 - **Main compile:** PASSING
-- **Tests:** 46/46 PASSING
+- **Tests:** 169/169 PASSING
 - **Docker image:** Builds successfully (multi-stage, eclipse-temurin:21-jre-alpine)
 - **docker-compose config:** VALID (app + postgres + mongo + minio)
 - **CI pipeline:** GitHub Actions (`.github/workflows/ci.yml`) — build/test/docker
@@ -19,9 +19,11 @@
 ## Implemented Layers
 
 ### Domain / Persistence
-- All JPA entities in place: Ticket, History, AttachmentMetadata, Customer, Contact, User, Group, Note, Assignment, Transfer
-- MongoDB document: EmailDocument
-- All Spring Data repositories in place
+- All JPA entities: Ticket, History, AttachmentMetadata (+ sourceType), Customer, Contact, User, Group, Note, Assignment, Transfer
+- V5 JPA entities: EmailMailbox, EmailIngressEvent, OutboundEmailDispatch, CustomerEmailSettings, CustomerEmailRoutingRule
+- MongoDB document: EmailDocument (+ direction, mailboxId, customerId, providerEventId, bodyPreview)
+- V9 migration: email platform tables (mailboxes, ingress events, dispatches, customer email settings, routing rules, attachment source_type column)
+- All Spring Data repositories in place including SKIP LOCKED queries for workers
 
 ### Service Layer
 - TicketService, TicketQueryService — full CRUD + state transitions
@@ -32,12 +34,26 @@
 - TransferService — transfer/history
 - TicketHistoryService — all history recording methods
 - TicketStateMachineService — validated state transitions
-- EmailProcessingServiceImpl — email ingestion
+- EmailProcessingServiceImpl — legacy single-stage ingestion (still wired for backward compatibility)
 - EmailDocumentQueryService — read-only email queries
 - AttachmentService — metadata management + binary upload/download via ObjectStorageService
+- **V5 email platform:**
+  - EmailIngressService (two-stage pipeline: receiveEvent → processEvent, idempotent)
+  - EmailRoutingService (deterministic routing: exact-email rule → domain rule → contact match → policy)
+  - EmailThreadingService (In-Reply-To → References → messageId chain)
+  - LoopDetectionService (auto-reply/bounce/mailer-daemon detection)
+  - EmailMailboxService (mailbox CRUD)
+  - EmailIngressEventQueryService (read queries, replay trigger)
+  - CustomerEmailSettingsService (per-customer unknown-sender policy + routing rules)
+  - SmtpEmailSender (optional JavaMailSender, permanent failure if unconfigured)
+  - EmailDispatchService (durable outbound queue management)
+  - EmailReplyService (orchestrates outbound customer replies)
+  - EmailMetrics (Micrometer counters for inbound/outbound)
+  - EmailIngressRetryScheduler (SKIP LOCKED batch worker, processes RECEIVED + retries FAILED)
+  - OutboundDispatchScheduler (SKIP LOCKED batch worker, sends PENDING + retries FAILED)
 
 ### API Layer
-- 11 REST controllers (Auth, Ticket, Customer, Contact, User, Group, Note, Assignment, Transfer, EmailDocument, Attachment)
+- 15 REST controllers (Auth, Ticket, Customer, Contact, User, Group, Note, Assignment, Transfer, EmailDocument, Attachment, MailboxController, IngressEventController, TicketEmailController, CustomerEmailSettingsController)
 - All controllers use constructor injection, @Valid, ResponseEntity
 - All controllers tagged with @Tag for OpenAPI grouping
 - Audit fields (createdBy, performedBy, assignedBy, transferredBy) removed from request bodies — resolved from SecurityContext
