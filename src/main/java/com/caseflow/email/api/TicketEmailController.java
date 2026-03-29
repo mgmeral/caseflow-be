@@ -8,6 +8,7 @@ import com.caseflow.email.api.dto.SendReplyRequest;
 import com.caseflow.email.api.mapper.DispatchMapper;
 import com.caseflow.email.api.mapper.IngressEventMapper;
 import com.caseflow.email.service.EmailDispatchService;
+import com.caseflow.email.service.EmailDocumentQueryService;
 import com.caseflow.email.service.EmailIngressEventQueryService;
 import com.caseflow.email.service.EmailMailboxService;
 import com.caseflow.email.service.EmailReplyService;
@@ -40,8 +41,11 @@ public class TicketEmailController {
 
     private static final Logger log = LoggerFactory.getLogger(TicketEmailController.class);
 
+    private static final int BODY_PREVIEW_MAX = 500;
+
     private final EmailIngressEventQueryService ingressQueryService;
     private final EmailDispatchService dispatchService;
+    private final EmailDocumentQueryService docQueryService;
     private final EmailReplyService replyService;
     private final EmailMailboxService mailboxService;
     private final IngressEventMapper ingressMapper;
@@ -49,12 +53,14 @@ public class TicketEmailController {
 
     public TicketEmailController(EmailIngressEventQueryService ingressQueryService,
                                   EmailDispatchService dispatchService,
+                                  EmailDocumentQueryService docQueryService,
                                   EmailReplyService replyService,
                                   EmailMailboxService mailboxService,
                                   IngressEventMapper ingressMapper,
                                   DispatchMapper dispatchMapper) {
         this.ingressQueryService = ingressQueryService;
         this.dispatchService = dispatchService;
+        this.docQueryService = docQueryService;
         this.replyService = replyService;
         this.mailboxService = mailboxService;
         this.ingressMapper = ingressMapper;
@@ -71,31 +77,41 @@ public class TicketEmailController {
         log.info("GET /tickets/{}/email/thread", ticketId);
         List<EmailThreadItem> items = new ArrayList<>();
 
-        ingressQueryService.findByTicketId(ticketId).forEach(event ->
-                items.add(new EmailThreadItem(
-                        "INBOUND",
-                        event.getId(),
-                        event.getMessageId(),
-                        event.getRawFrom(),
-                        null,
-                        event.getRawSubject(),
-                        event.getStatus().name(),
-                        event.getReceivedAt()
-                ))
-        );
+        ingressQueryService.findByTicketId(ticketId).forEach(event -> {
+            String preview = event.getDocumentId() != null
+                    ? docQueryService.findById(event.getDocumentId())
+                            .map(doc -> doc.getBodyPreview()).orElse(null)
+                    : null;
+            items.add(new EmailThreadItem(
+                    "INBOUND",
+                    event.getId(),
+                    event.getMessageId(),
+                    event.getRawFrom(),
+                    null,
+                    event.getRawSubject(),
+                    event.getStatus().name(),
+                    event.getReceivedAt(),
+                    preview
+            ));
+        });
 
-        dispatchService.findByTicketId(ticketId).forEach(dispatch ->
-                items.add(new EmailThreadItem(
-                        "OUTBOUND",
-                        dispatch.getId(),
-                        dispatch.getMessageId(),
-                        dispatch.getFromAddress(),
-                        dispatch.getToAddress(),
-                        dispatch.getSubject(),
-                        dispatch.getStatus().name(),
-                        dispatch.getSentAt() != null ? dispatch.getSentAt() : dispatch.getCreatedAt()
-                ))
-        );
+        dispatchService.findByTicketId(ticketId).forEach(dispatch -> {
+            String rawBody = dispatch.getTextBody();
+            String preview = rawBody != null
+                    ? rawBody.substring(0, Math.min(BODY_PREVIEW_MAX, rawBody.length()))
+                    : null;
+            items.add(new EmailThreadItem(
+                    "OUTBOUND",
+                    dispatch.getId(),
+                    dispatch.getMessageId(),
+                    dispatch.getFromAddress(),
+                    dispatch.getToAddress(),
+                    dispatch.getSubject(),
+                    dispatch.getStatus().name(),
+                    dispatch.getSentAt() != null ? dispatch.getSentAt() : dispatch.getCreatedAt(),
+                    preview
+            ));
+        });
 
         items.sort(Comparator.comparing(EmailThreadItem::timestamp,
                 Comparator.nullsLast(Comparator.naturalOrder())));

@@ -117,6 +117,18 @@ class MailboxControllerTest {
                 .andExpect(jsonPath("$.id").value(1));
     }
 
+    @Test
+    @WithMockUser(authorities = "PERM_EMAIL_CONFIG_VIEW")
+    void list_activeOnly_returns200_onlyActiveMailboxes() throws Exception {
+        List<MailboxResponse> activeOnly = List.of(makeResponse(1L, "support@caseflow.dev"));
+        when(mailboxService.findActive()).thenReturn(List.of());
+        when(mailboxMapper.toResponseList(any())).thenReturn(activeOnly);
+
+        mockMvc.perform(get("/api/admin/mailboxes").param("activeOnly", "true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").value(1));
+    }
+
     // ── PUT /api/admin/mailboxes/{id} ─────────────────────────────────────────
 
     @Test

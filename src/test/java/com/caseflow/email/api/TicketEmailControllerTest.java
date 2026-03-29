@@ -13,6 +13,7 @@ import com.caseflow.email.api.mapper.IngressEventMapper;
 import com.caseflow.email.domain.DispatchStatus;
 import com.caseflow.email.domain.IngressEventStatus;
 import com.caseflow.email.service.EmailDispatchService;
+import com.caseflow.email.service.EmailDocumentQueryService;
 import com.caseflow.email.service.EmailIngressEventQueryService;
 import com.caseflow.email.service.EmailMailboxService;
 import com.caseflow.email.service.EmailReplyService;
@@ -30,8 +31,11 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.time.Instant;
 import java.util.List;
 
+import java.util.Optional;
+
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
@@ -52,6 +56,7 @@ class TicketEmailControllerTest {
     @MockBean private CaseFlowUserDetailsService userDetailsService;
     @MockBean private EmailIngressEventQueryService ingressQueryService;
     @MockBean private EmailDispatchService dispatchService;
+    @MockBean private EmailDocumentQueryService docQueryService;
     @MockBean private EmailReplyService replyService;
     @MockBean private EmailMailboxService mailboxService;
     @MockBean private IngressEventMapper ingressMapper;
@@ -74,13 +79,17 @@ class TicketEmailControllerTest {
         when(dispatchService.findByTicketId(1L)).thenReturn(List.of(
                 dispatch(20L, later)
         ));
+        // documentId is null on in-memory event — bodyPreview lookup is skipped
+        when(docQueryService.findById(anyString())).thenReturn(Optional.empty());
 
         mockMvc.perform(get("/api/tickets/1/email/thread"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].direction").value("INBOUND"))
                 .andExpect(jsonPath("$[0].messageId").value("<msg-10@test.com>"))
+                .andExpect(jsonPath("$[0].bodyPreview").doesNotExist())
                 .andExpect(jsonPath("$[1].direction").value("OUTBOUND"))
-                .andExpect(jsonPath("$[1].messageId").value("<dispatch-20@caseflow>"));
+                .andExpect(jsonPath("$[1].messageId").value("<dispatch-20@caseflow>"))
+                .andExpect(jsonPath("$[1].bodyPreview").doesNotExist());
     }
 
     @Test

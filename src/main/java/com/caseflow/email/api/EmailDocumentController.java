@@ -56,7 +56,7 @@ public class EmailDocumentController {
      * Idempotent: duplicate messageIds return the existing event.
      */
     @PostMapping("/ingest")
-    @PreAuthorize("hasAuthority('PERM_TICKET_STATUS_CHANGE')")
+    @PreAuthorize("hasAuthority('PERM_EMAIL_OPERATIONS_MANAGE')")
     public ResponseEntity<IngressEventResponse> ingest(@Valid @RequestBody IngestEmailRequest request) {
         log.info("POST /emails/ingest — messageId: '{}', from: '{}', subject: '{}'",
                 request.messageId(), request.from(), request.subject());

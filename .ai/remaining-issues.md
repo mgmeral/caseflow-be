@@ -78,7 +78,7 @@
 - Fix: `@SpringBootTest` + Testcontainers for PostgreSQL + MongoDB
 
 ### Controller coverage gaps
-- `GroupController`, `UserController`, `AssignmentController`, `TransferController`, `ContactController`, `AttachmentController`, `EmailDocumentController` — no tests
+- ✅ All controllers now have @WebMvcTest coverage (ContactControllerTest, AssignmentControllerTest, TransferControllerTest, AttachmentControllerTest added — 32 new tests)
 
 ### Validation messages
 - Jakarta defaults ("must not be blank") — consider `ValidationMessages.properties`

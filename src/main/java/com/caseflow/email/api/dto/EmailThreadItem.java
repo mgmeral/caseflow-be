@@ -17,5 +17,9 @@ public record EmailThreadItem(
         /** String form of IngressEventStatus (INBOUND) or DispatchStatus (OUTBOUND) */
         String status,
         /** receivedAt for INBOUND, sentAt or createdAt for OUTBOUND */
-        Instant timestamp
+        Instant timestamp,
+        /** First ~500 chars of email body — null if body is unavailable or not yet processed.
+         *  INBOUND: from EmailDocument.bodyPreview; OUTBOUND: from OutboundEmailDispatch.textBody.
+         *  Fetch /inbound/{eventId} or /outbound/{dispatchId} for the full body. */
+        String bodyPreview
 ) {}

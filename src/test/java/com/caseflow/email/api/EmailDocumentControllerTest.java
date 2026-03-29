@@ -159,7 +159,7 @@ class EmailDocumentControllerTest {
     // ── POST /api/emails/ingest ───────────────────────────────────────────────
 
     @Test
-    @WithMockUser(authorities = "PERM_TICKET_STATUS_CHANGE")
+    @WithMockUser(authorities = "PERM_EMAIL_OPERATIONS_MANAGE")
     void ingest_returns202_withIngressEvent() throws Exception {
         IngestEmailRequest request = new IngestEmailRequest(
                 "<msg-001@test.com>", null, null,
@@ -188,7 +188,7 @@ class EmailDocumentControllerTest {
     }
 
     @Test
-    @WithMockUser(authorities = "PERM_TICKET_STATUS_CHANGE")
+    @WithMockUser(authorities = "PERM_EMAIL_OPERATIONS_MANAGE")
     void ingest_returns400_whenMessageIdIsBlank() throws Exception {
         IngestEmailRequest request = new IngestEmailRequest(
                 "", null, null, "Subject", "from@test.com",

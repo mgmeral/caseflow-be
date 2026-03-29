@@ -7,7 +7,7 @@
 ## Build Status
 
 - **Main compile:** PASSING
-- **Tests:** 202/202 PASSING (unchanged — new code paths not exercised by unit tests)
+- **Tests:** 240/240 PASSING
 - **Docker image:** Builds successfully (multi-stage, eclipse-temurin:21-jre-alpine)
 - **docker-compose config:** VALID (app + postgres + mongo + minio)
 - **CI pipeline:** GitHub Actions (`.github/workflows/ci.yml`) — build/test/docker
@@ -153,6 +153,10 @@
   - TicketControllerTest — 7 tests (getById 200/404/401, list 200, create 201/400/403)
   - CustomerControllerTest — 5 tests (getById 200/404, list 200, create 201, 401 unauth)
   - NoteControllerTest — 6 tests (add 201/400, getById 200/404, getByTicket 200/401)
+  - ContactControllerTest — 10 tests (create 201/400/401, getById 200/404, list, by-email 200/404, by-customer, update 200)
+  - AssignmentControllerTest — 7 tests (assign 200/403/401, reassign 200, unassign 204, getActive 200/404)
+  - TransferControllerTest — 6 tests (transfer 201/403/401/400, history 200/403)
+  - AttachmentControllerTest — 9 tests (upload 201/401/403, getMetadata 200/404, getByTicket, download, delete 204/403)
 
 ### FE Integration
 - `docs/frontend-contract.md` — compact frontend contract (auth flow, all endpoints, shapes, enums)
