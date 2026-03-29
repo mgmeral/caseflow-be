@@ -1,6 +1,8 @@
 package com.caseflow.email.service;
 
 import com.caseflow.common.exception.IngressEventNotFoundException;
+import com.caseflow.customer.domain.CustomerEmailSettings;
+import com.caseflow.customer.repository.CustomerEmailSettingsRepository;
 import com.caseflow.email.document.EmailDocument;
 import com.caseflow.email.domain.EmailDirection;
 import com.caseflow.email.domain.EmailIngressEvent;
@@ -30,6 +32,7 @@ public class EmailIngressServiceImpl implements EmailIngressService {
     private final EmailDocumentRepository documentRepository;
     private final TicketRepository ticketRepository;
     private final EmailMailboxRepository mailboxRepository;
+    private final CustomerEmailSettingsRepository settingsRepository;
     private final EmailRoutingService routingService;
     private final EmailThreadingService threadingService;
     private final LoopDetectionService loopDetectionService;
@@ -40,6 +43,7 @@ public class EmailIngressServiceImpl implements EmailIngressService {
                                    EmailDocumentRepository documentRepository,
                                    TicketRepository ticketRepository,
                                    EmailMailboxRepository mailboxRepository,
+                                   CustomerEmailSettingsRepository settingsRepository,
                                    EmailRoutingService routingService,
                                    EmailThreadingService threadingService,
                                    LoopDetectionService loopDetectionService,
@@ -49,6 +53,7 @@ public class EmailIngressServiceImpl implements EmailIngressService {
         this.documentRepository = documentRepository;
         this.ticketRepository = ticketRepository;
         this.mailboxRepository = mailboxRepository;
+        this.settingsRepository = settingsRepository;
         this.routingService = routingService;
         this.threadingService = threadingService;
         this.loopDetectionService = loopDetectionService;
@@ -60,22 +65,28 @@ public class EmailIngressServiceImpl implements EmailIngressService {
 
     @Override
     @Transactional
-    public EmailIngressEvent receiveEvent(String messageId, String rawFrom, String rawTo,
-                                          String rawSubject, Long mailboxId, Instant receivedAt) {
-        // Idempotency: if event already exists, return it unchanged
-        return eventRepository.findByMessageId(messageId)
+    public EmailIngressEvent receiveEvent(IngressEmailData data) {
+        // Idempotency: if event already exists for this messageId, return it unchanged
+        return eventRepository.findByMessageId(data.messageId())
                 .orElseGet(() -> {
                     EmailIngressEvent event = new EmailIngressEvent();
-                    event.setMessageId(messageId);
-                    event.setRawFrom(rawFrom);
-                    event.setRawTo(rawTo);
-                    event.setRawSubject(rawSubject);
-                    event.setMailboxId(mailboxId);
-                    event.setReceivedAt(receivedAt != null ? receivedAt : Instant.now());
+                    event.setMessageId(data.messageId());
+                    event.setRawFrom(data.rawFrom());
+                    event.setRawTo(data.rawTo());
+                    event.setInReplyTo(data.inReplyTo());
+                    event.setRawReferences(IngressEmailData.referencesToRaw(data.references()));
+                    event.setRawReplyTo(data.replyTo());
+                    event.setRawCc(data.rawCc());
+                    event.setRawSubject(data.rawSubject());
+                    event.setTextBody(data.textBody());
+                    event.setHtmlBody(data.htmlBody());
+                    event.setMailboxId(data.mailboxId());
+                    event.setEnvelopeRecipient(data.envelopeRecipient());
+                    event.setReceivedAt(data.receivedAt() != null ? data.receivedAt() : Instant.now());
                     event.setStatus(IngressEventStatus.RECEIVED);
                     EmailIngressEvent saved = eventRepository.save(event);
                     log.info("Ingress event stored — eventId: {}, messageId: '{}'",
-                            saved.getId(), messageId);
+                            saved.getId(), data.messageId());
                     metrics.inboundReceived();
                     return saved;
                 });
@@ -210,16 +221,41 @@ public class EmailIngressServiceImpl implements EmailIngressService {
     private Long createTicketFromEvent(EmailIngressEvent event, Long customerId) {
         String subject = event.getRawSubject();
         if (subject == null || subject.isBlank()) subject = "(no subject)";
+
         Ticket ticket = new Ticket();
         ticket.setTicketNo(String.format("TKT-%07d", ticketRepository.nextTicketSeq()));
         ticket.setSubject(subject);
-        ticket.setStatus(TicketStatus.NEW);
-        ticket.setPriority(TicketPriority.MEDIUM);
         ticket.setCustomerId(customerId);
+
+        // Apply customer defaults from CustomerEmailSettings
+        applyCustomerDefaults(ticket, customerId);
+
         Ticket saved = ticketRepository.save(ticket);
         historyService.recordCreated(saved.getId(), null);
-        log.info("Ticket {} created from ingress event {}", saved.getId(), event.getId());
+        log.info("Ticket {} created from ingress event {} — customerId: {}",
+                saved.getId(), event.getId(), customerId);
         return saved.getId();
+    }
+
+    private void applyCustomerDefaults(Ticket ticket, Long customerId) {
+        ticket.setStatus(TicketStatus.NEW);
+        ticket.setPriority(TicketPriority.MEDIUM);
+
+        if (customerId == null) return;
+
+        settingsRepository.findByCustomerId(customerId).ifPresent(settings -> {
+            if (settings.getDefaultPriority() != null) {
+                try {
+                    ticket.setPriority(TicketPriority.valueOf(settings.getDefaultPriority()));
+                } catch (IllegalArgumentException e) {
+                    log.warn("Invalid defaultPriority '{}' in CustomerEmailSettings for customerId {} — using MEDIUM",
+                            settings.getDefaultPriority(), customerId);
+                }
+            }
+            if (settings.getDefaultGroupId() != null) {
+                ticket.setAssignedGroupId(settings.getDefaultGroupId());
+            }
+        });
     }
 
     private String saveEmailDocument(EmailIngressEvent event, Long ticketId, Long customerId) {
@@ -229,15 +265,23 @@ public class EmailIngressServiceImpl implements EmailIngressService {
                 .orElseGet(() -> {
                     EmailDocument doc = new EmailDocument();
                     doc.setMessageId(event.getMessageId());
+                    doc.setInReplyTo(event.getInReplyTo());
+                    doc.setReferences(event.getReferencesList());
                     doc.setFrom(event.getRawFrom());
                     doc.setSubject(event.getRawSubject());
+                    doc.setTextBody(event.getTextBody());
+                    doc.setHtmlBody(event.getHtmlBody());
                     doc.setReceivedAt(event.getReceivedAt());
                     doc.setParsedAt(Instant.now());
                     doc.setTicketId(ticketId);
                     doc.setCustomerId(customerId);
                     doc.setMailboxId(event.getMailboxId());
                     doc.setDirection(EmailDirection.INBOUND);
-                    doc.setThreadKey(threadingService.resolveThreadKey(null, null, event.getMessageId()));
+                    // Resolve thread key using actual headers from the event
+                    doc.setThreadKey(threadingService.resolveThreadKey(
+                            event.getInReplyTo(),
+                            event.getReferencesList(),
+                            event.getMessageId()));
                     EmailDocument saved = documentRepository.save(doc);
                     event.setDocumentId(saved.getId());
                     return saved.getId();

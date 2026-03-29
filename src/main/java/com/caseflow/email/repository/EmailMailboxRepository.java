@@ -11,4 +11,6 @@ public interface EmailMailboxRepository extends JpaRepository<EmailMailbox, Long
     Optional<EmailMailbox> findByAddress(String address);
 
     List<EmailMailbox> findAllByIsActiveTrue();
+
+    List<EmailMailbox> findAllByIsActiveTrueAndPollingEnabledTrue();
 }

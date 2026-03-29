@@ -40,6 +40,8 @@ public class EmailMailboxService {
         existing.setIsActive(updates.getIsActive());
         existing.setDefaultGroupId(updates.getDefaultGroupId());
         existing.setDefaultPriority(updates.getDefaultPriority());
+
+        // SMTP — only update password if a new one is provided
         existing.setSmtpHost(updates.getSmtpHost());
         existing.setSmtpPort(updates.getSmtpPort());
         existing.setSmtpUsername(updates.getSmtpUsername());
@@ -47,6 +49,19 @@ public class EmailMailboxService {
             existing.setSmtpPassword(updates.getSmtpPassword());
         }
         existing.setSmtpUseSsl(updates.getSmtpUseSsl());
+
+        // IMAP — only update password if a new one is provided
+        existing.setImapHost(updates.getImapHost());
+        existing.setImapPort(updates.getImapPort());
+        existing.setImapUsername(updates.getImapUsername());
+        if (updates.getImapPassword() != null) {
+            existing.setImapPassword(updates.getImapPassword());
+        }
+        existing.setImapUseSsl(updates.getImapUseSsl());
+        existing.setImapFolder(updates.getImapFolder());
+        existing.setPollingEnabled(updates.getPollingEnabled());
+        existing.setPollIntervalSeconds(updates.getPollIntervalSeconds());
+
         EmailMailbox saved = mailboxRepository.save(existing);
         log.info("Mailbox updated — id: {}", id);
         return saved;
@@ -90,6 +105,11 @@ public class EmailMailboxService {
     @Transactional(readOnly = true)
     public List<EmailMailbox> findActive() {
         return mailboxRepository.findAllByIsActiveTrue();
+    }
+
+    @Transactional(readOnly = true)
+    public List<EmailMailbox> findPollingEnabled() {
+        return mailboxRepository.findAllByIsActiveTrueAndPollingEnabledTrue();
     }
 
     private EmailMailbox findOrThrow(Long id) {

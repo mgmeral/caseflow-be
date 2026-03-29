@@ -16,10 +16,7 @@ public class CustomerEmailSettingsMapper {
     public CustomerEmailSettings toEntity(CustomerEmailSettingsRequest request) {
         CustomerEmailSettings settings = new CustomerEmailSettings();
         settings.setUnknownSenderPolicy(request.unknownSenderPolicy());
-        settings.setMatchingStrategy(request.matchingStrategy());
         settings.setIsActive(request.isActive() != null ? request.isActive() : Boolean.TRUE);
-        settings.setTrustedContactsOnly(request.trustedContactsOnly() != null ? request.trustedContactsOnly() : Boolean.FALSE);
-        settings.setAutoCreateContact(request.autoCreateContact() != null ? request.autoCreateContact() : Boolean.FALSE);
         settings.setAllowSubdomains(request.allowSubdomains() != null ? request.allowSubdomains() : Boolean.FALSE);
         settings.setDefaultGroupId(request.defaultGroupId());
         settings.setDefaultPriority(request.defaultPriority());
@@ -32,10 +29,7 @@ public class CustomerEmailSettingsMapper {
                 settings.getId(),
                 settings.getCustomerId(),
                 settings.getUnknownSenderPolicy(),
-                settings.getMatchingStrategy(),
                 settings.getIsActive(),
-                settings.getTrustedContactsOnly(),
-                settings.getAutoCreateContact(),
                 settings.getAllowSubdomains(),
                 settings.getDefaultGroupId(),
                 settings.getDefaultPriority(),

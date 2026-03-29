@@ -10,6 +10,8 @@ public record IngressEventResponse(
         String messageId,
         String rawFrom,
         String rawSubject,
+        String inReplyTo,
+        String rawReplyTo,
         Instant receivedAt,
         IngressEventStatus status,
         String failureReason,

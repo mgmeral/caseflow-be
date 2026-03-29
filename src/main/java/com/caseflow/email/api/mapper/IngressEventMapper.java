@@ -16,6 +16,8 @@ public class IngressEventMapper {
                 event.getMessageId(),
                 event.getRawFrom(),
                 event.getRawSubject(),
+                event.getInReplyTo(),
+                event.getRawReplyTo(),
                 event.getReceivedAt(),
                 event.getStatus(),
                 event.getFailureReason(),

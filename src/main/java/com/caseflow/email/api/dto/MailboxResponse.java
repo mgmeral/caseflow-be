@@ -6,6 +6,9 @@ import com.caseflow.email.domain.ProviderType;
 
 import java.time.Instant;
 
+/**
+ * Mailbox API response — passwords (SMTP and IMAP) are never exposed.
+ */
 public record MailboxResponse(
         Long id,
         String name,
@@ -17,10 +20,25 @@ public record MailboxResponse(
         Boolean isActive,
         Long defaultGroupId,
         String defaultPriority,
+
+        // SMTP (no password)
         String smtpHost,
         Integer smtpPort,
         String smtpUsername,
         Boolean smtpUseSsl,
+
+        // IMAP polling (no password)
+        String imapHost,
+        Integer imapPort,
+        String imapUsername,
+        Boolean imapUseSsl,
+        String imapFolder,
+        Boolean pollingEnabled,
+        Integer pollIntervalSeconds,
+        Long lastSeenUid,
+        Instant lastPollAt,
+        String lastPollError,
+
         Instant lastSuccessfulInboundAt,
         Instant lastSuccessfulOutboundAt,
         Instant createdAt,

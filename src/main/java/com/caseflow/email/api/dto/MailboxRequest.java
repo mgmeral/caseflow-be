@@ -32,9 +32,20 @@ public record MailboxRequest(
         Long defaultGroupId,
         String defaultPriority,
 
+        // SMTP outbound
         String smtpHost,
         Integer smtpPort,
         String smtpUsername,
         String smtpPassword,
-        Boolean smtpUseSsl
+        Boolean smtpUseSsl,
+
+        // IMAP inbound polling
+        String imapHost,
+        Integer imapPort,
+        String imapUsername,
+        String imapPassword,
+        Boolean imapUseSsl,
+        String imapFolder,
+        Boolean pollingEnabled,
+        Integer pollIntervalSeconds
 ) {}

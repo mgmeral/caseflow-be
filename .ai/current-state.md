@@ -1,13 +1,13 @@
 # CaseFlow — Current State
 
-**Last updated:** 2026-03-29 (V7 — P2 burndown + P3 quality items)
+**Last updated:** 2026-03-29 (V8 — customer-based routing, IMAP MVP, enriched ingress)
 
 ---
 
 ## Build Status
 
 - **Main compile:** PASSING
-- **Tests:** 240/240 PASSING
+- **Tests:** 249/249 PASSING (est. — +9 from V8: ImapMailboxPollerTest 8 + EmailRoutingServiceTest expanded)
 - **Docker image:** Builds successfully (multi-stage, eclipse-temurin:21-jre-alpine)
 - **docker-compose config:** VALID (app + postgres + mongo + minio)
 - **CI pipeline:** GitHub Actions (`.github/workflows/ci.yml`) — build/test/docker
@@ -23,9 +23,10 @@
 - V5 JPA entities: EmailMailbox, EmailIngressEvent, OutboundEmailDispatch, CustomerEmailSettings, CustomerEmailRoutingRule
 - MongoDB document: EmailDocument (+ direction, mailboxId, customerId, providerEventId, bodyPreview)
 - V9 migration: email platform tables (mailboxes, ingress events, dispatches, customer email settings, routing rules, attachment source_type column)
-- **V10 migration:** mailbox operational metadata columns (displayName, defaultGroupId, defaultPriority, lastSuccessfulInboundAt, lastSuccessfulOutboundAt), customer_email_settings extended columns (trustedContactsOnly, autoCreateContact, allowSubdomains, defaultGroupId, defaultPriority), V6 permission seeds for all starter roles
+- **V10 migration:** mailbox operational metadata columns (displayName, defaultGroupId, defaultPriority, lastSuccessfulInboundAt, lastSuccessfulOutboundAt), customer_email_settings extended columns (allowSubdomains, defaultGroupId, defaultPriority), V6 permission seeds for all starter roles
 - **V11 migration:** `ticket_no_seq` PostgreSQL sequence for collision-free sequential ticket numbers (`TKT-0000001` format)
 - **V12 migration:** `updated_at` column on `customer_email_routing_rules` + `@PreUpdate` lifecycle hook
+- **V13 migration:** IMAP columns on `email_mailboxes` (imapHost/Port/Username/Password/UseSsl/Folder, pollingEnabled, pollIntervalSeconds, lastSeenUid, lastPollAt, lastPollError); threading/body columns on `email_ingress_events` (inReplyTo, rawReferences, rawReplyTo, rawCc, textBody, htmlBody, envelopeRecipient); DROP contact-centric columns from `customer_email_settings` (matchingStrategy, trustedContactsOnly, autoCreateContact)
 - All Spring Data repositories in place including SKIP LOCKED queries for workers
 
 ### Service Layer
@@ -37,12 +38,12 @@
 - TransferService — transfer/history
 - TicketHistoryService — all history recording methods
 - TicketStateMachineService — validated state transitions
-- EmailProcessingServiceImpl — legacy single-stage ingestion (still wired for backward compatibility)
+- ~~EmailProcessingServiceImpl~~ — **deleted in V8** (was using ContactRepository for routing; replaced by two-stage pipeline)
 - EmailDocumentQueryService — read-only email queries
 - AttachmentService — metadata management + binary upload/download via ObjectStorageService
 - **V5 email platform:**
   - EmailIngressService (two-stage pipeline: receiveEvent → processEvent, idempotent)
-  - EmailRoutingService (deterministic routing: exact-email rule → domain rule → contact match → policy)
+  - EmailRoutingService (customer-based routing: thread → exact-email rule → domain rule → policy; **no contact lookup**)
   - EmailThreadingService (In-Reply-To → References → messageId chain)
   - LoopDetectionService (auto-reply/bounce/mailer-daemon detection)
   - EmailMailboxService (mailbox CRUD)
@@ -56,6 +57,7 @@
   - OutboundDispatchScheduler (SKIP LOCKED batch worker, sends PENDING + retries FAILED)
   - **V6 additions:** `quarantineEvent(id, reason)` + `releaseEvent(id)` on EmailIngressService; `EmailMailboxService.activate/deactivate`; `CustomerEmailSettingsService.updateRule`; `EmailDispatchService.getById`; `EmailIngressEventQueryService.findByMailboxId`
   - **V7 additions:** `EmailIngressServiceImpl` stamps `lastSuccessfulInboundAt` on mailbox after CREATE_TICKET/LINK_TO_TICKET; `OutboundDispatchScheduler` stamps `lastSuccessfulOutboundAt` via `findByAddress`; `EmailIngressEventQueryService.searchPaged()` for paginated list; `TicketRepository.nextTicketSeq()` native query
+  - **V8 additions:** `IngressEmailData` record (13-field data carrier for receiveEvent); `EmailIngressEvent` enriched with threading headers (inReplyTo, rawReferences, rawReplyTo, rawCc) and body fields (textBody, htmlBody, envelopeRecipient); `EmailMailbox` IMAP fields (11 columns); `ImapMailboxPoller` (UID-based polling, duplicate-safe, parses multipart); `ImapPollingScheduler` (@Scheduled, per-mailbox interval check); `EmailMailboxService.findPollingEnabled()`; routing threading bug fixed (was passing null,null — now passes actual headers); `EmailIngressServiceImpl.applyCustomerDefaults()` applies defaultPriority/defaultGroupId from CustomerEmailSettings
 
 ### API Layer
 - 15 REST controllers (Auth, Ticket, Customer, Contact, User, Group, Note, Assignment, Transfer, EmailDocument, Attachment, MailboxController, IngressEventController, TicketEmailController, CustomerEmailSettingsController)

@@ -10,7 +10,6 @@ import com.caseflow.customer.api.dto.RoutingRuleRequest;
 import com.caseflow.customer.api.dto.RoutingRuleResponse;
 import com.caseflow.customer.api.mapper.CustomerEmailSettingsMapper;
 import com.caseflow.customer.domain.CustomerEmailSettings;
-import com.caseflow.customer.domain.MatchingStrategy;
 import com.caseflow.customer.domain.SenderMatchType;
 import com.caseflow.customer.service.CustomerEmailSettingsService;
 import com.caseflow.ticket.security.TicketAuthorizationService;
@@ -94,9 +93,10 @@ class CustomerEmailSettingsControllerTest {
     @Test
     @WithMockUser(authorities = "PERM_EMAIL_CONFIG_MANAGE")
     void upsert_returns200() throws Exception {
+        // Customer-based settings — no matchingStrategy or contact fields
         CustomerEmailSettingsRequest request = new CustomerEmailSettingsRequest(
-                UnknownSenderPolicy.MANUAL_REVIEW, MatchingStrategy.CONTACT_FIRST,
-                true, false, false, false, null, null);
+                UnknownSenderPolicy.MANUAL_REVIEW,
+                true, false, null, null);
         CustomerEmailSettings settings = new CustomerEmailSettings();
         when(mapper.toEntity(any())).thenReturn(settings);
         when(settingsService.upsert(anyLong(), any())).thenReturn(settings);
@@ -115,8 +115,8 @@ class CustomerEmailSettingsControllerTest {
     @WithMockUser(authorities = "PERM_EMAIL_CONFIG_VIEW")
     void upsert_returns403_withReadOnlyPermission() throws Exception {
         CustomerEmailSettingsRequest request = new CustomerEmailSettingsRequest(
-                UnknownSenderPolicy.MANUAL_REVIEW, MatchingStrategy.CONTACT_FIRST,
-                true, false, false, false, null, null);
+                UnknownSenderPolicy.MANUAL_REVIEW,
+                true, false, null, null);
 
         mockMvc.perform(put("/api/customers/1/email-settings")
                         .with(csrf())
@@ -179,8 +179,8 @@ class CustomerEmailSettingsControllerTest {
     private CustomerEmailSettingsResponse makeSettingsResponse(Long customerId) {
         return new CustomerEmailSettingsResponse(
                 1L, customerId,
-                UnknownSenderPolicy.MANUAL_REVIEW, MatchingStrategy.CONTACT_FIRST,
-                true, false, false, false, null, null,
+                UnknownSenderPolicy.MANUAL_REVIEW,
+                true, false, null, null,
                 Instant.now(), List.of());
     }
 

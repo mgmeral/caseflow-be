@@ -1,13 +1,9 @@
 package com.caseflow.email.service;
 
 import com.caseflow.common.domain.UnknownSenderPolicy;
-import com.caseflow.customer.domain.Contact;
-import com.caseflow.customer.domain.Customer;
 import com.caseflow.customer.domain.CustomerEmailRoutingRule;
 import com.caseflow.customer.domain.CustomerEmailSettings;
-import com.caseflow.customer.domain.MatchingStrategy;
 import com.caseflow.customer.domain.SenderMatchType;
-import com.caseflow.customer.repository.ContactRepository;
 import com.caseflow.customer.repository.CustomerEmailRoutingRuleRepository;
 import com.caseflow.customer.repository.CustomerEmailSettingsRepository;
 import com.caseflow.email.domain.EmailIngressEvent;
@@ -24,15 +20,19 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.lenient;
-import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+/**
+ * Tests for the customer-based routing algorithm.
+ *
+ * Routing is contact-free — no ContactRepository.
+ * Precedence: thread → exact-email rule → domain rule → policy.
+ */
 @ExtendWith(MockitoExtension.class)
 class EmailRoutingServiceTest {
 
-    @Mock private ContactRepository contactRepository;
     @Mock private CustomerEmailSettingsRepository settingsRepository;
     @Mock private CustomerEmailRoutingRuleRepository routingRuleRepository;
     @Mock private EmailThreadingService threadingService;
@@ -42,24 +42,22 @@ class EmailRoutingServiceTest {
 
     @BeforeEach
     void defaultStubs() {
-        // No rules, no contacts, no settings by default
         lenient().when(routingRuleRepository.findAll()).thenReturn(List.of());
-        lenient().when(contactRepository.findByEmail(anyString())).thenReturn(Optional.empty());
         lenient().when(settingsRepository.findAll()).thenReturn(List.of());
-        lenient().when(threadingService.resolveTicketId(anyString(), any())).thenReturn(Optional.empty());
+        lenient().when(threadingService.resolveTicketId(any(), any())).thenReturn(Optional.empty());
     }
 
-    // ── Contact email match → CREATE_TICKET ───────────────────────────────────
+    // ── Thread resolution → LINK_TO_TICKET ───────────────────────────────────
 
     @Test
-    void route_createsTicket_forKnownContactEmail() {
-        Contact contact = contactWithCustomer("john@acme.com", 10L);
-        when(contactRepository.findByEmail("john@acme.com")).thenReturn(Optional.of(contact));
+    void route_linksToTicket_whenThreadResolvesViaInReplyTo() {
+        when(threadingService.resolveTicketId(any(), any())).thenReturn(Optional.of(77L));
+        EmailIngressEvent event = eventWithInReplyTo("reply@example.com", "<parent@example.com>");
 
-        RoutingResult result = routingService.route(event("john@acme.com"));
+        RoutingResult result = routingService.route(event);
 
-        assertEquals(RoutingResult.Action.CREATE_TICKET, result.action());
-        assertEquals(10L, result.customerId());
+        assertEquals(RoutingResult.Action.LINK_TO_TICKET, result.action());
+        assertEquals(77L, result.ticketId());
     }
 
     // ── Exact-email routing rule → CREATE_TICKET ──────────────────────────────
@@ -67,6 +65,17 @@ class EmailRoutingServiceTest {
     @Test
     void route_createsTicket_forExactEmailRule() {
         CustomerEmailRoutingRule rule = rule(5L, SenderMatchType.EXACT_EMAIL, "support@bigcorp.com", 10);
+        when(routingRuleRepository.findAll()).thenReturn(List.of(rule));
+
+        RoutingResult result = routingService.route(event("support@bigcorp.com"));
+
+        assertEquals(RoutingResult.Action.CREATE_TICKET, result.action());
+        assertEquals(5L, result.customerId());
+    }
+
+    @Test
+    void route_exactEmailRule_isCaseInsensitive() {
+        CustomerEmailRoutingRule rule = rule(5L, SenderMatchType.EXACT_EMAIL, "SUPPORT@BIGCORP.COM", 10);
         when(routingRuleRepository.findAll()).thenReturn(List.of(rule));
 
         RoutingResult result = routingService.route(event("support@bigcorp.com"));
@@ -88,13 +97,58 @@ class EmailRoutingServiceTest {
         assertEquals(7L, result.customerId());
     }
 
-    // ── Unknown sender + MANUAL_REVIEW → QUARANTINE ───────────────────────────
+    @Test
+    void route_domainRule_handlesLeadingAtSign() {
+        CustomerEmailRoutingRule rule = rule(7L, SenderMatchType.DOMAIN, "@bigcorp.com", 20);
+        when(routingRuleRepository.findAll()).thenReturn(List.of(rule));
+
+        RoutingResult result = routingService.route(event("contact@bigcorp.com"));
+
+        assertEquals(RoutingResult.Action.CREATE_TICKET, result.action());
+        assertEquals(7L, result.customerId());
+    }
+
+    // ── Multiple sender domains → same customer ───────────────────────────────
+
+    @Test
+    void route_multipleDomainRules_sameCustomer_bothRoute() {
+        Long akbankId = 42L;
+        CustomerEmailRoutingRule rule1 = rule(akbankId, SenderMatchType.DOMAIN, "akbank.com", 10);
+        CustomerEmailRoutingRule rule2 = rule(akbankId, SenderMatchType.DOMAIN, "info-akbank.com.tr", 10);
+        when(routingRuleRepository.findAll()).thenReturn(List.of(rule1, rule2));
+
+        RoutingResult r1 = routingService.route(event("ops@akbank.com"));
+        RoutingResult r2 = routingService.route(event("noreply@info-akbank.com.tr"));
+
+        assertEquals(RoutingResult.Action.CREATE_TICKET, r1.action());
+        assertEquals(akbankId, r1.customerId());
+        assertEquals(RoutingResult.Action.CREATE_TICKET, r2.action());
+        assertEquals(akbankId, r2.customerId());
+    }
+
+    // ── Exact beats domain (specificity) ─────────────────────────────────────
+
+    @Test
+    void route_exactEmailRule_winsOverDomainRule() {
+        // Two customers: exact rule for ops@bigcorp.com → customer 5
+        // Domain rule for bigcorp.com → customer 7
+        CustomerEmailRoutingRule exactRule = rule(5L, SenderMatchType.EXACT_EMAIL, "ops@bigcorp.com", 100);
+        CustomerEmailRoutingRule domainRule = rule(7L, SenderMatchType.DOMAIN, "bigcorp.com", 10);
+        when(routingRuleRepository.findAll()).thenReturn(List.of(domainRule, exactRule));
+
+        RoutingResult result = routingService.route(event("ops@bigcorp.com"));
+
+        // Exact-email rules are evaluated before domain rules regardless of priority order
+        assertEquals(RoutingResult.Action.CREATE_TICKET, result.action());
+        assertEquals(5L, result.customerId());
+    }
+
+    // ── No match → unknown sender policy ─────────────────────────────────────
 
     @Test
     void route_quarantines_whenNoMatchAndManualReviewPolicy() {
         CustomerEmailSettings settings = new CustomerEmailSettings();
         settings.setUnknownSenderPolicy(UnknownSenderPolicy.MANUAL_REVIEW);
-        settings.setMatchingStrategy(MatchingStrategy.CONTACT_FIRST);
         settings.setIsActive(true);
         when(settingsRepository.findAll()).thenReturn(List.of(settings));
 
@@ -103,13 +157,10 @@ class EmailRoutingServiceTest {
         assertEquals(RoutingResult.Action.QUARANTINE, result.action());
     }
 
-    // ── Unknown sender + IGNORE → IGNORE ─────────────────────────────────────
-
     @Test
     void route_ignores_whenNoMatchAndIgnorePolicy() {
         CustomerEmailSettings settings = new CustomerEmailSettings();
         settings.setUnknownSenderPolicy(UnknownSenderPolicy.IGNORE);
-        settings.setMatchingStrategy(MatchingStrategy.CONTACT_FIRST);
         settings.setIsActive(true);
         when(settingsRepository.findAll()).thenReturn(List.of(settings));
 
@@ -118,14 +169,40 @@ class EmailRoutingServiceTest {
         assertEquals(RoutingResult.Action.IGNORE, result.action());
     }
 
-    // ── Unknown sender with no settings → QUARANTINE (default) ───────────────
-
     @Test
     void route_quarantines_byDefault_whenNoSettingsConfigured() {
         RoutingResult result = routingService.route(event("stranger@unknown.com"));
 
         assertEquals(RoutingResult.Action.QUARANTINE, result.action());
         assertNull(result.customerId());
+    }
+
+    // ── Display-name in From address is stripped ──────────────────────────────
+
+    @Test
+    void route_normalizesDisplayNameInFrom() {
+        CustomerEmailRoutingRule rule = rule(3L, SenderMatchType.EXACT_EMAIL, "alice@acme.com", 10);
+        when(routingRuleRepository.findAll()).thenReturn(List.of(rule));
+
+        // From header with display name
+        RoutingResult result = routingService.route(event("Alice Smith <alice@acme.com>"));
+
+        assertEquals(RoutingResult.Action.CREATE_TICKET, result.action());
+        assertEquals(3L, result.customerId());
+    }
+
+    // ── Contact is NOT required ───────────────────────────────────────────────
+
+    @Test
+    void route_doesNotRequireContactForResolution() {
+        // Domain rule should work with no contacts table involved
+        CustomerEmailRoutingRule rule = rule(9L, SenderMatchType.DOMAIN, "newcorp.com", 10);
+        when(routingRuleRepository.findAll()).thenReturn(List.of(rule));
+
+        RoutingResult result = routingService.route(event("unknown.sender@newcorp.com"));
+
+        assertEquals(RoutingResult.Action.CREATE_TICKET, result.action());
+        assertEquals(9L, result.customerId());
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
@@ -138,12 +215,10 @@ class EmailRoutingServiceTest {
         return e;
     }
 
-    private Contact contactWithCustomer(String email, Long customerId) {
-        Customer customer = mock(Customer.class);
-        when(customer.getId()).thenReturn(customerId);
-        Contact contact = mock(Contact.class);
-        when(contact.getCustomer()).thenReturn(customer);
-        return contact;
+    private EmailIngressEvent eventWithInReplyTo(String from, String inReplyTo) {
+        EmailIngressEvent e = event(from);
+        e.setInReplyTo(inReplyTo);
+        return e;
     }
 
     private CustomerEmailRoutingRule rule(Long customerId, SenderMatchType type, String value, int priority) {
@@ -154,9 +229,5 @@ class EmailRoutingServiceTest {
         rule.setPriority(priority);
         rule.setIsActive(true);
         return rule;
-    }
-
-    private static <T> T any() {
-        return org.mockito.ArgumentMatchers.any();
     }
 }

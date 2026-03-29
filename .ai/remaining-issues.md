@@ -1,6 +1,6 @@
 # CaseFlow — Remaining Issues
 
-**Last updated:** 2026-03-29 (V7 pass — P2 all resolved, P3 partial)
+**Last updated:** 2026-03-29 (V8 — customer-based routing, IMAP MVP, contact removal)
 
 ---
 
@@ -43,6 +43,20 @@
 - ✅ V10 Flyway migration for new columns and permission seeds
 - ✅ 202/202 tests passing (33 new: MailboxControllerTest expanded, IngressEventControllerTest, TicketEmailControllerTest, CustomerEmailSettingsControllerTest, EmailIngressServiceTest quarantine/release)
 - ✅ docs/frontend-contract.md fully updated with V6 permission model and all email endpoints
+
+## Resolved in V8
+
+- ✅ **Contact-based routing removed** — `EmailRoutingService` no longer calls `ContactRepository.findByEmail()`; routing is purely customer-rule-based (CustomerEmailRoutingRule)
+- ✅ **Threading null/null bug fixed** — routing and ingress services now pass `event.getInReplyTo()` + `event.getReferencesList()` to `threadingService`; threading headers are persisted on `EmailIngressEvent`
+- ✅ **`IngressEmailData` record** — replaces 6-param `receiveEvent` signature; carries all 13 fields (headers, body, envelope)
+- ✅ **`EmailIngressEvent` enriched** — added inReplyTo, rawReferences, rawReplyTo, rawCc, textBody, htmlBody, envelopeRecipient; helper methods `getReferencesList()` and `effectiveReplyTo()`
+- ✅ **Contact-centric `CustomerEmailSettings` fields removed** — matchingStrategy, trustedContactsOnly, autoCreateContact dropped from entity, DTOs, mapper, service, and V13 migration
+- ✅ **`MatchingStrategy` enum deleted** — was obsolete after contact-based routing was removed
+- ✅ **Legacy `EmailProcessingServiceImpl` deleted** — was using `ContactRepository` for routing; entirely replaced by two-stage pipeline
+- ✅ **IMAP MVP** — `EmailMailbox` extended with 11 IMAP columns; `ImapMailboxPoller` (UID-based, duplicate-safe, multipart parsing); `ImapPollingScheduler` (@Scheduled, per-mailbox interval)
+- ✅ **Customer defaults applied to inbound tickets** — `applyCustomerDefaults()` reads `CustomerEmailSettings.defaultPriority` + `defaultGroupId` when creating tickets from email
+- ✅ **V13 Flyway migration** — IMAP columns, ingress enrichment columns, drop of 3 contact-centric settings columns
+- ✅ **Test suite updated** — `EmailRoutingServiceTest` (removed ContactRepository mock, 8 new routing tests), `EmailIngressServiceTest` (IngressEmailData signature), `CustomerEmailSettingsControllerTest` (no MatchingStrategy), `ImapMailboxPollerTest` (8 guard + failure tests)
 
 ---
 

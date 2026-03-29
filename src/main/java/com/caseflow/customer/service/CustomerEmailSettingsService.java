@@ -36,10 +36,7 @@ public class CustomerEmailSettingsService {
                     return s;
                 });
         existing.setUnknownSenderPolicy(settings.getUnknownSenderPolicy());
-        existing.setMatchingStrategy(settings.getMatchingStrategy());
         existing.setIsActive(settings.getIsActive());
-        existing.setTrustedContactsOnly(settings.getTrustedContactsOnly());
-        existing.setAutoCreateContact(settings.getAutoCreateContact());
         existing.setAllowSubdomains(settings.getAllowSubdomains());
         existing.setDefaultGroupId(settings.getDefaultGroupId());
         existing.setDefaultPriority(settings.getDefaultPriority());

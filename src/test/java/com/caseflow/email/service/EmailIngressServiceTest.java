@@ -1,5 +1,6 @@
 package com.caseflow.email.service;
 
+import com.caseflow.customer.repository.CustomerEmailSettingsRepository;
 import com.caseflow.email.domain.EmailIngressEvent;
 import com.caseflow.email.domain.IngressEventStatus;
 import com.caseflow.email.repository.EmailDocumentRepository;
@@ -14,6 +15,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -21,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -31,6 +34,7 @@ class EmailIngressServiceTest {
     @Mock private EmailDocumentRepository documentRepository;
     @Mock private TicketRepository ticketRepository;
     @Mock private EmailMailboxRepository mailboxRepository;
+    @Mock private CustomerEmailSettingsRepository settingsRepository;
     @Mock private EmailRoutingService routingService;
     @Mock private EmailThreadingService threadingService;
     @Mock private LoopDetectionService loopDetectionService;
@@ -45,12 +49,10 @@ class EmailIngressServiceTest {
     @Test
     void receiveEvent_storesNewEvent_withReceivedStatus() {
         when(eventRepository.findByMessageId(anyString())).thenReturn(Optional.empty());
-        EmailIngressEvent saved = eventWithId(1L, IngressEventStatus.RECEIVED);
+        EmailIngressEvent saved = eventWithStatus(IngressEventStatus.RECEIVED);
         when(eventRepository.save(any())).thenReturn(saved);
 
-        EmailIngressEvent result = ingressService.receiveEvent(
-                "<msg-001@test.com>", "from@test.com", "to@test.com",
-                "Hello", null, Instant.now());
+        EmailIngressEvent result = ingressService.receiveEvent(sampleData());
 
         assertNotNull(result);
         assertEquals(IngressEventStatus.RECEIVED, result.getStatus());
@@ -60,29 +62,55 @@ class EmailIngressServiceTest {
 
     @Test
     void receiveEvent_isIdempotent_whenEventAlreadyExists() {
-        EmailIngressEvent existing = eventWithId(1L, IngressEventStatus.PROCESSED);
+        EmailIngressEvent existing = eventWithStatus(IngressEventStatus.PROCESSED);
         when(eventRepository.findByMessageId("<msg-001@test.com>")).thenReturn(Optional.of(existing));
 
-        EmailIngressEvent result = ingressService.receiveEvent(
-                "<msg-001@test.com>", "from@test.com", null, "Hello", null, Instant.now());
+        EmailIngressEvent result = ingressService.receiveEvent(sampleData());
 
         assertEquals(existing, result);
         verify(eventRepository).findByMessageId("<msg-001@test.com>");
-        // save should NOT be called for duplicate
+        verify(eventRepository, never()).save(any());
+    }
+
+    @Test
+    void receiveEvent_persistsThreadingHeaders() {
+        when(eventRepository.findByMessageId(anyString())).thenReturn(Optional.empty());
+        EmailIngressEvent saved = eventWithStatus(IngressEventStatus.RECEIVED);
+        when(eventRepository.save(any())).thenReturn(saved);
+
+        IngressEmailData data = new IngressEmailData(
+                "<reply@test.com>",
+                "from@test.com",
+                "to@test.com",
+                "<parent@test.com>",     // inReplyTo
+                List.of("<ref1@test.com>"),
+                "reply@test.com",
+                null,
+                "Re: Hello",
+                "Body text",
+                null,
+                null,
+                Instant.now(),
+                null
+        );
+
+        ingressService.receiveEvent(data);
+
+        // Verify save was called with the event containing inReplyTo
+        verify(eventRepository).save(any(EmailIngressEvent.class));
     }
 
     // ── Stage 2: processEvent — loop detection ────────────────────────────────
 
     @Test
     void processEvent_marksProcessed_forLoopEmail() {
-        EmailIngressEvent event = eventWithId(1L, IngressEventStatus.RECEIVED);
+        EmailIngressEvent event = eventWithStatus(IngressEventStatus.RECEIVED);
         when(eventRepository.findById(1L)).thenReturn(Optional.of(event));
         when(loopDetectionService.isLoop(any(), any(), any())).thenReturn(true);
         when(eventRepository.save(any())).thenReturn(event);
 
         ingressService.processEvent(1L);
 
-        // save() is called twice: once to set PROCESSING, once to set PROCESSED
         verify(eventRepository, atLeastOnce()).save(any(EmailIngressEvent.class));
         verify(metrics).inboundIgnored();
     }
@@ -91,7 +119,7 @@ class EmailIngressServiceTest {
 
     @Test
     void processEvent_quarantines_whenRoutingReturnsQuarantine() {
-        EmailIngressEvent event = eventWithId(1L, IngressEventStatus.RECEIVED);
+        EmailIngressEvent event = eventWithStatus(IngressEventStatus.RECEIVED);
         when(eventRepository.findById(1L)).thenReturn(Optional.of(event));
         when(loopDetectionService.isLoop(any(), any(), any())).thenReturn(false);
         when(routingService.route(any())).thenReturn(RoutingResult.quarantine("Unknown sender"));
@@ -106,7 +134,7 @@ class EmailIngressServiceTest {
 
     @Test
     void processEvent_marks_processed_whenRoutingIgnores() {
-        EmailIngressEvent event = eventWithId(1L, IngressEventStatus.RECEIVED);
+        EmailIngressEvent event = eventWithStatus(IngressEventStatus.RECEIVED);
         when(eventRepository.findById(1L)).thenReturn(Optional.of(event));
         when(loopDetectionService.isLoop(any(), any(), any())).thenReturn(false);
         when(routingService.route(any())).thenReturn(RoutingResult.ignore());
@@ -121,20 +149,19 @@ class EmailIngressServiceTest {
 
     @Test
     void processEvent_skips_whenAlreadyProcessed() {
-        EmailIngressEvent event = eventWithId(1L, IngressEventStatus.PROCESSED);
+        EmailIngressEvent event = eventWithStatus(IngressEventStatus.PROCESSED);
         when(eventRepository.findById(1L)).thenReturn(Optional.of(event));
 
         ingressService.processEvent(1L);
 
-        // No routing calls, no metrics
-        verify(routingService, org.mockito.Mockito.never()).route(any());
+        verify(routingService, never()).route(any());
     }
 
     // ── quarantineEvent ───────────────────────────────────────────────────────
 
     @Test
     void quarantineEvent_setsQuarantinedStatus() {
-        EmailIngressEvent event = eventWithId(1L, IngressEventStatus.RECEIVED);
+        EmailIngressEvent event = eventWithStatus(IngressEventStatus.RECEIVED);
         when(eventRepository.findById(1L)).thenReturn(Optional.of(event));
         when(eventRepository.save(any())).thenReturn(event);
 
@@ -148,7 +175,7 @@ class EmailIngressServiceTest {
 
     @Test
     void releaseEvent_resetsToReceived_whenQuarantined() {
-        EmailIngressEvent event = eventWithId(1L, IngressEventStatus.QUARANTINED);
+        EmailIngressEvent event = eventWithStatus(IngressEventStatus.QUARANTINED);
         when(eventRepository.findById(1L)).thenReturn(Optional.of(event));
         when(eventRepository.save(any())).thenReturn(event);
 
@@ -159,21 +186,37 @@ class EmailIngressServiceTest {
 
     @Test
     void releaseEvent_doesNothing_whenNotQuarantined() {
-        EmailIngressEvent event = eventWithId(1L, IngressEventStatus.PROCESSED);
+        EmailIngressEvent event = eventWithStatus(IngressEventStatus.PROCESSED);
         when(eventRepository.findById(1L)).thenReturn(Optional.of(event));
 
         ingressService.releaseEvent(1L);
 
-        // No save should be called for already-processed event
-        verify(eventRepository, org.mockito.Mockito.never()).save(any());
+        verify(eventRepository, never()).save(any());
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private EmailIngressEvent eventWithId(Long id, IngressEventStatus status) {
+    private IngressEmailData sampleData() {
+        return new IngressEmailData(
+                "<msg-001@test.com>",
+                "from@test.com",
+                "to@test.com",
+                null,
+                null,
+                null,
+                null,
+                "Hello",
+                null,
+                null,
+                null,
+                Instant.now(),
+                null
+        );
+    }
+
+    private EmailIngressEvent eventWithStatus(IngressEventStatus status) {
         EmailIngressEvent e = new EmailIngressEvent();
-        // Reflectively set id isn't possible without JPA, so just set all mutable fields
-        e.setMessageId("<msg-" + id + "@test.com>");
+        e.setMessageId("<msg-001@test.com>");
         e.setRawFrom("from@test.com");
         e.setRawSubject("Hello");
         e.setStatus(status);

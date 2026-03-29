@@ -14,6 +14,13 @@ import jakarta.persistence.Table;
 
 import java.time.Instant;
 
+/**
+ * Per-customer email routing policy.
+ *
+ * <p>Routing is customer-based: incoming emails are matched to customers via
+ * {@code CustomerEmailRoutingRule} entries. Contact records are not involved
+ * in routing decisions.
+ */
 @Entity
 @Table(name = "customer_email_settings")
 public class CustomerEmailSettings {
@@ -29,18 +36,8 @@ public class CustomerEmailSettings {
     @Column(name = "unknown_sender_policy", nullable = false, length = 50)
     private UnknownSenderPolicy unknownSenderPolicy = UnknownSenderPolicy.MANUAL_REVIEW;
 
-    @Enumerated(EnumType.STRING)
-    @Column(name = "matching_strategy", nullable = false, length = 50)
-    private MatchingStrategy matchingStrategy = MatchingStrategy.CONTACT_FIRST;
-
     @Column(name = "is_active", nullable = false)
     private Boolean isActive = Boolean.TRUE;
-
-    @Column(name = "trusted_contacts_only", nullable = false)
-    private Boolean trustedContactsOnly = Boolean.FALSE;
-
-    @Column(name = "auto_create_contact", nullable = false)
-    private Boolean autoCreateContact = Boolean.FALSE;
 
     @Column(name = "allow_subdomains", nullable = false)
     private Boolean allowSubdomains = Boolean.FALSE;
@@ -78,23 +75,8 @@ public class CustomerEmailSettings {
         this.unknownSenderPolicy = unknownSenderPolicy;
     }
 
-    public MatchingStrategy getMatchingStrategy() { return matchingStrategy; }
-    public void setMatchingStrategy(MatchingStrategy matchingStrategy) {
-        this.matchingStrategy = matchingStrategy;
-    }
-
     public Boolean getIsActive() { return isActive; }
     public void setIsActive(Boolean isActive) { this.isActive = isActive; }
-
-    public Boolean getTrustedContactsOnly() { return trustedContactsOnly; }
-    public void setTrustedContactsOnly(Boolean trustedContactsOnly) {
-        this.trustedContactsOnly = trustedContactsOnly;
-    }
-
-    public Boolean getAutoCreateContact() { return autoCreateContact; }
-    public void setAutoCreateContact(Boolean autoCreateContact) {
-        this.autoCreateContact = autoCreateContact;
-    }
 
     public Boolean getAllowSubdomains() { return allowSubdomains; }
     public void setAllowSubdomains(Boolean allowSubdomains) { this.allowSubdomains = allowSubdomains; }

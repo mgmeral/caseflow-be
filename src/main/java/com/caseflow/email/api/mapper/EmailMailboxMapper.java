@@ -21,15 +21,28 @@ public class EmailMailboxMapper {
         mailbox.setIsActive(request.isActive() != null ? request.isActive() : Boolean.TRUE);
         mailbox.setDefaultGroupId(request.defaultGroupId());
         mailbox.setDefaultPriority(request.defaultPriority());
+
+        // SMTP
         mailbox.setSmtpHost(request.smtpHost());
         mailbox.setSmtpPort(request.smtpPort());
         mailbox.setSmtpUsername(request.smtpUsername());
         mailbox.setSmtpPassword(request.smtpPassword());
         mailbox.setSmtpUseSsl(request.smtpUseSsl() != null ? request.smtpUseSsl() : Boolean.FALSE);
+
+        // IMAP
+        mailbox.setImapHost(request.imapHost());
+        mailbox.setImapPort(request.imapPort());
+        mailbox.setImapUsername(request.imapUsername());
+        mailbox.setImapPassword(request.imapPassword());
+        mailbox.setImapUseSsl(request.imapUseSsl() != null ? request.imapUseSsl() : Boolean.FALSE);
+        mailbox.setImapFolder(request.imapFolder() != null ? request.imapFolder() : "INBOX");
+        mailbox.setPollingEnabled(request.pollingEnabled() != null ? request.pollingEnabled() : Boolean.FALSE);
+        mailbox.setPollIntervalSeconds(request.pollIntervalSeconds() != null ? request.pollIntervalSeconds() : 60);
+
         return mailbox;
     }
 
-    /** Never exposes smtpPassword — passwords are write-only. */
+    /** Passwords (SMTP and IMAP) are write-only — never included in responses. */
     public MailboxResponse toResponse(EmailMailbox mailbox) {
         return new MailboxResponse(
                 mailbox.getId(),
@@ -46,6 +59,16 @@ public class EmailMailboxMapper {
                 mailbox.getSmtpPort(),
                 mailbox.getSmtpUsername(),
                 mailbox.getSmtpUseSsl(),
+                mailbox.getImapHost(),
+                mailbox.getImapPort(),
+                mailbox.getImapUsername(),
+                mailbox.getImapUseSsl(),
+                mailbox.getImapFolder(),
+                mailbox.getPollingEnabled(),
+                mailbox.getPollIntervalSeconds(),
+                mailbox.getLastSeenUid(),
+                mailbox.getLastPollAt(),
+                mailbox.getLastPollError(),
                 mailbox.getLastSuccessfulInboundAt(),
                 mailbox.getLastSuccessfulOutboundAt(),
                 mailbox.getCreatedAt(),

@@ -51,6 +51,8 @@ public class EmailMailbox {
     @Column(name = "default_priority", length = 50)
     private String defaultPriority;
 
+    // ── SMTP outbound ─────────────────────────────────────────────────────────
+
     @Column(name = "smtp_host")
     private String smtpHost;
 
@@ -65,6 +67,45 @@ public class EmailMailbox {
 
     @Column(name = "smtp_use_ssl", nullable = false)
     private Boolean smtpUseSsl = Boolean.FALSE;
+
+    // ── IMAP inbound polling ──────────────────────────────────────────────────
+
+    @Column(name = "imap_host")
+    private String imapHost;
+
+    @Column(name = "imap_port")
+    private Integer imapPort;
+
+    @Column(name = "imap_username")
+    private String imapUsername;
+
+    /** Write-only. Never exposed in API responses. */
+    @Column(name = "imap_password", length = 512)
+    private String imapPassword;
+
+    @Column(name = "imap_use_ssl", nullable = false)
+    private Boolean imapUseSsl = Boolean.FALSE;
+
+    @Column(name = "imap_folder", nullable = false)
+    private String imapFolder = "INBOX";
+
+    @Column(name = "polling_enabled", nullable = false)
+    private Boolean pollingEnabled = Boolean.FALSE;
+
+    @Column(name = "poll_interval_seconds", nullable = false)
+    private Integer pollIntervalSeconds = 60;
+
+    /** Last IMAP UID successfully seen, used to avoid reprocessing old messages. */
+    @Column(name = "last_seen_uid")
+    private Long lastSeenUid;
+
+    @Column(name = "last_poll_at")
+    private Instant lastPollAt;
+
+    @Column(name = "last_poll_error", columnDefinition = "TEXT")
+    private String lastPollError;
+
+    // ── Operational metadata ──────────────────────────────────────────────────
 
     @Column(name = "last_successful_inbound_at")
     private Instant lastSuccessfulInboundAt;
@@ -132,6 +173,39 @@ public class EmailMailbox {
 
     public Boolean getSmtpUseSsl() { return smtpUseSsl; }
     public void setSmtpUseSsl(Boolean smtpUseSsl) { this.smtpUseSsl = smtpUseSsl; }
+
+    public String getImapHost() { return imapHost; }
+    public void setImapHost(String imapHost) { this.imapHost = imapHost; }
+
+    public Integer getImapPort() { return imapPort; }
+    public void setImapPort(Integer imapPort) { this.imapPort = imapPort; }
+
+    public String getImapUsername() { return imapUsername; }
+    public void setImapUsername(String imapUsername) { this.imapUsername = imapUsername; }
+
+    public String getImapPassword() { return imapPassword; }
+    public void setImapPassword(String imapPassword) { this.imapPassword = imapPassword; }
+
+    public Boolean getImapUseSsl() { return imapUseSsl; }
+    public void setImapUseSsl(Boolean imapUseSsl) { this.imapUseSsl = imapUseSsl; }
+
+    public String getImapFolder() { return imapFolder; }
+    public void setImapFolder(String imapFolder) { this.imapFolder = imapFolder; }
+
+    public Boolean getPollingEnabled() { return pollingEnabled; }
+    public void setPollingEnabled(Boolean pollingEnabled) { this.pollingEnabled = pollingEnabled; }
+
+    public Integer getPollIntervalSeconds() { return pollIntervalSeconds; }
+    public void setPollIntervalSeconds(Integer pollIntervalSeconds) { this.pollIntervalSeconds = pollIntervalSeconds; }
+
+    public Long getLastSeenUid() { return lastSeenUid; }
+    public void setLastSeenUid(Long lastSeenUid) { this.lastSeenUid = lastSeenUid; }
+
+    public Instant getLastPollAt() { return lastPollAt; }
+    public void setLastPollAt(Instant lastPollAt) { this.lastPollAt = lastPollAt; }
+
+    public String getLastPollError() { return lastPollError; }
+    public void setLastPollError(String lastPollError) { this.lastPollError = lastPollError; }
 
     public Instant getLastSuccessfulInboundAt() { return lastSuccessfulInboundAt; }
     public void setLastSuccessfulInboundAt(Instant lastSuccessfulInboundAt) {

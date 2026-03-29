@@ -84,7 +84,7 @@ Package:
 
 Purpose:
 - Customer and contact management
-- Mapping incoming emails/tickets to customer context
+- Email routing configuration per customer
 
 Contains:
 - `domain`
@@ -96,17 +96,20 @@ Contains:
 Main domain objects:
 - `Customer`
 - `Contact`
+- `CustomerEmailSettings` (unknownSenderPolicy, allowSubdomains, defaultPriority, defaultGroupId)
+- `CustomerEmailRoutingRule` (EXACT_EMAIL / DOMAIN sender matching rules)
 
 Responsibilities:
 - Manage customer master data
 - Manage customer contacts
-- Resolve which contact/customer an email belongs to
-- Provide customer context for tickets
+- Own email routing rules that map incoming senders to customers
+- Provide customer context (defaultPriority, defaultGroupId) for inbound ticket creation
 
 Rules:
 - Customer owns contact relationship
-- Contact data should not contain ticket business logic
+- Contact data does NOT drive email routing — routing is rule-based (CustomerEmailRoutingRule)
 - Keep customer module CRUD-focused
+- `MatchingStrategy` enum and contact-centric settings (trustedContactsOnly, autoCreateContact) are removed
 
 Depends on:
 - no business dependency required
@@ -259,20 +262,25 @@ Contains:
 - `dto`
 
 Main domain objects:
-- `EmailDocument`
-- `ParsedEmail`
+- `EmailDocument` (MongoDB)
+- `EmailIngressEvent` (JPA — enriched with threading headers, body fields)
+- `EmailMailbox` (JPA — includes IMAP polling config)
+- `OutboundEmailDispatch` (JPA)
 
 Responsibilities:
-- Ingest emails from mailbox/integration
-- Parse sender, recipients, subject, body, attachments
-- Resolve thread/correlation data
-- Create or enrich tickets based on incoming emails
-- Link email records to existing tickets
+- Ingest emails via webhook (`POST /api/emails/ingest`) or IMAP polling (`ImapMailboxPoller`)
+- Durable two-stage pipeline: Stage 1 receives/stores event; Stage 2 routes + creates/links ticket
+- Resolve thread via In-Reply-To / References headers (`EmailThreadingService`)
+- Route incoming sender to customer via `CustomerEmailRoutingRule` — **no contact lookup**
+- Create or link tickets; apply customer defaults (priority, group) from `CustomerEmailSettings`
+- Manage outbound replies via durable dispatch queue
 
 Rules:
 - Email is an external input channel
 - Email must not become the primary aggregate
 - One ticket can have multiple email documents
+- Routing is CUSTOMER-based; Contact records are not in the routing path
+- IMAP passwords are write-only (never returned in responses, never logged)
 - Large raw content stays in email/document storage shape, not in every API response
 
 Depends on:
@@ -374,12 +382,12 @@ Important:
 # Current Central Flows
 
 ## Email → Ticket flow
-- email arrives
-- email is parsed
-- customer/contact may be resolved
-- existing ticket is matched or new ticket is created
-- email document is linked to ticket
-- history may be recorded
+- email arrives (webhook or IMAP poll)
+- Stage 1: `IngressEmailData` persisted as `EmailIngressEvent` (RECEIVED) — idempotent on messageId
+- Stage 2 (async): loop detection → customer-based routing (thread → exact-email rule → domain rule → policy)
+- Routing creates or links ticket; customer defaults (priority, group) applied from `CustomerEmailSettings`
+- `EmailDocument` saved to MongoDB; history recorded
+- Contact records are NOT consulted during routing
 
 ## Ticket assignment flow
 - ticket created or triaged
