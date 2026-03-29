@@ -1,6 +1,6 @@
 # CaseFlow
 
-![CI](https://github.com/your-org/caseflow/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/mgmeral/caseflow-be/actions/workflows/ci.yml/badge.svg)
 
 Ticket and mail-based case management system.
 
@@ -29,7 +29,7 @@ MinIO console: [http://localhost:9001](http://localhost:9001) — default creden
 ## Build (without Docker)
 
 ```bash
-mvn package -DskipTests
+./mvnw package -DskipTests
 java -jar target/caseflow-0.0.1-SNAPSHOT.jar
 ```
 

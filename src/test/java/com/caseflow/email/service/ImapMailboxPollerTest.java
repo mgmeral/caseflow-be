@@ -31,7 +31,7 @@ class ImapMailboxPollerTest {
     @BeforeEach
     void setup() {
         mailbox = new EmailMailbox();
-        mailbox.setId(1L);
+        // id is DB-generated — not settable; tests reference mailbox object identity
         mailbox.setAddress("inbox@example.com");
         mailbox.setImapHost("imap.example.com");
         mailbox.setImapUsername("inbox@example.com");

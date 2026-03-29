@@ -186,13 +186,22 @@ class MailboxControllerTest {
         return new MailboxRequest(
                 "Support Inbox", null, "support@caseflow.dev",
                 ProviderType.SMTP_RELAY, InboundMode.WEBHOOK, OutboundMode.SMTP,
-                true, null, null, null, null, null, null, null);
+                true, null, null,
+                // SMTP
+                null, null, null, null, null,
+                // IMAP
+                null, null, null, null, null, null, null, null);
     }
 
     private MailboxResponse makeResponse(Long id, String address) {
         return new MailboxResponse(id, "Support Inbox", null, address,
                 ProviderType.SMTP_RELAY, InboundMode.WEBHOOK, OutboundMode.SMTP,
-                true, null, null, null, null, null, false, null, null,
-                Instant.now(), Instant.now());
+                true, null, null,
+                // SMTP
+                null, null, null, null,
+                // IMAP
+                null, null, null, null, null, null, null, null, null, null,
+                // timestamps
+                Instant.now(), Instant.now(), Instant.now(), Instant.now());
     }
 }

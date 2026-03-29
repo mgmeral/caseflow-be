@@ -171,10 +171,9 @@ class EmailDocumentControllerTest {
         EmailIngressEvent event = new EmailIngressEvent();
         IngressEventResponse response = new IngressEventResponse(
                 1L, null, "<msg-001@test.com>", "customer@test.com", "Support request",
-                Instant.now(), IngressEventStatus.RECEIVED, null, 0, null, null, null, null);
+                null, null, Instant.now(), IngressEventStatus.RECEIVED, null, 0, null, null, null, null);
 
-        when(emailIngressService.receiveEvent(anyString(), anyString(), any(), anyString(),
-                isNull(), any(Instant.class))).thenReturn(event);
+        when(emailIngressService.receiveEvent(any())).thenReturn(event);
         when(ingressEventMapper.toResponse(event)).thenReturn(response);
 
         mockMvc.perform(post("/api/emails/ingest")

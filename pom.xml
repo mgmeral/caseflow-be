@@ -139,6 +139,13 @@
             <artifactId>micrometer-core</artifactId>
         </dependency>
 
+        <!-- RATE LIMITING (Bucket4j) -->
+        <dependency>
+            <groupId>com.bucket4j</groupId>
+            <artifactId>bucket4j-core</artifactId>
+            <version>8.10.1</version>
+        </dependency>
+
         <!-- TEST -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

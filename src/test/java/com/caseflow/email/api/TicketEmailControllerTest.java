@@ -199,7 +199,7 @@ class TicketEmailControllerTest {
     private IngressEventResponse ingressEventResponse(Long id, IngressEventStatus status) {
         return new IngressEventResponse(
                 id, null, "<msg-" + id + "@test.com>", "from@test.com",
-                "Hello", Instant.now(), status, null, 0, null, null, null, null);
+                "Hello", null, null, Instant.now(), status, null, 0, null, null, null, null);
     }
 
     private DispatchResponse dispatchResponse(Long id, DispatchStatus status) {

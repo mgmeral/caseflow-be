@@ -34,7 +34,7 @@ jobs:
           cache: maven
 
       - name: Build and run tests
-        run: mvn verify --batch-mode --no-transfer-progress
+        run: ./mvnw verify --batch-mode --no-transfer-progress
 
       - name: Upload Surefire test reports
         if: always()
