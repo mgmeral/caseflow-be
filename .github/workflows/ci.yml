@@ -33,6 +33,9 @@ jobs:
           distribution: ${{ env.JAVA_DISTRIBUTION }}
           cache: maven
 
+      - name: Make mvnw executable
+        run: chmod +x mvnw
+
       - name: Build and run tests
         run: ./mvnw verify --batch-mode --no-transfer-progress
 
