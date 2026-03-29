@@ -3,11 +3,13 @@ package com.caseflow.email.api;
 import com.caseflow.auth.CaseFlowUserDetailsService;
 import com.caseflow.auth.JwtTokenService;
 import com.caseflow.common.security.SecurityConfig;
+import com.caseflow.email.api.dto.MailboxConnectionTestResponse;
 import com.caseflow.email.api.dto.MailboxRequest;
 import com.caseflow.email.api.dto.MailboxResponse;
 import com.caseflow.email.api.mapper.EmailMailboxMapper;
 import com.caseflow.email.domain.EmailMailbox;
 import com.caseflow.email.domain.InboundMode;
+import com.caseflow.email.domain.InitialSyncStrategy;
 import com.caseflow.email.domain.OutboundMode;
 import com.caseflow.email.domain.ProviderType;
 import com.caseflow.email.service.EmailMailboxService;
@@ -22,6 +24,7 @@ import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
+import org.hamcrest.Matchers;
 import java.time.Instant;
 import java.util.List;
 
@@ -180,6 +183,46 @@ class MailboxControllerTest {
                 .andExpect(status().isNoContent());
     }
 
+    // ── POST /api/admin/mailboxes/{id}/test-connection ────────────────────────
+
+    @Test
+    @WithMockUser(authorities = "PERM_EMAIL_CONFIG_MANAGE")
+    void testConnection_returns200_onSuccess() throws Exception {
+        MailboxConnectionTestResponse response = new MailboxConnectionTestResponse(
+                true, "Connection successful. Folder 'INBOX' contains 3 message(s).", Instant.now());
+        when(mailboxService.testConnection(1L)).thenReturn(response);
+
+        mockMvc.perform(post("/api/admin/mailboxes/1/test-connection").with(csrf()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("successful")));
+    }
+
+    @Test
+    @WithMockUser(authorities = "PERM_EMAIL_CONFIG_MANAGE")
+    void testConnection_returns200_onFailure() throws Exception {
+        MailboxConnectionTestResponse response = new MailboxConnectionTestResponse(
+                false, "Connection refused: imap.example.com:993", Instant.now());
+        when(mailboxService.testConnection(2L)).thenReturn(response);
+
+        mockMvc.perform(post("/api/admin/mailboxes/2/test-connection").with(csrf()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(false));
+    }
+
+    @Test
+    void testConnection_returns401_whenUnauthenticated() throws Exception {
+        mockMvc.perform(post("/api/admin/mailboxes/1/test-connection").with(csrf()))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @WithMockUser(authorities = "PERM_EMAIL_CONFIG_VIEW")
+    void testConnection_returns403_whenMissingEmailConfigManage() throws Exception {
+        mockMvc.perform(post("/api/admin/mailboxes/1/test-connection").with(csrf()))
+                .andExpect(status().isForbidden());
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private MailboxRequest makeRequest() {
@@ -190,7 +233,8 @@ class MailboxControllerTest {
                 // SMTP
                 null, null, null, null, null,
                 // IMAP
-                null, null, null, null, null, null, null, null);
+                null, null, null, null, null, null, false, null,
+                InitialSyncStrategy.START_FROM_LATEST);
     }
 
     private MailboxResponse makeResponse(Long id, String address) {
@@ -199,9 +243,11 @@ class MailboxControllerTest {
                 true, null, null,
                 // SMTP
                 null, null, null, null,
-                // IMAP
-                null, null, null, null, null, null, null, null, null, null,
+                // IMAP (no password)
+                null, null, null, null, null, false, null,
+                InitialSyncStrategy.START_FROM_LATEST,
+                null, null, null,
                 // timestamps
-                Instant.now(), Instant.now(), Instant.now(), Instant.now());
+                null, null, Instant.now(), Instant.now());
     }
 }

@@ -6,8 +6,10 @@ import com.caseflow.email.domain.IngressEventStatus;
 import com.caseflow.email.repository.EmailDocumentRepository;
 import com.caseflow.email.repository.EmailIngressEventRepository;
 import com.caseflow.email.repository.EmailMailboxRepository;
+import com.caseflow.storage.service.AttachmentService;
 import com.caseflow.ticket.repository.TicketRepository;
 import com.caseflow.workflow.history.TicketHistoryService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -39,7 +41,9 @@ class EmailIngressServiceTest {
     @Mock private EmailThreadingService threadingService;
     @Mock private LoopDetectionService loopDetectionService;
     @Mock private TicketHistoryService historyService;
+    @Mock private AttachmentService attachmentService;
     @Mock private EmailMetrics metrics;
+    @Mock private ObjectMapper objectMapper;
 
     @InjectMocks
     private EmailIngressServiceImpl ingressService;
@@ -91,7 +95,8 @@ class EmailIngressServiceTest {
                 null,
                 null,
                 Instant.now(),
-                null
+                null,
+                null  // attachments
         );
 
         ingressService.receiveEvent(data);
@@ -210,7 +215,8 @@ class EmailIngressServiceTest {
                 null,
                 null,
                 Instant.now(),
-                null
+                null,
+                null  // attachments
         );
     }
 

@@ -1,6 +1,7 @@
 package com.caseflow.email.api.dto;
 
 import com.caseflow.email.domain.InboundMode;
+import com.caseflow.email.domain.InitialSyncStrategy;
 import com.caseflow.email.domain.OutboundMode;
 import com.caseflow.email.domain.ProviderType;
 
@@ -35,6 +36,7 @@ public record MailboxResponse(
         String imapFolder,
         Boolean pollingEnabled,
         Integer pollIntervalSeconds,
+        InitialSyncStrategy initialSyncStrategy,
         Long lastSeenUid,
         Instant lastPollAt,
         String lastPollError,

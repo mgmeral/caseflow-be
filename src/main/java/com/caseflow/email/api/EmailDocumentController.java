@@ -80,7 +80,8 @@ public class EmailDocumentController {
                 request.htmlBody(),
                 request.mailboxId(),
                 request.receivedAt(),
-                request.envelopeRecipient()
+                request.envelopeRecipient(),
+                null    // attachments — webhook provider handles binary storage externally
         );
 
         EmailIngressEvent event = emailIngressService.receiveEvent(data);

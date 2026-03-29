@@ -2,6 +2,7 @@ package com.caseflow.common.api;
 
 import com.caseflow.common.exception.ActiveAssignmentAlreadyExistsException;
 import com.caseflow.common.exception.DispatchNotFoundException;
+import com.caseflow.common.exception.InvalidMailboxConfigException;
 import com.caseflow.common.exception.DuplicateEmailException;
 import com.caseflow.common.exception.AttachmentNotFoundException;
 import com.caseflow.common.exception.ContactNotFoundException;
@@ -98,6 +99,19 @@ public class GlobalExceptionHandler {
     }
 
     // ── 422 Unprocessable / Invalid State ──────────────────────────────────────
+
+    @ExceptionHandler(InvalidMailboxConfigException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidMailboxConfig(InvalidMailboxConfigException ex,
+                                                                    HttpServletRequest request) {
+        ErrorResponse body = ErrorResponse.of(
+                HttpStatus.UNPROCESSABLE_ENTITY.value(),
+                "Unprocessable Entity",
+                "INVALID_MAILBOX_CONFIG",
+                ex.getMessage(),
+                request.getRequestURI()
+        );
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(body);
+    }
 
     @ExceptionHandler(InvalidTicketStateException.class)
     public ResponseEntity<ErrorResponse> handleInvalidState(InvalidTicketStateException ex,

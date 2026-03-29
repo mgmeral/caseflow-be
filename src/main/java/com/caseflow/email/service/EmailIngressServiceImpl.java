@@ -11,22 +11,30 @@ import com.caseflow.email.domain.IngressEventStatus;
 import com.caseflow.email.repository.EmailDocumentRepository;
 import com.caseflow.email.repository.EmailIngressEventRepository;
 import com.caseflow.email.repository.EmailMailboxRepository;
+import com.caseflow.storage.service.AttachmentService;
 import com.caseflow.ticket.domain.Ticket;
 import com.caseflow.ticket.domain.TicketPriority;
 import com.caseflow.ticket.domain.TicketStatus;
 import com.caseflow.ticket.repository.TicketRepository;
 import com.caseflow.workflow.history.TicketHistoryService;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.Collections;
+import java.util.List;
 
 @Service
 public class EmailIngressServiceImpl implements EmailIngressService {
 
     private static final Logger log = LoggerFactory.getLogger(EmailIngressServiceImpl.class);
+
+    private static final TypeReference<List<IngressAttachmentData>> ATTACHMENT_LIST_TYPE =
+            new TypeReference<>() {};
 
     private final EmailIngressEventRepository eventRepository;
     private final EmailDocumentRepository documentRepository;
@@ -37,7 +45,9 @@ public class EmailIngressServiceImpl implements EmailIngressService {
     private final EmailThreadingService threadingService;
     private final LoopDetectionService loopDetectionService;
     private final TicketHistoryService historyService;
+    private final AttachmentService attachmentService;
     private final EmailMetrics metrics;
+    private final ObjectMapper objectMapper;
 
     public EmailIngressServiceImpl(EmailIngressEventRepository eventRepository,
                                    EmailDocumentRepository documentRepository,
@@ -48,7 +58,9 @@ public class EmailIngressServiceImpl implements EmailIngressService {
                                    EmailThreadingService threadingService,
                                    LoopDetectionService loopDetectionService,
                                    TicketHistoryService historyService,
-                                   EmailMetrics metrics) {
+                                   AttachmentService attachmentService,
+                                   EmailMetrics metrics,
+                                   ObjectMapper objectMapper) {
         this.eventRepository = eventRepository;
         this.documentRepository = documentRepository;
         this.ticketRepository = ticketRepository;
@@ -58,7 +70,9 @@ public class EmailIngressServiceImpl implements EmailIngressService {
         this.threadingService = threadingService;
         this.loopDetectionService = loopDetectionService;
         this.historyService = historyService;
+        this.attachmentService = attachmentService;
         this.metrics = metrics;
+        this.objectMapper = objectMapper;
     }
 
     // ── Stage 1 ───────────────────────────────────────────────────────────────
@@ -66,7 +80,6 @@ public class EmailIngressServiceImpl implements EmailIngressService {
     @Override
     @Transactional
     public EmailIngressEvent receiveEvent(IngressEmailData data) {
-        // Idempotency: if event already exists for this messageId, return it unchanged
         return eventRepository.findByMessageId(data.messageId())
                 .orElseGet(() -> {
                     EmailIngressEvent event = new EmailIngressEvent();
@@ -84,9 +97,16 @@ public class EmailIngressServiceImpl implements EmailIngressService {
                     event.setEnvelopeRecipient(data.envelopeRecipient());
                     event.setReceivedAt(data.receivedAt() != null ? data.receivedAt() : Instant.now());
                     event.setStatus(IngressEventStatus.RECEIVED);
+
+                    // Serialize attachment metadata for Stage 2 processing
+                    List<IngressAttachmentData> attachments = data.safeAttachments();
+                    if (!attachments.isEmpty()) {
+                        event.setAttachmentsJson(serializeAttachments(attachments));
+                    }
+
                     EmailIngressEvent saved = eventRepository.save(event);
-                    log.info("Ingress event stored — eventId: {}, messageId: '{}'",
-                            saved.getId(), data.messageId());
+                    log.info("Ingress event stored — eventId: {}, messageId: '{}', attachments: {}",
+                            saved.getId(), data.messageId(), attachments.size());
                     metrics.inboundReceived();
                     return saved;
                 });
@@ -149,7 +169,8 @@ public class EmailIngressServiceImpl implements EmailIngressService {
                 }
                 case CREATE_TICKET -> {
                     Long ticketId = createTicketFromEvent(event, routing.customerId());
-                    saveEmailDocument(event, ticketId, routing.customerId());
+                    String documentId = saveEmailDocument(event, ticketId, routing.customerId());
+                    saveAttachmentMetadataRecords(event, ticketId, documentId);
                     event.setTicketId(ticketId);
                     event.setStatus(IngressEventStatus.PROCESSED);
                     event.setProcessedAt(Instant.now());
@@ -158,7 +179,8 @@ public class EmailIngressServiceImpl implements EmailIngressService {
                     metrics.inboundProcessed();
                 }
                 case LINK_TO_TICKET -> {
-                    saveEmailDocument(event, routing.ticketId(), routing.customerId());
+                    String documentId = saveEmailDocument(event, routing.ticketId(), routing.customerId());
+                    saveAttachmentMetadataRecords(event, routing.ticketId(), documentId);
                     event.setTicketId(routing.ticketId());
                     event.setStatus(IngressEventStatus.PROCESSED);
                     event.setProcessedAt(Instant.now());
@@ -227,7 +249,6 @@ public class EmailIngressServiceImpl implements EmailIngressService {
         ticket.setSubject(subject);
         ticket.setCustomerId(customerId);
 
-        // Apply customer defaults from CustomerEmailSettings
         applyCustomerDefaults(ticket, customerId);
 
         Ticket saved = ticketRepository.save(ticket);
@@ -259,7 +280,6 @@ public class EmailIngressServiceImpl implements EmailIngressService {
     }
 
     private String saveEmailDocument(EmailIngressEvent event, Long ticketId, Long customerId) {
-        // Check idempotency — don't save if we already have this messageId
         return documentRepository.findByMessageId(event.getMessageId())
                 .map(EmailDocument::getId)
                 .orElseGet(() -> {
@@ -277,14 +297,73 @@ public class EmailIngressServiceImpl implements EmailIngressService {
                     doc.setCustomerId(customerId);
                     doc.setMailboxId(event.getMailboxId());
                     doc.setDirection(EmailDirection.INBOUND);
-                    // Resolve thread key using actual headers from the event
                     doc.setThreadKey(threadingService.resolveThreadKey(
                             event.getInReplyTo(),
                             event.getReferencesList(),
                             event.getMessageId()));
+
+                    // Populate attachment metadata on the email document
+                    List<IngressAttachmentData> attachments = deserializeAttachments(event.getAttachmentsJson());
+                    if (!attachments.isEmpty()) {
+                        doc.setAttachments(attachments.stream()
+                                .map(a -> {
+                                    EmailDocument.AttachmentMetadata meta = new EmailDocument.AttachmentMetadata();
+                                    meta.setFileName(a.fileName());
+                                    meta.setObjectKey(a.objectKey());
+                                    meta.setContentType(a.contentType());
+                                    meta.setSize(a.size());
+                                    return meta;
+                                })
+                                .toList());
+                    }
+
                     EmailDocument saved = documentRepository.save(doc);
                     event.setDocumentId(saved.getId());
                     return saved.getId();
                 });
+    }
+
+    /**
+     * Creates JPA {@code AttachmentMetadata} records for any attachments stored during IMAP polling.
+     * Idempotent: if the document already existed (saveEmailDocument short-circuited), the attachments
+     * were already persisted during the original processing run.
+     */
+    private void saveAttachmentMetadataRecords(EmailIngressEvent event, Long ticketId, String documentId) {
+        if (event.getAttachmentsJson() == null || ticketId == null) return;
+
+        List<IngressAttachmentData> attachments = deserializeAttachments(event.getAttachmentsJson());
+        for (IngressAttachmentData attachment : attachments) {
+            try {
+                attachmentService.saveEmailAttachment(
+                        ticketId,
+                        documentId,
+                        attachment.fileName(),
+                        attachment.objectKey(),
+                        attachment.contentType(),
+                        attachment.size());
+            } catch (Exception e) {
+                log.warn("Failed to persist attachment metadata for ticketId={}, objectKey='{}' — {}",
+                        ticketId, attachment.objectKey(), e.getMessage(), e);
+            }
+        }
+    }
+
+    private String serializeAttachments(List<IngressAttachmentData> attachments) {
+        try {
+            return objectMapper.writeValueAsString(attachments);
+        } catch (Exception e) {
+            log.warn("Failed to serialize attachments — {}", e.getMessage(), e);
+            return null;
+        }
+    }
+
+    private List<IngressAttachmentData> deserializeAttachments(String json) {
+        if (json == null || json.isBlank()) return Collections.emptyList();
+        try {
+            return objectMapper.readValue(json, ATTACHMENT_LIST_TYPE);
+        } catch (Exception e) {
+            log.warn("Failed to deserialize attachments JSON — {}", e.getMessage(), e);
+            return Collections.emptyList();
+        }
     }
 }

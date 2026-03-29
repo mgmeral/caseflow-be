@@ -1,13 +1,13 @@
 # CaseFlow — Current State
 
-**Last updated:** 2026-03-29 (V8 — customer-based routing, IMAP MVP, enriched ingress)
+**Last updated:** 2026-03-29 (P4 — IMAP hardening: safe onboarding, validation, multi-instance lease, attachment ingestion, connection test)
 
 ---
 
 ## Build Status
 
 - **Main compile:** PASSING
-- **Tests:** 249/249 PASSING (est. — +9 from V8: ImapMailboxPollerTest 8 + EmailRoutingServiceTest expanded)
+- **Tests:** 287/287 PASSING (+38 from P4: MailboxValidationServiceTest 17 + ImapMailboxPollerTest 14 + MailboxControllerTest 14 + EmailIngressServiceTest 10 + other updates)
 - **Docker image:** Builds successfully (multi-stage, eclipse-temurin:21-jre-alpine)
 - **docker-compose config:** VALID (app + postgres + mongo + minio)
 - **CI pipeline:** GitHub Actions (`.github/workflows/ci.yml`) — build/test/docker
@@ -58,6 +58,15 @@
   - **V6 additions:** `quarantineEvent(id, reason)` + `releaseEvent(id)` on EmailIngressService; `EmailMailboxService.activate/deactivate`; `CustomerEmailSettingsService.updateRule`; `EmailDispatchService.getById`; `EmailIngressEventQueryService.findByMailboxId`
   - **V7 additions:** `EmailIngressServiceImpl` stamps `lastSuccessfulInboundAt` on mailbox after CREATE_TICKET/LINK_TO_TICKET; `OutboundDispatchScheduler` stamps `lastSuccessfulOutboundAt` via `findByAddress`; `EmailIngressEventQueryService.searchPaged()` for paginated list; `TicketRepository.nextTicketSeq()` native query
   - **V8 additions:** `IngressEmailData` record (13-field data carrier for receiveEvent); `EmailIngressEvent` enriched with threading headers (inReplyTo, rawReferences, rawReplyTo, rawCc) and body fields (textBody, htmlBody, envelopeRecipient); `EmailMailbox` IMAP fields (11 columns); `ImapMailboxPoller` (UID-based polling, duplicate-safe, parses multipart); `ImapPollingScheduler` (@Scheduled, per-mailbox interval check); `EmailMailboxService.findPollingEnabled()`; routing threading bug fixed (was passing null,null — now passes actual headers); `EmailIngressServiceImpl.applyCustomerDefaults()` applies defaultPriority/defaultGroupId from CustomerEmailSettings
+  - **P4 additions (IMAP hardening):**
+    - `InitialSyncStrategy` enum (START_FROM_LATEST default, BACKFILL_ALL) — controls first-poll onboarding behaviour; stored on `EmailMailbox`; exposed in API
+    - `MailboxValidationService` — enforces: polling requires IMAP+POLLING mode; WEBHOOK/SMTP_RELAY cannot enable polling; IMAP polling requires host/port/username/password/folder; `pollIntervalSeconds` 30–86400
+    - `InvalidMailboxConfigException` → 422 in `GlobalExceptionHandler`; validation called at create/update/activate
+    - `EmailMailbox` — added `pollLockedBy` + `pollLeasedUntil` columns; `ImapPollingScheduler` claims DB-level lease before each poll via `tryClaimMailbox` JPQL UPDATE; lease TTL configurable (default 10min); lease always released in `ImapMailboxPoller.pollMailbox` finally block
+    - `ImapMailboxPoller` — first-poll logic for START_FROM_LATEST (advance cursor to current max UID, no history); attachment extraction from MIME parts; binaries stored in object storage; lock release in finally
+    - `IngressEmailData` — added 14th field `List<IngressAttachmentData> attachments`; propagated through Stage 1 (serialized to `attachments_json` TEXT column on `EmailIngressEvent`) and Stage 2 (populates `EmailDocument.attachments` + creates JPA `AttachmentMetadata` records)
+    - `POST /api/admin/mailboxes/{id}/test-connection` — proactive IMAP health check; returns `MailboxConnectionTestResponse(success, message, testedAt)`; 200 always, success/failure in body; no DB side effects; passwords never exposed
+    - **V14 migration** — `initial_sync_strategy`, `poll_locked_by`, `poll_leased_until` on `email_mailboxes`; `attachments_json` on `email_ingress_events`
 
 ### API Layer
 - 15 REST controllers (Auth, Ticket, Customer, Contact, User, Group, Note, Assignment, Transfer, EmailDocument, Attachment, MailboxController, IngressEventController, TicketEmailController, CustomerEmailSettingsController)

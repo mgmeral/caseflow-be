@@ -95,6 +95,14 @@ public class EmailMailbox {
     @Column(name = "poll_interval_seconds", nullable = false)
     private Integer pollIntervalSeconds = 60;
 
+    /**
+     * Controls what happens on the very first poll (when lastSeenUid is null).
+     * Defaults to START_FROM_LATEST to prevent unexpected historical inbox ingestion.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "initial_sync_strategy", nullable = false, length = 50)
+    private InitialSyncStrategy initialSyncStrategy = InitialSyncStrategy.START_FROM_LATEST;
+
     /** Last IMAP UID successfully seen, used to avoid reprocessing old messages. */
     @Column(name = "last_seen_uid")
     private Long lastSeenUid;
@@ -104,6 +112,22 @@ public class EmailMailbox {
 
     @Column(name = "last_poll_error", columnDefinition = "TEXT")
     private String lastPollError;
+
+    // ── Poll lease (multi-instance safety) ────────────────────────────────────
+
+    /**
+     * Identifies the application instance currently polling this mailbox.
+     * Null when not being polled.  Combined with pollLeasedUntil for crash recovery.
+     */
+    @Column(name = "poll_locked_by", length = 255)
+    private String pollLockedBy;
+
+    /**
+     * When the current poll lease expires.  If the polling instance crashes, another instance
+     * can reclaim the mailbox after this timestamp passes.
+     */
+    @Column(name = "poll_leased_until")
+    private Instant pollLeasedUntil;
 
     // ── Operational metadata ──────────────────────────────────────────────────
 
@@ -198,6 +222,11 @@ public class EmailMailbox {
     public Integer getPollIntervalSeconds() { return pollIntervalSeconds; }
     public void setPollIntervalSeconds(Integer pollIntervalSeconds) { this.pollIntervalSeconds = pollIntervalSeconds; }
 
+    public InitialSyncStrategy getInitialSyncStrategy() { return initialSyncStrategy; }
+    public void setInitialSyncStrategy(InitialSyncStrategy initialSyncStrategy) {
+        this.initialSyncStrategy = initialSyncStrategy;
+    }
+
     public Long getLastSeenUid() { return lastSeenUid; }
     public void setLastSeenUid(Long lastSeenUid) { this.lastSeenUid = lastSeenUid; }
 
@@ -206,6 +235,12 @@ public class EmailMailbox {
 
     public String getLastPollError() { return lastPollError; }
     public void setLastPollError(String lastPollError) { this.lastPollError = lastPollError; }
+
+    public String getPollLockedBy() { return pollLockedBy; }
+    public void setPollLockedBy(String pollLockedBy) { this.pollLockedBy = pollLockedBy; }
+
+    public Instant getPollLeasedUntil() { return pollLeasedUntil; }
+    public void setPollLeasedUntil(Instant pollLeasedUntil) { this.pollLeasedUntil = pollLeasedUntil; }
 
     public Instant getLastSuccessfulInboundAt() { return lastSuccessfulInboundAt; }
     public void setLastSuccessfulInboundAt(Instant lastSuccessfulInboundAt) {

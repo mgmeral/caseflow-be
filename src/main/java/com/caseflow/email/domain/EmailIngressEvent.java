@@ -102,6 +102,14 @@ public class EmailIngressEvent {
     @Column(name = "ticket_id")
     private Long ticketId;
 
+    /**
+     * JSON-serialized list of {@code IngressAttachmentData} records for attachments that were
+     * extracted from an IMAP message and stored in object storage during Stage 1.
+     * Null for webhook-ingest events.
+     */
+    @Column(name = "attachments_json", columnDefinition = "TEXT")
+    private String attachmentsJson;
+
     @PrePersist
     private void onCreate() {
         if (receivedAt == null) receivedAt = Instant.now();
@@ -185,4 +193,7 @@ public class EmailIngressEvent {
 
     public Long getTicketId() { return ticketId; }
     public void setTicketId(Long ticketId) { this.ticketId = ticketId; }
+
+    public String getAttachmentsJson() { return attachmentsJson; }
+    public void setAttachmentsJson(String attachmentsJson) { this.attachmentsJson = attachmentsJson; }
 }

@@ -1,5 +1,6 @@
 package com.caseflow.email.api;
 
+import com.caseflow.email.api.dto.MailboxConnectionTestResponse;
 import com.caseflow.email.api.dto.MailboxRequest;
 import com.caseflow.email.api.dto.MailboxResponse;
 import com.caseflow.email.api.mapper.EmailMailboxMapper;
@@ -93,5 +94,17 @@ public class MailboxController {
             @RequestParam(required = false, defaultValue = "false") boolean activeOnly) {
         List<EmailMailbox> mailboxes = activeOnly ? mailboxService.findActive() : mailboxService.findAll();
         return ResponseEntity.ok(mailboxMapper.toResponseList(mailboxes));
+    }
+
+    /**
+     * Tests IMAP connectivity for the given mailbox.
+     * Always returns 200 OK; the {@code success} field in the body indicates the outcome.
+     * Passwords are never exposed in the response.
+     */
+    @PostMapping("/{id}/test-connection")
+    @PreAuthorize("hasAuthority('PERM_EMAIL_CONFIG_MANAGE')")
+    public ResponseEntity<MailboxConnectionTestResponse> testConnection(@PathVariable Long id) {
+        log.info("POST /admin/mailboxes/{}/test-connection", id);
+        return ResponseEntity.ok(mailboxService.testConnection(id));
     }
 }

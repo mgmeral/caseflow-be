@@ -1,7 +1,10 @@
 package com.caseflow.email.service;
 
+import com.caseflow.email.api.dto.MailboxConnectionTestResponse;
 import com.caseflow.email.domain.EmailMailbox;
+import com.caseflow.email.domain.InitialSyncStrategy;
 import com.caseflow.email.repository.EmailMailboxRepository;
+import com.caseflow.storage.ObjectStorageService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -22,6 +25,7 @@ class ImapMailboxPollerTest {
 
     @Mock private EmailMailboxRepository mailboxRepository;
     @Mock private EmailIngressService ingressService;
+    @Mock private ObjectStorageService objectStorageService;
 
     @InjectMocks
     private ImapMailboxPoller poller;
@@ -31,7 +35,6 @@ class ImapMailboxPollerTest {
     @BeforeEach
     void setup() {
         mailbox = new EmailMailbox();
-        // id is DB-generated — not settable; tests reference mailbox object identity
         mailbox.setAddress("inbox@example.com");
         mailbox.setImapHost("imap.example.com");
         mailbox.setImapUsername("inbox@example.com");
@@ -39,6 +42,7 @@ class ImapMailboxPollerTest {
         mailbox.setImapFolder("INBOX");
         mailbox.setPollingEnabled(true);
         mailbox.setPollIntervalSeconds(60);
+        mailbox.setInitialSyncStrategy(InitialSyncStrategy.START_FROM_LATEST);
     }
 
     // ── Guard: polling disabled ───────────────────────────────────────────────
@@ -85,17 +89,14 @@ class ImapMailboxPollerTest {
         verify(mailboxRepository, never()).save(any());
     }
 
-    // ── Connection failure → lastPollError set ────────────────────────────────
+    // ── Connection failure → lastPollError set, lease released ───────────────
 
     @Test
     void pollMailbox_setsLastPollError_onConnectionFailure() throws Exception {
-        // Bind a ServerSocket to get an available port, then close it so nothing is listening.
-        // The IMAP connect attempt gets "Connection refused" immediately.
         int port;
         try (ServerSocket s = new ServerSocket(0)) {
             port = s.getLocalPort();
         }
-
         mailbox.setImapHost("localhost");
         mailbox.setImapPort(port);
         mailbox.setImapUseSsl(false);
@@ -109,58 +110,23 @@ class ImapMailboxPollerTest {
     }
 
     @Test
-    void pollMailbox_clearsLastPollError_afterConnectionFailureThenSkip() {
-        // Demonstrates the guard short-circuit does NOT touch lastPollError
-        mailbox.setPollingEnabled(false);
-        mailbox.setLastPollError("previous error");
-
-        poller.pollMailbox(mailbox);
-
-        // Guard exits before touching the mailbox — error unchanged, no save
-        verify(mailboxRepository, never()).save(any());
-        assertThat(mailbox.getLastPollError()).isEqualTo("previous error");
-    }
-
-    // ── UID tracking: lastSeenUid starts at 1 when null ──────────────────────
-
-    @Test
-    void pollMailbox_usesUid1_whenLastSeenUidIsNull() throws Exception {
-        // With null lastSeenUid the poll should attempt to fetch from UID 1.
-        // Use a refused-port to trigger the failure path — just verifies no NPE
-        // and that the error path is followed (not a guard exit).
+    void pollMailbox_releasesLease_onConnectionFailure() throws Exception {
         int port;
         try (ServerSocket s = new ServerSocket(0)) {
             port = s.getLocalPort();
         }
-
         mailbox.setImapHost("localhost");
         mailbox.setImapPort(port);
-        mailbox.setLastSeenUid(null);
+        mailbox.setPollLockedBy("instance-abc");
+        mailbox.setPollLeasedUntil(Instant.now().plusSeconds(600));
 
         poller.pollMailbox(mailbox);
 
-        // Got to the connection attempt (not short-circuited by guard)
+        // Lock must always be cleared regardless of outcome
+        assertThat(mailbox.getPollLockedBy()).isNull();
+        assertThat(mailbox.getPollLeasedUntil()).isNull();
         verify(mailboxRepository).save(mailbox);
-        assertThat(mailbox.getLastPollError()).isNotNull();
     }
-
-    // ── Idempotency: receiveEvent handles duplicate messageIds ────────────────
-
-    @Test
-    void receiveEvent_isCalledWithMailboxId() throws Exception {
-        // The poller passes mailbox.getId() as the mailboxId in IngressEmailData.
-        // Because we cannot inject a mock IMAP store, we verify the guard
-        // paths do NOT forward to ingressService — real UID-based dedup is
-        // exercised in EmailIngressServiceTest.receiveEvent_isIdempotent_whenEventAlreadyExists.
-        // Here we just confirm no receiveEvent calls occur for non-polling mailboxes.
-        mailbox.setPollingEnabled(false);
-
-        poller.pollMailbox(mailbox);
-
-        verify(ingressService, never()).receiveEvent(any());
-    }
-
-    // ── Timestamp updated on connection failure ───────────────────────────────
 
     @Test
     void pollMailbox_updatesLastPollAt_evenOnConnectionFailure() throws Exception {
@@ -168,7 +134,6 @@ class ImapMailboxPollerTest {
         try (ServerSocket s = new ServerSocket(0)) {
             port = s.getLocalPort();
         }
-
         mailbox.setImapHost("localhost");
         mailbox.setImapPort(port);
         Instant before = Instant.now();
@@ -177,5 +142,126 @@ class ImapMailboxPollerTest {
 
         assertThat(mailbox.getLastPollAt()).isNotNull();
         assertThat(mailbox.getLastPollAt()).isAfterOrEqualTo(before);
+    }
+
+    @Test
+    void pollMailbox_clearsLastPollError_guard_doesNotTouch() {
+        // Guard exits (polling disabled) before touching the mailbox — error unchanged
+        mailbox.setPollingEnabled(false);
+        mailbox.setLastPollError("previous error");
+
+        poller.pollMailbox(mailbox);
+
+        verify(mailboxRepository, never()).save(any());
+        assertThat(mailbox.getLastPollError()).isEqualTo("previous error");
+    }
+
+    // ── Initial sync strategy ─────────────────────────────────────────────────
+
+    @Test
+    void pollMailbox_withStartFromLatest_attemptsConnection_whenLastSeenUidIsNull() throws Exception {
+        // With START_FROM_LATEST and null lastSeenUid, the poller should try to connect
+        // (to read current max UID), fail, and record the error — NOT silently skip.
+        int port;
+        try (ServerSocket s = new ServerSocket(0)) {
+            port = s.getLocalPort();
+        }
+        mailbox.setImapHost("localhost");
+        mailbox.setImapPort(port);
+        mailbox.setLastSeenUid(null);
+        mailbox.setInitialSyncStrategy(InitialSyncStrategy.START_FROM_LATEST);
+
+        poller.pollMailbox(mailbox);
+
+        // Reached the connection attempt — not short-circuited by guard
+        verify(mailboxRepository).save(mailbox);
+        assertThat(mailbox.getLastPollError()).isNotNull();
+        verify(ingressService, never()).receiveEvent(any());
+    }
+
+    @Test
+    void pollMailbox_withBackfillAll_attemptsConnection_whenLastSeenUidIsNull() throws Exception {
+        int port;
+        try (ServerSocket s = new ServerSocket(0)) {
+            port = s.getLocalPort();
+        }
+        mailbox.setImapHost("localhost");
+        mailbox.setImapPort(port);
+        mailbox.setLastSeenUid(null);
+        mailbox.setInitialSyncStrategy(InitialSyncStrategy.BACKFILL_ALL);
+
+        poller.pollMailbox(mailbox);
+
+        verify(mailboxRepository).save(mailbox);
+        assertThat(mailbox.getLastPollError()).isNotNull();
+        verify(ingressService, never()).receiveEvent(any());
+    }
+
+    @Test
+    void pollMailbox_defaultsToStartFromLatest_whenStrategyIsNull() throws Exception {
+        int port;
+        try (ServerSocket s = new ServerSocket(0)) {
+            port = s.getLocalPort();
+        }
+        mailbox.setImapHost("localhost");
+        mailbox.setImapPort(port);
+        mailbox.setLastSeenUid(null);
+        mailbox.setInitialSyncStrategy(null);  // null → defaults to START_FROM_LATEST
+
+        poller.pollMailbox(mailbox);
+
+        // Connection attempted, error recorded
+        verify(mailboxRepository).save(mailbox);
+        assertThat(mailbox.getLastPollError()).isNotNull();
+    }
+
+    // ── Connection test ───────────────────────────────────────────────────────
+
+    @Test
+    void testImapConnection_returnsFailure_whenConnectionRefused() throws Exception {
+        int port;
+        try (ServerSocket s = new ServerSocket(0)) {
+            port = s.getLocalPort();
+        }
+        mailbox.setImapHost("localhost");
+        mailbox.setImapPort(port);
+        mailbox.setImapUseSsl(false);
+
+        MailboxConnectionTestResponse result = poller.testImapConnection(mailbox);
+
+        assertThat(result.success()).isFalse();
+        assertThat(result.message()).isNotBlank();
+        assertThat(result.testedAt()).isNotNull();
+    }
+
+    @Test
+    void testImapConnection_doesNotExposePlaintextPassword_inErrorMessage() throws Exception {
+        int port;
+        try (ServerSocket s = new ServerSocket(0)) {
+            port = s.getLocalPort();
+        }
+        mailbox.setImapHost("localhost");
+        mailbox.setImapPort(port);
+        // Even if the IMAP library echoes credentials in the error, they must be stripped
+        mailbox.setImapPassword("super-secret-password");
+
+        MailboxConnectionTestResponse result = poller.testImapConnection(mailbox);
+
+        assertThat(result.message()).doesNotContain("super-secret-password");
+    }
+
+    @Test
+    void testImapConnection_doesNotSaveMailbox() throws Exception {
+        int port;
+        try (ServerSocket s = new ServerSocket(0)) {
+            port = s.getLocalPort();
+        }
+        mailbox.setImapHost("localhost");
+        mailbox.setImapPort(port);
+
+        poller.testImapConnection(mailbox);
+
+        // Connection test must be read-only — no DB side effects
+        verify(mailboxRepository, never()).save(any());
     }
 }

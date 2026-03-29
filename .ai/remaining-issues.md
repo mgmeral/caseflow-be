@@ -1,6 +1,6 @@
 # CaseFlow — Remaining Issues
 
-**Last updated:** 2026-03-29 (V8 — customer-based routing, IMAP MVP, contact removal)
+**Last updated:** 2026-03-29 (P4 — IMAP hardening: safe onboarding, validation, multi-instance lease, attachment ingestion, connection test)
 
 ---
 
@@ -57,6 +57,18 @@
 - ✅ **Customer defaults applied to inbound tickets** — `applyCustomerDefaults()` reads `CustomerEmailSettings.defaultPriority` + `defaultGroupId` when creating tickets from email
 - ✅ **V13 Flyway migration** — IMAP columns, ingress enrichment columns, drop of 3 contact-centric settings columns
 - ✅ **Test suite updated** — `EmailRoutingServiceTest` (removed ContactRepository mock, 8 new routing tests), `EmailIngressServiceTest` (IngressEmailData signature), `CustomerEmailSettingsControllerTest` (no MatchingStrategy), `ImapMailboxPollerTest` (8 guard + failure tests)
+
+---
+
+## Resolved in P4
+
+- ✅ **Safe first-time onboarding** — `InitialSyncStrategy.START_FROM_LATEST` (default): first poll advances cursor to current max UID without ingesting history. `BACKFILL_ALL` available for intentional historical import.
+- ✅ **Mailbox validation** — `MailboxValidationService` enforces polling→IMAP+POLLING mode; WEBHOOK/SMTP_RELAY cannot enable polling; complete IMAP credentials required; `pollIntervalSeconds` 30–86400. Called at create/update/activate. Returns 422 `INVALID_MAILBOX_CONFIG`.
+- ✅ **Multi-instance safe polling** — DB-level lease (`poll_locked_by`, `poll_leased_until`). `tryClaimMailbox` JPQL UPDATE (CAS). Only one pod polls a mailbox at a time. Lease TTL 10min for crash recovery. Lock always released in `ImapMailboxPoller.pollMailbox` finally block.
+- ✅ **IMAP attachment ingestion** — `ImapMailboxPoller` extracts MIME attachments (>25MB skipped), stores binaries in object storage. Metadata flows through `IngressEmailData` → `attachments_json` column → `EmailDocument.attachments` + JPA `AttachmentMetadata` records on ticket.
+- ✅ **Connection test / health check** — `POST /api/admin/mailboxes/{id}/test-connection` returns `{success, message, testedAt}`; no DB writes; passwords never in response.
+- ✅ **V14 migration** — 4 new columns: `initial_sync_strategy`, `poll_locked_by`, `poll_leased_until` on `email_mailboxes`; `attachments_json` on `email_ingress_events`.
+- ✅ **Test coverage** — 287/287 passing. Added: `MailboxValidationServiceTest` (17 tests), `ImapMailboxPollerTest` expanded (14 tests), `MailboxControllerTest` expanded (14 tests).
 
 ---
 

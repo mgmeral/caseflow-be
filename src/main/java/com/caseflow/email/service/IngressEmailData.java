@@ -1,6 +1,7 @@
 package com.caseflow.email.service;
 
 import java.time.Instant;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -52,12 +53,24 @@ public record IngressEmailData(
         Instant receivedAt,
 
         /** Actual SMTP envelope recipient — may differ from the To: header. */
-        String envelopeRecipient
+        String envelopeRecipient,
+
+        /**
+         * Attachments extracted from the message and already stored in object storage.
+         * Null or empty for webhook-ingest events (webhook providers handle attachment storage separately).
+         * Populated by {@code ImapMailboxPoller} for IMAP-polled messages.
+         */
+        List<IngressAttachmentData> attachments
 ) {
 
     /** Normalises a pipe-separated references string from rawReferences storage to a List. */
     public static String referencesToRaw(List<String> references) {
         if (references == null || references.isEmpty()) return null;
         return String.join("|", references);
+    }
+
+    /** Returns the attachments list, never null. */
+    public List<IngressAttachmentData> safeAttachments() {
+        return attachments != null ? attachments : Collections.emptyList();
     }
 }

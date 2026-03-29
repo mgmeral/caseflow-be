@@ -3,6 +3,7 @@ package com.caseflow.email.api.mapper;
 import com.caseflow.email.api.dto.MailboxRequest;
 import com.caseflow.email.api.dto.MailboxResponse;
 import com.caseflow.email.domain.EmailMailbox;
+import com.caseflow.email.domain.InitialSyncStrategy;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -38,6 +39,10 @@ public class EmailMailboxMapper {
         mailbox.setImapFolder(request.imapFolder() != null ? request.imapFolder() : "INBOX");
         mailbox.setPollingEnabled(request.pollingEnabled() != null ? request.pollingEnabled() : Boolean.FALSE);
         mailbox.setPollIntervalSeconds(request.pollIntervalSeconds() != null ? request.pollIntervalSeconds() : 60);
+        mailbox.setInitialSyncStrategy(
+                request.initialSyncStrategy() != null
+                        ? request.initialSyncStrategy()
+                        : InitialSyncStrategy.START_FROM_LATEST);
 
         return mailbox;
     }
@@ -66,6 +71,7 @@ public class EmailMailboxMapper {
                 mailbox.getImapFolder(),
                 mailbox.getPollingEnabled(),
                 mailbox.getPollIntervalSeconds(),
+                mailbox.getInitialSyncStrategy(),
                 mailbox.getLastSeenUid(),
                 mailbox.getLastPollAt(),
                 mailbox.getLastPollError(),
