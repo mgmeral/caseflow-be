@@ -12,6 +12,8 @@ public record MailboxRequest(
         @NotBlank
         String name,
 
+        String displayName,
+
         @NotBlank
         @Email
         String address,
@@ -26,6 +28,9 @@ public record MailboxRequest(
         OutboundMode outboundMode,
 
         Boolean isActive,
+
+        Long defaultGroupId,
+        String defaultPriority,
 
         String smtpHost,
         Integer smtpPort,

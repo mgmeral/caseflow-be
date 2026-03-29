@@ -18,6 +18,11 @@ public class CustomerEmailSettingsMapper {
         settings.setUnknownSenderPolicy(request.unknownSenderPolicy());
         settings.setMatchingStrategy(request.matchingStrategy());
         settings.setIsActive(request.isActive() != null ? request.isActive() : Boolean.TRUE);
+        settings.setTrustedContactsOnly(request.trustedContactsOnly() != null ? request.trustedContactsOnly() : Boolean.FALSE);
+        settings.setAutoCreateContact(request.autoCreateContact() != null ? request.autoCreateContact() : Boolean.FALSE);
+        settings.setAllowSubdomains(request.allowSubdomains() != null ? request.allowSubdomains() : Boolean.FALSE);
+        settings.setDefaultGroupId(request.defaultGroupId());
+        settings.setDefaultPriority(request.defaultPriority());
         return settings;
     }
 
@@ -29,6 +34,11 @@ public class CustomerEmailSettingsMapper {
                 settings.getUnknownSenderPolicy(),
                 settings.getMatchingStrategy(),
                 settings.getIsActive(),
+                settings.getTrustedContactsOnly(),
+                settings.getAutoCreateContact(),
+                settings.getAllowSubdomains(),
+                settings.getDefaultGroupId(),
+                settings.getDefaultPriority(),
                 settings.getUpdatedAt(),
                 rules.stream().map(this::toRuleResponse).toList()
         );

@@ -12,6 +12,11 @@ public record CustomerEmailSettingsResponse(
         UnknownSenderPolicy unknownSenderPolicy,
         MatchingStrategy matchingStrategy,
         Boolean isActive,
+        Boolean trustedContactsOnly,
+        Boolean autoCreateContact,
+        Boolean allowSubdomains,
+        Long defaultGroupId,
+        String defaultPriority,
         Instant updatedAt,
         List<RoutingRuleResponse> rules
 ) {}

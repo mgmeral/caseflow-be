@@ -1,6 +1,7 @@
 package com.caseflow.common.api;
 
 import com.caseflow.common.exception.ActiveAssignmentAlreadyExistsException;
+import com.caseflow.common.exception.DispatchNotFoundException;
 import com.caseflow.common.exception.DuplicateEmailException;
 import com.caseflow.common.exception.AttachmentNotFoundException;
 import com.caseflow.common.exception.ContactNotFoundException;
@@ -11,6 +12,7 @@ import com.caseflow.common.exception.AdminLockoutException;
 import com.caseflow.common.exception.GroupTypeNotFoundException;
 import com.caseflow.common.exception.IngressEventNotFoundException;
 import com.caseflow.common.exception.MailboxNotFoundException;
+import com.caseflow.common.exception.RoutingRuleNotFoundException;
 import com.caseflow.common.exception.RoleNotFoundException;
 import com.caseflow.common.exception.InvalidTicketStateException;
 import com.caseflow.common.exception.NoteNotFoundException;
@@ -52,7 +54,9 @@ public class GlobalExceptionHandler {
             NoteNotFoundException.class,
             AttachmentNotFoundException.class,
             MailboxNotFoundException.class,
-            IngressEventNotFoundException.class
+            IngressEventNotFoundException.class,
+            RoutingRuleNotFoundException.class,
+            DispatchNotFoundException.class
     })
     public ResponseEntity<ErrorResponse> handleNotFound(RuntimeException ex,
                                                         HttpServletRequest request) {

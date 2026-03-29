@@ -24,6 +24,9 @@ public class EmailMailbox {
     @Column(nullable = false)
     private String name;
 
+    @Column(name = "display_name")
+    private String displayName;
+
     @Column(nullable = false, unique = true)
     private String address;
 
@@ -42,6 +45,12 @@ public class EmailMailbox {
     @Column(name = "is_active", nullable = false)
     private Boolean isActive = Boolean.TRUE;
 
+    @Column(name = "default_group_id")
+    private Long defaultGroupId;
+
+    @Column(name = "default_priority", length = 50)
+    private String defaultPriority;
+
     @Column(name = "smtp_host")
     private String smtpHost;
 
@@ -56,6 +65,12 @@ public class EmailMailbox {
 
     @Column(name = "smtp_use_ssl", nullable = false)
     private Boolean smtpUseSsl = Boolean.FALSE;
+
+    @Column(name = "last_successful_inbound_at")
+    private Instant lastSuccessfulInboundAt;
+
+    @Column(name = "last_successful_outbound_at")
+    private Instant lastSuccessfulOutboundAt;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -79,6 +94,9 @@ public class EmailMailbox {
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
 
+    public String getDisplayName() { return displayName; }
+    public void setDisplayName(String displayName) { this.displayName = displayName; }
+
     public String getAddress() { return address; }
     public void setAddress(String address) { this.address = address; }
 
@@ -94,6 +112,12 @@ public class EmailMailbox {
     public Boolean getIsActive() { return isActive; }
     public void setIsActive(Boolean isActive) { this.isActive = isActive; }
 
+    public Long getDefaultGroupId() { return defaultGroupId; }
+    public void setDefaultGroupId(Long defaultGroupId) { this.defaultGroupId = defaultGroupId; }
+
+    public String getDefaultPriority() { return defaultPriority; }
+    public void setDefaultPriority(String defaultPriority) { this.defaultPriority = defaultPriority; }
+
     public String getSmtpHost() { return smtpHost; }
     public void setSmtpHost(String smtpHost) { this.smtpHost = smtpHost; }
 
@@ -108,6 +132,16 @@ public class EmailMailbox {
 
     public Boolean getSmtpUseSsl() { return smtpUseSsl; }
     public void setSmtpUseSsl(Boolean smtpUseSsl) { this.smtpUseSsl = smtpUseSsl; }
+
+    public Instant getLastSuccessfulInboundAt() { return lastSuccessfulInboundAt; }
+    public void setLastSuccessfulInboundAt(Instant lastSuccessfulInboundAt) {
+        this.lastSuccessfulInboundAt = lastSuccessfulInboundAt;
+    }
+
+    public Instant getLastSuccessfulOutboundAt() { return lastSuccessfulOutboundAt; }
+    public void setLastSuccessfulOutboundAt(Instant lastSuccessfulOutboundAt) {
+        this.lastSuccessfulOutboundAt = lastSuccessfulOutboundAt;
+    }
 
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }

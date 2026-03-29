@@ -49,4 +49,6 @@ public interface EmailIngressEventRepository extends JpaRepository<EmailIngressE
                                                        @Param("limit") int limit);
 
     List<EmailIngressEvent> findByTicketId(Long ticketId);
+
+    List<EmailIngressEvent> findByMailboxId(Long mailboxId);
 }

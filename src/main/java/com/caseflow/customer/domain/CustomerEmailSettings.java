@@ -36,6 +36,21 @@ public class CustomerEmailSettings {
     @Column(name = "is_active", nullable = false)
     private Boolean isActive = Boolean.TRUE;
 
+    @Column(name = "trusted_contacts_only", nullable = false)
+    private Boolean trustedContactsOnly = Boolean.FALSE;
+
+    @Column(name = "auto_create_contact", nullable = false)
+    private Boolean autoCreateContact = Boolean.FALSE;
+
+    @Column(name = "allow_subdomains", nullable = false)
+    private Boolean allowSubdomains = Boolean.FALSE;
+
+    @Column(name = "default_group_id")
+    private Long defaultGroupId;
+
+    @Column(name = "default_priority", length = 50)
+    private String defaultPriority;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -70,6 +85,25 @@ public class CustomerEmailSettings {
 
     public Boolean getIsActive() { return isActive; }
     public void setIsActive(Boolean isActive) { this.isActive = isActive; }
+
+    public Boolean getTrustedContactsOnly() { return trustedContactsOnly; }
+    public void setTrustedContactsOnly(Boolean trustedContactsOnly) {
+        this.trustedContactsOnly = trustedContactsOnly;
+    }
+
+    public Boolean getAutoCreateContact() { return autoCreateContact; }
+    public void setAutoCreateContact(Boolean autoCreateContact) {
+        this.autoCreateContact = autoCreateContact;
+    }
+
+    public Boolean getAllowSubdomains() { return allowSubdomains; }
+    public void setAllowSubdomains(Boolean allowSubdomains) { this.allowSubdomains = allowSubdomains; }
+
+    public Long getDefaultGroupId() { return defaultGroupId; }
+    public void setDefaultGroupId(Long defaultGroupId) { this.defaultGroupId = defaultGroupId; }
+
+    public String getDefaultPriority() { return defaultPriority; }
+    public void setDefaultPriority(String defaultPriority) { this.defaultPriority = defaultPriority; }
 
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }

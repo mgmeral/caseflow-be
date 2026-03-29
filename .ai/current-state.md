@@ -1,13 +1,13 @@
 # CaseFlow — Current State
 
-**Last updated:** 2026-03-29 (V5 — durable email platform)
+**Last updated:** 2026-03-29 (V6 — email platform RBAC + ops APIs)
 
 ---
 
 ## Build Status
 
 - **Main compile:** PASSING
-- **Tests:** 169/169 PASSING
+- **Tests:** 202/202 PASSING
 - **Docker image:** Builds successfully (multi-stage, eclipse-temurin:21-jre-alpine)
 - **docker-compose config:** VALID (app + postgres + mongo + minio)
 - **CI pipeline:** GitHub Actions (`.github/workflows/ci.yml`) — build/test/docker
@@ -23,6 +23,7 @@
 - V5 JPA entities: EmailMailbox, EmailIngressEvent, OutboundEmailDispatch, CustomerEmailSettings, CustomerEmailRoutingRule
 - MongoDB document: EmailDocument (+ direction, mailboxId, customerId, providerEventId, bodyPreview)
 - V9 migration: email platform tables (mailboxes, ingress events, dispatches, customer email settings, routing rules, attachment source_type column)
+- **V10 migration:** mailbox operational metadata columns (displayName, defaultGroupId, defaultPriority, lastSuccessfulInboundAt, lastSuccessfulOutboundAt), customer_email_settings extended columns (trustedContactsOnly, autoCreateContact, allowSubdomains, defaultGroupId, defaultPriority), V6 permission seeds for all starter roles
 - All Spring Data repositories in place including SKIP LOCKED queries for workers
 
 ### Service Layer
@@ -51,12 +52,14 @@
   - EmailMetrics (Micrometer counters for inbound/outbound)
   - EmailIngressRetryScheduler (SKIP LOCKED batch worker, processes RECEIVED + retries FAILED)
   - OutboundDispatchScheduler (SKIP LOCKED batch worker, sends PENDING + retries FAILED)
+  - **V6 additions:** `quarantineEvent(id, reason)` + `releaseEvent(id)` on EmailIngressService; `EmailMailboxService.activate/deactivate`; `CustomerEmailSettingsService.updateRule`; `EmailDispatchService.getById`; `EmailIngressEventQueryService.findByMailboxId`
 
 ### API Layer
 - 15 REST controllers (Auth, Ticket, Customer, Contact, User, Group, Note, Assignment, Transfer, EmailDocument, Attachment, MailboxController, IngressEventController, TicketEmailController, CustomerEmailSettingsController)
 - All controllers use constructor injection, @Valid, ResponseEntity
 - All controllers tagged with @Tag for OpenAPI grouping
 - Audit fields (createdBy, performedBy, assignedBy, transferredBy) removed from request bodies — resolved from SecurityContext
+- **V6 permission model:** MailboxController → PERM_EMAIL_CONFIG_VIEW/MANAGE; IngressEventController → PERM_EMAIL_OPERATIONS_VIEW/MANAGE; CustomerEmailSettingsController → PERM_EMAIL_CONFIG_VIEW/MANAGE; TicketEmailController → PERM_TICKET_EMAIL_VIEW / PERM_TICKET_EMAIL_REPLY_SEND (via TicketAuthorizationService)
 
 ### DTOs
 - ~50 Java record DTOs across all modules

@@ -42,7 +42,7 @@ public class CustomerEmailSettingsController {
     }
 
     @PutMapping
-    @PreAuthorize("hasAuthority('PERM_ADMIN_CONFIG')")
+    @PreAuthorize("hasAuthority('PERM_EMAIL_CONFIG_MANAGE')")
     public ResponseEntity<CustomerEmailSettingsResponse> upsert(
             @PathVariable Long customerId,
             @Valid @RequestBody CustomerEmailSettingsRequest request) {
@@ -52,7 +52,7 @@ public class CustomerEmailSettingsController {
     }
 
     @GetMapping
-    @PreAuthorize("hasAuthority('PERM_ADMIN_CONFIG')")
+    @PreAuthorize("hasAuthority('PERM_EMAIL_CONFIG_VIEW')")
     public ResponseEntity<CustomerEmailSettingsResponse> get(@PathVariable Long customerId) {
         return settingsService.findByCustomerId(customerId)
                 .map(s -> ResponseEntity.ok(mapper.toResponse(s, settingsService.findAllRules(customerId))))
@@ -60,7 +60,7 @@ public class CustomerEmailSettingsController {
     }
 
     @PostMapping("/rules")
-    @PreAuthorize("hasAuthority('PERM_ADMIN_CONFIG')")
+    @PreAuthorize("hasAuthority('PERM_EMAIL_CONFIG_MANAGE')")
     public ResponseEntity<RoutingRuleResponse> addRule(@PathVariable Long customerId,
                                                         @Valid @RequestBody RoutingRuleRequest request) {
         log.info("POST /customers/{}/email-settings/rules — type: {}, value: '{}'",
@@ -69,8 +69,18 @@ public class CustomerEmailSettingsController {
                 .body(mapper.toRuleResponse(settingsService.addRule(customerId, mapper.toRuleEntity(request))));
     }
 
+    @PutMapping("/rules/{ruleId}")
+    @PreAuthorize("hasAuthority('PERM_EMAIL_CONFIG_MANAGE')")
+    public ResponseEntity<RoutingRuleResponse> updateRule(@PathVariable Long customerId,
+                                                           @PathVariable Long ruleId,
+                                                           @Valid @RequestBody RoutingRuleRequest request) {
+        log.info("PUT /customers/{}/email-settings/rules/{}", customerId, ruleId);
+        return ResponseEntity.ok(
+                mapper.toRuleResponse(settingsService.updateRule(customerId, ruleId, mapper.toRuleEntity(request))));
+    }
+
     @DeleteMapping("/rules/{ruleId}")
-    @PreAuthorize("hasAuthority('PERM_ADMIN_CONFIG')")
+    @PreAuthorize("hasAuthority('PERM_EMAIL_CONFIG_MANAGE')")
     public ResponseEntity<Void> deleteRule(@PathVariable Long customerId, @PathVariable Long ruleId) {
         log.info("DELETE /customers/{}/email-settings/rules/{}", customerId, ruleId);
         settingsService.deleteRule(ruleId);

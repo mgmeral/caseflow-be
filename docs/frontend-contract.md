@@ -46,11 +46,7 @@ Store both tokens. `expiresIn` is in **milliseconds** (1 hour).
 Authorization: Bearer <accessToken>
 ```
 
-Include this header on every protected endpoint.
-
 ### 3 — Token refresh
-
-When the access token expires (or on 401), rotate the pair:
 
 ```
 POST /api/auth/refresh
@@ -59,7 +55,7 @@ Content-Type: application/json
 { "refreshToken": "uuid-string" }
 ```
 
-Response `200`: same shape as login. The old refresh token is revoked immediately (rotation).
+Response `200`: same shape as login. Old refresh token is revoked immediately.
 
 ### 4 — Logout
 
@@ -70,9 +66,9 @@ Content-Type: application/json
 { "refreshToken": "uuid-string" }
 ```
 
-Response `204`. Revokes the refresh token server-side.
+Response `204`.
 
-### 5 — Current user
+### 5 — Current user (`/me`)
 
 ```
 GET /api/auth/me
@@ -81,26 +77,63 @@ Authorization: Bearer <accessToken>
 
 Response `200`:
 ```json
-{ "id": 1, "username": "bob", "email": "bob@caseflow.dev", "fullName": "Bob Agent", "role": "AGENT" }
+{
+  "id":              1,
+  "username":        "bob",
+  "email":           "bob@caseflow.dev",
+  "fullName":        "Bob Agent",
+  "roleId":          2,
+  "roleCode":        "AGENT",
+  "roleName":        "Agent",
+  "permissionCodes": [
+    "TICKET_READ", "TICKET_ASSIGN", "TICKET_STATUS_CHANGE",
+    "TICKET_CLOSE", "INTERNAL_NOTE_ADD", "CUSTOMER_REPLY_SEND",
+    "TICKET_EMAIL_VIEW", "TICKET_EMAIL_REPLY_SEND"
+  ],
+  "ticketScope": "OWN_AND_OWN_GROUPS",
+  "groupIds":    [3, 7]
+}
 ```
+
+**The FE must use `permissionCodes` to gate UI features — never use `roleCode` for access decisions.** Role names are for display only.
 
 ---
 
-## Role Permission Map
+## Permission Model
 
-| Role   | HTTP methods allowed           |
-|--------|--------------------------------|
-| ADMIN  | GET · POST · PUT · PATCH · DELETE |
-| AGENT  | GET · POST · PUT · PATCH       |
-| VIEWER | GET only                       |
+The backend enforces `PERM_<code>` authorities. The FE uses `permissionCodes` from `/me` to show/hide UI elements.
 
-The server returns `403` if the authenticated role is insufficient.
+| Permission code             | What it gates                                          |
+|-----------------------------|--------------------------------------------------------|
+| `TICKET_READ`               | Read tickets (subject to `ticketScope`)                |
+| `TICKET_ASSIGN`             | Assign / reassign tickets                              |
+| `TICKET_TRANSFER`           | Transfer tickets between groups                        |
+| `TICKET_STATUS_CHANGE`      | Change ticket status                                   |
+| `TICKET_CLOSE`              | Close tickets                                          |
+| `TICKET_PRIORITY_CHANGE`    | Change ticket priority                                 |
+| `INTERNAL_NOTE_ADD`         | Add internal notes                                     |
+| `ADMIN_POOL_VIEW`           | View unassigned ticket pool                            |
+| `EMAIL_CONFIG_VIEW`         | Read mailboxes and customer email settings             |
+| `EMAIL_CONFIG_MANAGE`       | Create / update / delete mailboxes and routing rules   |
+| `EMAIL_OPERATIONS_VIEW`     | Read ingress events                                    |
+| `EMAIL_OPERATIONS_MANAGE`   | Replay, quarantine, release ingress events             |
+| `TICKET_EMAIL_VIEW`         | View email thread on a ticket                          |
+| `TICKET_EMAIL_REPLY_SEND`   | Send outbound replies from a ticket                    |
+
+### Starter role defaults
+
+| Role       | Key permissions included                                                       |
+|------------|--------------------------------------------------------------------------------|
+| ADMIN      | All permissions                                                                |
+| SUPERVISOR | TICKET_READ + workflow + EMAIL_CONFIG_VIEW + EMAIL_OPERATIONS_VIEW + TICKET_EMAIL_* |
+| AGENT      | TICKET_READ + workflow + INTERNAL_NOTE_ADD + TICKET_EMAIL_VIEW + TICKET_EMAIL_REPLY_SEND |
+| VIEWER     | TICKET_READ + TICKET_EMAIL_VIEW                                                |
 
 ---
 
 ## Pagination
 
-Only `GET /api/tickets` is paginated. Response shape:
+Only `GET /api/tickets` is paginated.
 
 ```json
 {
@@ -111,8 +144,6 @@ Only `GET /api/tickets` is paginated. Response shape:
   "totalPages":    8
 }
 ```
-
-Query params:
 
 | Param       | Default     | Description                                |
 |-------------|-------------|--------------------------------------------|
@@ -133,11 +164,9 @@ Query params:
 
 ## Error Response
 
-All errors return the same JSON shape:
-
 ```json
 {
-  "timestamp": "2026-03-27T10:00:00Z",
+  "timestamp": "2026-03-29T10:00:00Z",
   "status":    404,
   "error":     "Not Found",
   "code":      "TICKET_NOT_FOUND",
@@ -148,38 +177,42 @@ All errors return the same JSON shape:
 }
 ```
 
-Validation errors (400) include `details`:
-
+Validation errors (400) populate `details`:
 ```json
 "details": [
   { "field": "subject", "message": "must not be blank", "rejectedValue": "", "code": "NotBlank" }
 ]
 ```
 
-Every response includes `X-Correlation-Id` header for log tracing.
+Every response includes `X-Correlation-Id` header.
 
 ### Error codes
 
-| Code                    | Status | Trigger                                  |
-|-------------------------|--------|------------------------------------------|
-| `TICKET_NOT_FOUND`      | 404    | Unknown ticket ID                        |
-| `CUSTOMER_NOT_FOUND`    | 404    | Unknown customer ID                      |
-| `CONTACT_NOT_FOUND`     | 404    | Unknown contact ID                       |
-| `USER_NOT_FOUND`        | 404    | Unknown user ID                          |
-| `GROUP_NOT_FOUND`       | 404    | Unknown group ID                         |
-| `NOTE_NOT_FOUND`        | 404    | Unknown note ID                          |
-| `ATTACHMENT_NOT_FOUND`  | 404    | Unknown attachment ID                    |
-| `ASSIGNMENT_CONFLICT`   | 409    | Active assignment already exists         |
-| `DUPLICATE_EMAIL`       | 409    | `messageId` already ingested             |
-| `INVALID_TICKET_STATE`  | 422    | Illegal state transition                 |
-| `VALIDATION_FAILED`     | 400    | Bean validation error                    |
-| `MALFORMED_REQUEST`     | 400    | Request body missing or unparseable      |
-| `MISSING_PARAMETER`     | 400    | Required query parameter absent          |
-| `TYPE_MISMATCH`         | 400    | Path/query parameter type error          |
-| `UNAUTHORIZED`          | 401    | No or invalid Bearer token               |
-| `INVALID_CREDENTIALS`   | 401    | Bad username/password or expired token   |
-| `FORBIDDEN`             | 403    | Authenticated but insufficient role      |
-| `INTERNAL_ERROR`        | 500    | Unexpected server error                  |
+| Code                       | Status | Trigger                                          |
+|----------------------------|--------|--------------------------------------------------|
+| `TICKET_NOT_FOUND`         | 404    | Unknown ticket ID                                |
+| `CUSTOMER_NOT_FOUND`       | 404    | Unknown customer ID                              |
+| `CONTACT_NOT_FOUND`        | 404    | Unknown contact ID                               |
+| `USER_NOT_FOUND`           | 404    | Unknown user ID                                  |
+| `GROUP_NOT_FOUND`          | 404    | Unknown group ID                                 |
+| `NOTE_NOT_FOUND`           | 404    | Unknown note ID                                  |
+| `ATTACHMENT_NOT_FOUND`     | 404    | Unknown attachment ID                            |
+| `MAILBOX_NOT_FOUND`        | 404    | Unknown mailbox ID                               |
+| `INGRESS_EVENT_NOT_FOUND`  | 404    | Unknown ingress event ID                         |
+| `DISPATCH_NOT_FOUND`       | 404    | Unknown dispatch ID                              |
+| `ROUTING_RULE_NOT_FOUND`   | 404    | Unknown routing rule ID or customer mismatch     |
+| `ASSIGNMENT_CONFLICT`      | 409    | Active assignment already exists                 |
+| `DUPLICATE_EMAIL`          | 409    | `messageId` already ingested                     |
+| `INVALID_TICKET_STATE`     | 422    | Illegal state transition                         |
+| `VALIDATION_FAILED`        | 400    | Bean validation error                            |
+| `MALFORMED_REQUEST`        | 400    | Request body missing or unparseable              |
+| `MISSING_PARAMETER`        | 400    | Required query parameter absent                  |
+| `TYPE_MISMATCH`            | 400    | Path/query parameter type error                  |
+| `UNAUTHORIZED`             | 401    | No or invalid Bearer token                       |
+| `INVALID_CREDENTIALS`      | 401    | Bad username/password or expired token           |
+| `FORBIDDEN`                | 403    | Authenticated but insufficient permission        |
+| `EMAIL_DISPATCH_FAILED`    | 503    | SMTP not configured or unreachable               |
+| `INTERNAL_ERROR`           | 500    | Unexpected server error                          |
 
 ---
 
@@ -187,177 +220,177 @@ Every response includes `X-Correlation-Id` header for log tracing.
 
 ### Auth (`/api/auth`) — public
 
-| Method | Path              | Body                           | Response           |
-|--------|-------------------|--------------------------------|--------------------|
-| POST   | /login            | `{username, password}`         | `TokenResponse`    |
-| POST   | /refresh          | `{refreshToken}`               | `TokenResponse`    |
-| POST   | /logout           | `{refreshToken}`               | 204                |
-| GET    | /me               | —                              | `MeResponse`       |
+| Method | Path     | Body                   | Response        |
+|--------|----------|------------------------|-----------------|
+| POST   | /login   | `{username, password}` | `TokenResponse` |
+| POST   | /refresh | `{refreshToken}`       | `TokenResponse` |
+| POST   | /logout  | `{refreshToken}`       | 204             |
+| GET    | /me      | —                      | `MeResponse`    |
 
-### Tickets (`/api/tickets`) — bearer required
+---
 
-| Method | Path                          | Min role | Body / Notes                                  | Response                        |
-|--------|-------------------------------|----------|-----------------------------------------------|---------------------------------|
-| POST   | /                             | AGENT    | `{subject, description?, priority, customerId}` | `TicketResponse` 201          |
-| GET    | /                             | VIEWER   | query params (see pagination section)         | `PagedResponse<TicketSummaryResponse>` |
-| GET    | /{id}                         | VIEWER   | —                                             | `TicketResponse`                |
-| GET    | /{id}/detail                  | VIEWER   | —                                             | `TicketDetailResponse`          |
-| GET    | /by-ticket-no/{ticketNo}      | VIEWER   | —                                             | `TicketResponse`                |
-| PUT    | /{id}                         | AGENT    | `{subject?, description?, priority?}`         | `TicketResponse`                |
-| POST   | /{id}/status                  | AGENT    | `{status}`                                    | `TicketResponse`                |
-| POST   | /{id}/close                   | AGENT    | `{}` (empty body)                             | `TicketResponse`                |
-| POST   | /{id}/reopen                  | AGENT    | `{}` (empty body)                             | `TicketResponse`                |
+### Tickets (`/api/tickets`) — `TICKET_READ` required
 
-> `createdBy` / audit fields are **never** in request bodies — resolved from JWT.
+| Method | Path                     | Required permission  | Body / Notes                                    | Response                               |
+|--------|--------------------------|----------------------|-------------------------------------------------|----------------------------------------|
+| POST   | /                        | TICKET_READ          | `{subject, description?, priority, customerId}` | `TicketResponse` 201                   |
+| GET    | /                        | TICKET_READ          | query params (see pagination)                   | `PagedResponse<TicketSummaryResponse>` |
+| GET    | /{id}                    | TICKET_READ          | —                                               | `TicketResponse`                       |
+| GET    | /{id}/detail             | TICKET_READ          | —                                               | `TicketDetailResponse`                 |
+| GET    | /by-ticket-no/{ticketNo} | TICKET_READ          | —                                               | `TicketResponse`                       |
+| PUT    | /{id}                    | TICKET_READ          | `{subject?, description?, priority?}`           | `TicketResponse`                       |
+| POST   | /{id}/status             | TICKET_STATUS_CHANGE | `{status}`                                      | `TicketResponse`                       |
+| POST   | /{id}/close              | TICKET_CLOSE         | —                                               | `TicketResponse`                       |
+| POST   | /{id}/reopen             | TICKET_STATUS_CHANGE | —                                               | `TicketResponse`                       |
 
-### Customers (`/api/customers`) — bearer required
+---
 
-| Method | Path                      | Min role | Body                  | Response                      |
-|--------|---------------------------|----------|-----------------------|-------------------------------|
-| POST   | /                         | AGENT    | `{name, code}`        | `CustomerResponse` 201        |
-| GET    | /                         | VIEWER   | —                     | `CustomerSummaryResponse[]`   |
-| GET    | /{id}                     | VIEWER   | —                     | `CustomerResponse`            |
-| PUT    | /{id}                     | AGENT    | `{name?, code?}`      | `CustomerResponse`            |
-| PATCH  | /{id}/activate            | AGENT    | —                     | 204                           |
-| PATCH  | /{id}/deactivate          | AGENT    | —                     | 204                           |
+### Ticket Email Thread (`/api/tickets/{ticketId}/email`) — **primary FE contract**
 
-### Contacts (`/api/contacts`) — bearer required
+> Requires `TICKET_EMAIL_VIEW` + ticketScope on the ticket.
 
-| Method | Path                      | Min role | Body                                       | Response                    |
-|--------|---------------------------|----------|--------------------------------------------|------------------------------|
-| POST   | /                         | AGENT    | `{customerId, email, name, isPrimary}`     | `ContactResponse` 201        |
-| GET    | /                         | VIEWER   | —                                          | `ContactSummaryResponse[]`  |
-| GET    | /{id}                     | VIEWER   | —                                          | `ContactResponse`           |
-| GET    | /by-email?email=          | VIEWER   | —                                          | `ContactResponse`           |
-| GET    | /by-customer/{customerId} | VIEWER   | —                                          | `ContactSummaryResponse[]`  |
-| PUT    | /{id}                     | AGENT    | `{name?, isPrimary?, isActive?}`           | `ContactResponse`           |
+| Method | Path                   | Required permission     | Body / Notes                                                           | Response               |
+|--------|------------------------|-------------------------|------------------------------------------------------------------------|------------------------|
+| GET    | /thread                | TICKET_EMAIL_VIEW       | **Primary.** Merged inbound+outbound chronological timeline            | `EmailThreadItem[]`    |
+| GET    | /inbound/{eventId}     | TICKET_EMAIL_VIEW       | Full detail for one inbound event                                      | `IngressEventResponse` |
+| GET    | /outbound/{dispatchId} | TICKET_EMAIL_VIEW       | Full detail for one outbound dispatch                                  | `DispatchResponse`     |
+| POST   | /reply                 | TICKET_EMAIL_REPLY_SEND | `{mailboxId, toAddress, subject, textBody, htmlBody?, inReplyToMessageId?}` | 202 Accepted      |
+| GET    | /inbound               | TICKET_EMAIL_VIEW       | *(compat)* Inbound events list                                         | `IngressEventResponse[]` |
+| GET    | /dispatches            | TICKET_EMAIL_VIEW       | *(compat)* Outbound dispatches list                                    | `DispatchResponse[]`   |
 
-### Users (`/api/users`) — bearer required
+**`EmailThreadItem` shape:**
+```json
+{
+  "direction":   "INBOUND",
+  "id":          42,
+  "messageId":   "<abc@mail.example>",
+  "fromAddress": "john@acme.com",
+  "toAddress":   null,
+  "subject":     "Re: Support ticket",
+  "status":      "PROCESSED",
+  "timestamp":   "2026-03-29T09:00:00Z"
+}
+```
+- `direction`: `"INBOUND"` | `"OUTBOUND"`
+- `status`: `IngressEventStatus` name (INBOUND) or `DispatchStatus` name (OUTBOUND)
+- Items are sorted chronologically by `timestamp`
 
-| Method | Path                 | Min role | Body                        | Response                 |
-|--------|----------------------|----------|-----------------------------|--------------------------|
-| POST   | /                    | ADMIN    | `{username, email, fullName}` | `UserResponse` 201     |
-| GET    | /                    | VIEWER   | —                           | `UserSummaryResponse[]`  |
-| GET    | /{id}                | VIEWER   | —                           | `UserResponse`           |
-| GET    | /by-username?username=| VIEWER  | —                           | `UserResponse`           |
-| GET    | /by-email?email=     | VIEWER   | —                           | `UserResponse`           |
-| PUT    | /{id}                | ADMIN    | `{email?, fullName?}`       | `UserResponse`           |
-| PATCH  | /{id}/activate       | ADMIN    | —                           | 204                      |
-| PATCH  | /{id}/deactivate     | ADMIN    | —                           | 204                      |
+---
 
-### Groups (`/api/groups`) — bearer required
+### Email Ingest (`/api/emails`) — webhook / system
 
-| Method | Path                      | Min role | Body              | Response                  |
-|--------|---------------------------|----------|-------------------|---------------------------|
-| POST   | /                         | ADMIN    | `{name, type}`    | `GroupResponse` 201       |
-| GET    | /                         | VIEWER   | —                 | `GroupSummaryResponse[]`  |
-| GET    | /{id}                     | VIEWER   | —                 | `GroupResponse`           |
-| GET    | /by-type?type=            | VIEWER   | —                 | `GroupSummaryResponse[]`  |
-| PUT    | /{id}                     | ADMIN    | `{name?, type?}`  | `GroupResponse`           |
-| PATCH  | /{id}/activate            | ADMIN    | —                 | 204                       |
-| PATCH  | /{id}/deactivate          | ADMIN    | —                 | 204                       |
+| Method | Path                    | Notes                                                                           | Response                         |
+|--------|-------------------------|---------------------------------------------------------------------------------|----------------------------------|
+| POST   | /ingest                 | Idempotent on `messageId`. Returns **202 Accepted**. Stage-2 runs async.        | `IngressEventResponse` 202       |
+| GET    | /{id}                   | EmailDocument by MongoDB ID                                                     | `EmailDocumentResponse`          |
+| GET    | /by-ticket/{ticketId}   | *(compat)* All email docs for a ticket                                          | `EmailDocumentSummaryResponse[]` |
+| GET    | /by-thread/{threadKey}  | All email docs in a thread                                                      | `EmailDocumentSummaryResponse[]` |
 
-### Notes (`/api/notes`) — bearer required
+---
 
-| Method | Path                      | Min role | Body                              | Response           |
-|--------|---------------------------|----------|-----------------------------------|--------------------|
-| POST   | /                         | AGENT    | `{ticketId, content, type}`       | `NoteResponse` 201 |
-| GET    | /{id}                     | VIEWER   | —                                 | `NoteResponse`     |
-| GET    | /by-ticket/{ticketId}     | VIEWER   | —                                 | `NoteResponse[]`   |
+### Admin — Mailboxes (`/api/admin/mailboxes`)
 
-### Assignments (`/api/assignments`) — bearer required
+| Method | Path             | Required permission | Body           | Response              |
+|--------|------------------|---------------------|----------------|-----------------------|
+| GET    | /                | EMAIL_CONFIG_VIEW   | —              | `MailboxResponse[]`   |
+| GET    | /{id}            | EMAIL_CONFIG_VIEW   | —              | `MailboxResponse`     |
+| POST   | /                | EMAIL_CONFIG_MANAGE | `MailboxRequest` | `MailboxResponse` 201 |
+| PUT    | /{id}            | EMAIL_CONFIG_MANAGE | `MailboxRequest` | `MailboxResponse`     |
+| PATCH  | /{id}/activate   | EMAIL_CONFIG_MANAGE | —              | `MailboxResponse`     |
+| PATCH  | /{id}/deactivate | EMAIL_CONFIG_MANAGE | —              | `MailboxResponse`     |
+| DELETE | /{id}            | EMAIL_CONFIG_MANAGE | —              | 204                   |
 
-| Method | Path                          | Min role | Body                                          | Response             |
-|--------|-------------------------------|----------|-----------------------------------------------|----------------------|
-| POST   | /assign                       | AGENT    | `{ticketId, assignedUserId?, assignedGroupId?}` | `AssignmentResponse` |
-| POST   | /reassign                     | AGENT    | `{ticketId, newUserId?, newGroupId?}`         | `AssignmentResponse` |
-| POST   | /unassign                     | AGENT    | `{ticketId}`                                  | 204                  |
-| GET    | /by-ticket/{ticketId}         | VIEWER   | —                                             | `AssignmentResponse` |
+`smtpPassword` is **never returned** — write-only.
 
-### Transfers (`/api/transfers`) — bearer required
+---
 
-| Method | Path                          | Min role | Body                                                        | Response               |
-|--------|-------------------------------|----------|-------------------------------------------------------------|------------------------|
-| POST   | /                             | AGENT    | `{ticketId, fromGroupId, toGroupId, reason, clearAssignee}` | `TransferResponse` 201 |
-| GET    | /by-ticket/{ticketId}         | VIEWER   | —                                                           | `TransferSummaryResponse[]` |
+### Admin — Ingress Events (`/api/admin/ingress-events`)
 
-### Emails (`/api/emails`) — bearer required
+| Method | Path             | Required permission      | Body / Notes                             | Response                 |
+|--------|------------------|--------------------------|------------------------------------------|--------------------------|
+| GET    | /                | EMAIL_OPERATIONS_VIEW    | `?status=&mailboxId=&ticketId=`          | `IngressEventResponse[]` |
+| GET    | /{id}            | EMAIL_OPERATIONS_VIEW    | —                                        | `IngressEventResponse`   |
+| POST   | /{id}/process    | EMAIL_OPERATIONS_MANAGE  | — Replay FAILED event                    | `IngressEventResponse`   |
+| POST   | /{id}/quarantine | EMAIL_OPERATIONS_MANAGE  | `{"reason": "string"}`                   | `IngressEventResponse`   |
+| POST   | /{id}/release    | EMAIL_OPERATIONS_MANAGE  | — QUARANTINED → RECEIVED                 | `IngressEventResponse`   |
 
-| Method | Path                          | Min role | Body / Notes                                         | Response                        |
-|--------|-------------------------------|----------|------------------------------------------------------|---------------------------------|
-| POST   | /ingest                       | AGENT    | `IngestEmailRequest` — idempotent on `messageId`     | `EmailDocumentResponse` 201 / 409 |
-| GET    | /{id}                         | VIEWER   | —                                                    | `EmailDocumentResponse`         |
-| GET    | /by-ticket/{ticketId}         | VIEWER   | —                                                    | `EmailDocumentSummaryResponse[]` |
-| GET    | /by-thread/{threadKey}        | VIEWER   | —                                                    | `EmailDocumentSummaryResponse[]` |
+---
 
-### Attachments (`/api/attachments`) — bearer required
+### Customer Email Settings (`/api/customers/{customerId}/email-settings`)
 
-| Method | Path                          | Min role | Body / Notes                          | Response                        |
-|--------|-------------------------------|----------|---------------------------------------|---------------------------------|
-| POST   | /upload                       | AGENT    | `multipart/form-data`, field `file`, max 25 MB | `AttachmentMetadataResponse` 201 |
-| GET    | /{id}                         | VIEWER   | —                                     | `AttachmentMetadataResponse`    |
-| GET    | /by-ticket/{ticketId}         | VIEWER   | —                                     | `AttachmentMetadataResponse[]`  |
-| GET    | /{id}/download                | VIEWER   | — streams binary                      | binary (original Content-Type)  |
-| DELETE | /{id}                         | ADMIN    | —                                     | 204                             |
+| Method | Path            | Required permission | Body / Notes               | Response                        |
+|--------|-----------------|---------------------|----------------------------|---------------------------------|
+| GET    | /               | EMAIL_CONFIG_VIEW   | —                          | `CustomerEmailSettingsResponse` |
+| PUT    | /               | EMAIL_CONFIG_MANAGE | `CustomerEmailSettingsRequest` | `CustomerEmailSettingsResponse` |
+| POST   | /rules          | EMAIL_CONFIG_MANAGE | `RoutingRuleRequest`       | `RoutingRuleResponse` 201       |
+| PUT    | /rules/{ruleId} | EMAIL_CONFIG_MANAGE | `RoutingRuleRequest`       | `RoutingRuleResponse`           |
+| DELETE | /rules/{ruleId} | EMAIL_CONFIG_MANAGE | —                          | 204                             |
+
+---
+
+### Customers, Contacts, Users, Groups, Notes, Assignments, Transfers, Attachments
+
+> Unchanged. See `docs/api-endpoints.md` for full request/response details.
 
 ---
 
 ## Key Response Shapes
 
-### TicketResponse
+### `IngressEventResponse`
 ```json
 {
-  "id":              1,
-  "ticketNo":        "TKT-0001",
-  "subject":         "string",
-  "description":     "string | null",
-  "status":          "NEW",
-  "priority":        "HIGH",
-  "customerId":      123,
-  "assignedUserId":  null,
-  "assignedGroupId": null,
-  "createdAt":       "2026-03-27T10:00:00Z",
-  "updatedAt":       "2026-03-27T10:00:00Z",
-  "closedAt":        null
+  "id": 1, "mailboxId": 2,
+  "messageId": "<abc@mail.example>", "rawFrom": "john@acme.com",
+  "rawSubject": "Help with order", "receivedAt": "2026-03-29T09:00:00Z",
+  "status": "PROCESSED", "failureReason": null,
+  "processingAttempts": 1, "lastAttemptAt": "2026-03-29T09:00:05Z",
+  "processedAt": "2026-03-29T09:00:05Z",
+  "documentId": "mongo-object-id", "ticketId": 42
 }
 ```
 
-### TicketDetailResponse
-Same as `TicketResponse` plus:
+### `DispatchResponse`
 ```json
 {
-  "attachments": [ ...AttachmentMetadataResponse ],
-  "history":     [ ...HistorySummaryResponse ]
+  "id": 10, "ticketId": 42,
+  "messageId": "<uuid@caseflow>",
+  "fromAddress": "support@caseflow.dev", "toAddress": "john@acme.com",
+  "subject": "Re: Help with order", "status": "SENT",
+  "attempts": 1, "lastAttemptAt": "2026-03-29T10:00:01Z",
+  "sentAt": "2026-03-29T10:00:01Z", "failureReason": null,
+  "scheduledAt": "2026-03-29T10:00:00Z", "createdAt": "2026-03-29T10:00:00Z"
 }
 ```
 
-### AttachmentMetadataResponse
+### `MailboxResponse`
 ```json
 {
-  "id":          1,
-  "ticketId":    1,
-  "emailId":     null,
-  "fileName":    "screenshot.png",
-  "objectKey":   "tickets/1/uuid_screenshot.png",
-  "contentType": "image/png",
-  "size":        204800,
-  "uploadedAt":  "2026-03-27T10:00:00Z"
+  "id": 1, "name": "Support Inbox", "displayName": "CaseFlow Support",
+  "address": "support@caseflow.dev",
+  "providerType": "SMTP_RELAY", "inboundMode": "WEBHOOK", "outboundMode": "SMTP",
+  "isActive": true, "defaultGroupId": 3, "defaultPriority": "MEDIUM",
+  "smtpHost": "smtp.example.com", "smtpPort": 587, "smtpUsername": "user",
+  "smtpUseSsl": false,
+  "lastSuccessfulInboundAt": "2026-03-29T08:00:00Z",
+  "lastSuccessfulOutboundAt": "2026-03-29T09:30:00Z",
+  "createdAt": "2026-03-01T00:00:00Z", "updatedAt": "2026-03-29T08:00:00Z"
 }
 ```
 
-### EmailDocumentResponse
+### `CustomerEmailSettingsResponse`
 ```json
 {
-  "id":         "mongo-object-id",
-  "messageId":  "<abc@mail.com>",
-  "threadKey":  "thread-abc",
-  "subject":    "string",
-  "from":       "sender@example.com",
-  "to":         ["support@caseflow.dev"],
-  "cc":         [],
-  "receivedAt": "2026-03-27T09:00:00Z",
-  "parsedAt":   "2026-03-27T09:00:10Z",
-  "ticketId":   1
+  "id": 1, "customerId": 5,
+  "unknownSenderPolicy": "MANUAL_REVIEW", "matchingStrategy": "CONTACT_FIRST",
+  "isActive": true, "trustedContactsOnly": false,
+  "autoCreateContact": false, "allowSubdomains": false,
+  "defaultGroupId": 3, "defaultPriority": "MEDIUM",
+  "updatedAt": "2026-03-29T08:00:00Z",
+  "rules": [
+    { "id": 1, "customerId": 5, "senderMatchType": "EXACT_EMAIL",
+      "matchValue": "support@bigcorp.com", "priority": 10,
+      "isActive": true, "createdAt": "2026-03-01T00:00:00Z" }
+  ]
 }
 ```
 
@@ -366,10 +399,18 @@ Same as `TicketResponse` plus:
 ## Enums
 
 ```
-TicketStatus  : NEW | TRIAGED | ASSIGNED | IN_PROGRESS | WAITING_CUSTOMER | RESOLVED | CLOSED | REOPENED
-TicketPriority: LOW | MEDIUM | HIGH | CRITICAL
-NoteType      : INFO | INVESTIGATION | ESCALATION | INTERNAL
-GroupType     : TRADE | OPERATIONS | SUPPORT
+TicketStatus       : NEW | TRIAGED | ASSIGNED | IN_PROGRESS | WAITING_CUSTOMER | RESOLVED | CLOSED | REOPENED
+TicketPriority     : LOW | MEDIUM | HIGH | CRITICAL
+NoteType           : INFO | INVESTIGATION | ESCALATION | INTERNAL
+GroupType          : TRADE | OPERATIONS | SUPPORT
+IngressEventStatus : RECEIVED | PROCESSING | PROCESSED | FAILED | QUARANTINED
+DispatchStatus     : PENDING | SENDING | SENT | FAILED | PERMANENTLY_FAILED
+ProviderType       : SMTP_RELAY | SENDGRID | MAILGUN
+InboundMode        : WEBHOOK | IMAP_POLL | MANUAL
+OutboundMode       : SMTP | API
+SenderMatchType    : EXACT_EMAIL | DOMAIN
+MatchingStrategy   : CONTACT_FIRST | RULE_FIRST
+UnknownSenderPolicy: MANUAL_REVIEW | CREATE_UNMATCHED_TICKET | IGNORE | REJECT
 ```
 
 All enums serialize as their string name (Spring Boot default).
@@ -378,32 +419,30 @@ All enums serialize as their string name (Spring Boot default).
 
 ## CORS
 
-Pre-configured allowed origins:
-- `http://localhost:3000` (CRA)
-- `http://localhost:5173` (Vite)
-
-Configure additional origins via `CORS_ORIGINS` environment variable.
+Pre-configured: `http://localhost:3000`, `http://localhost:5173`.
+Add origins via `CORS_ORIGINS` env var.
 
 ---
 
 ## Dev Seed Data
 
-Start with `SPRING_PROFILES_ACTIVE=dev` to load:
+Start with `SPRING_PROFILES_ACTIVE=dev`:
 
-| Entity     | Count | Details                                    |
-|------------|-------|--------------------------------------------|
-| Groups     | 2     | Support, Operations                        |
-| Users      | 3     | alice (ADMIN), bob (AGENT), carol (VIEWER) |
-| Customers  | 2     | ACME Corp, Globex Inc                      |
-| Contacts   | 3     | john.doe, jane.doe, burns                  |
-| Tickets    | 3     | TKT-0001 (NEW/CRITICAL), TKT-0002 (TRIAGED/HIGH), TKT-0003 (IN_PROGRESS/MEDIUM) |
-| Notes      | 2     | On TKT-0001 and TKT-0003                   |
-| Emails     | 1     | Linked to TKT-0001                         |
+| Entity    | Count | Details                                                                  |
+|-----------|-------|--------------------------------------------------------------------------|
+| Groups    | 2     | Support, Operations                                                      |
+| Users     | 3     | alice (ADMIN), bob (AGENT), carol (VIEWER)                              |
+| Customers | 2     | ACME Corp, Globex Inc                                                    |
+| Contacts  | 3     | john.doe, jane.doe, burns                                                |
+| Tickets   | 3     | TKT-0001 (NEW/CRITICAL), TKT-0002 (TRIAGED/HIGH), TKT-0003 (IN_PROGRESS/MEDIUM) |
+| Notes     | 2     | On TKT-0001 and TKT-0003                                                 |
+| Emails    | 1     | Linked to TKT-0001                                                       |
 
 ---
 
 ## What NOT to send
 
 - `createdBy`, `performedBy`, `assignedBy`, `transferredBy` — resolved from JWT, never in request bodies
-- `ticketNo` on create — managed by the server
+- `ticketNo` on create — server-managed
 - `status` on create — always starts as `NEW`
+- `smtpPassword` — never in GET responses; send only when creating/updating a mailbox

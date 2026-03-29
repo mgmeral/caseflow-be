@@ -28,4 +28,16 @@ public interface EmailIngressService {
      * Updates the event status to PROCESSED or FAILED/QUARANTINED.
      */
     void processEvent(Long eventId);
+
+    /**
+     * Manually quarantine an event with an explicit reason.
+     * Useful when an operator identifies an event that should not be auto-processed.
+     */
+    void quarantineEvent(Long eventId, String reason);
+
+    /**
+     * Release a QUARANTINED event back to RECEIVED so the retry scheduler picks it up.
+     * Allows operators to re-process events after investigation or rule changes.
+     */
+    void releaseEvent(Long eventId);
 }

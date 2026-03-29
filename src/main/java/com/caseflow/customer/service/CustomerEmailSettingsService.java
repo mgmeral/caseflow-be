@@ -1,5 +1,6 @@
 package com.caseflow.customer.service;
 
+import com.caseflow.common.exception.RoutingRuleNotFoundException;
 import com.caseflow.customer.domain.CustomerEmailRoutingRule;
 import com.caseflow.customer.domain.CustomerEmailSettings;
 import com.caseflow.customer.repository.CustomerEmailRoutingRuleRepository;
@@ -37,6 +38,11 @@ public class CustomerEmailSettingsService {
         existing.setUnknownSenderPolicy(settings.getUnknownSenderPolicy());
         existing.setMatchingStrategy(settings.getMatchingStrategy());
         existing.setIsActive(settings.getIsActive());
+        existing.setTrustedContactsOnly(settings.getTrustedContactsOnly());
+        existing.setAutoCreateContact(settings.getAutoCreateContact());
+        existing.setAllowSubdomains(settings.getAllowSubdomains());
+        existing.setDefaultGroupId(settings.getDefaultGroupId());
+        existing.setDefaultPriority(settings.getDefaultPriority());
         CustomerEmailSettings saved = settingsRepository.save(existing);
         log.info("CustomerEmailSettings upserted — customerId: {}", customerId);
         return saved;
@@ -53,6 +59,19 @@ public class CustomerEmailSettingsService {
         CustomerEmailRoutingRule saved = ruleRepository.save(rule);
         log.info("Routing rule added — customerId: {}, matchType: {}, value: '{}'",
                 customerId, rule.getSenderMatchType(), rule.getMatchValue());
+        return saved;
+    }
+
+    @Transactional
+    public CustomerEmailRoutingRule updateRule(Long customerId, Long ruleId, CustomerEmailRoutingRule updates) {
+        CustomerEmailRoutingRule existing = ruleRepository.findByIdAndCustomerId(ruleId, customerId)
+                .orElseThrow(() -> new RoutingRuleNotFoundException(ruleId, customerId));
+        existing.setSenderMatchType(updates.getSenderMatchType());
+        existing.setMatchValue(updates.getMatchValue());
+        existing.setPriority(updates.getPriority());
+        existing.setIsActive(updates.getIsActive());
+        CustomerEmailRoutingRule saved = ruleRepository.save(existing);
+        log.info("Routing rule updated — id: {}, customerId: {}", ruleId, customerId);
         return saved;
     }
 

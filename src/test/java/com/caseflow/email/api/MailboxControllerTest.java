@@ -31,6 +31,7 @@ import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -52,12 +53,9 @@ class MailboxControllerTest {
     // ── POST /api/admin/mailboxes ─────────────────────────────────────────────
 
     @Test
-    @WithMockUser(authorities = "PERM_ADMIN_CONFIG")
+    @WithMockUser(authorities = "PERM_EMAIL_CONFIG_MANAGE")
     void create_returns201_withMailboxResponse() throws Exception {
-        MailboxRequest request = new MailboxRequest(
-                "Support Inbox", "support@caseflow.dev",
-                ProviderType.SMTP_RELAY, InboundMode.WEBHOOK, OutboundMode.SMTP,
-                true, null, null, null, null, null);
+        MailboxRequest request = makeRequest();
         MailboxResponse response = makeResponse(1L, "support@caseflow.dev");
 
         when(mailboxMapper.toEntity(any())).thenReturn(new EmailMailbox());
@@ -81,23 +79,18 @@ class MailboxControllerTest {
 
     @Test
     @WithMockUser(authorities = "PERM_TICKET_READ")
-    void create_returns403_whenMissingAdminConfig() throws Exception {
-        MailboxRequest request = new MailboxRequest(
-                "Support Inbox", "support@caseflow.dev",
-                ProviderType.SMTP_RELAY, InboundMode.WEBHOOK, OutboundMode.SMTP,
-                true, null, null, null, null, null);
-
+    void create_returns403_whenMissingEmailConfigManage() throws Exception {
         mockMvc.perform(post("/api/admin/mailboxes")
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
+                        .content(objectMapper.writeValueAsString(makeRequest())))
                 .andExpect(status().isForbidden());
     }
 
     // ── GET /api/admin/mailboxes ──────────────────────────────────────────────
 
     @Test
-    @WithMockUser(authorities = "PERM_ADMIN_CONFIG")
+    @WithMockUser(authorities = "PERM_EMAIL_CONFIG_VIEW")
     void list_returns200_withMailboxList() throws Exception {
         List<MailboxResponse> responses = List.of(
                 makeResponse(1L, "support@caseflow.dev"),
@@ -112,15 +105,23 @@ class MailboxControllerTest {
                 .andExpect(jsonPath("$[1].address").value("noreply@caseflow.dev"));
     }
 
+    @Test
+    @WithMockUser(authorities = "PERM_EMAIL_CONFIG_VIEW")
+    void getById_returns200() throws Exception {
+        MailboxResponse response = makeResponse(1L, "support@caseflow.dev");
+        when(mailboxService.getById(1L)).thenReturn(new EmailMailbox());
+        when(mailboxMapper.toResponse(any())).thenReturn(response);
+
+        mockMvc.perform(get("/api/admin/mailboxes/1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(1));
+    }
+
     // ── PUT /api/admin/mailboxes/{id} ─────────────────────────────────────────
 
     @Test
-    @WithMockUser(authorities = "PERM_ADMIN_CONFIG")
+    @WithMockUser(authorities = "PERM_EMAIL_CONFIG_MANAGE")
     void update_returns200() throws Exception {
-        MailboxRequest request = new MailboxRequest(
-                "Updated Name", "support@caseflow.dev",
-                ProviderType.SMTP_RELAY, InboundMode.WEBHOOK, OutboundMode.SMTP,
-                true, null, null, null, null, null);
         MailboxResponse response = makeResponse(1L, "support@caseflow.dev");
 
         when(mailboxMapper.toEntity(any())).thenReturn(new EmailMailbox());
@@ -130,14 +131,38 @@ class MailboxControllerTest {
         mockMvc.perform(put("/api/admin/mailboxes/1")
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
+                        .content(objectMapper.writeValueAsString(makeRequest())))
+                .andExpect(status().isOk());
+    }
+
+    // ── PATCH /api/admin/mailboxes/{id}/activate ──────────────────────────────
+
+    @Test
+    @WithMockUser(authorities = "PERM_EMAIL_CONFIG_MANAGE")
+    void activate_returns200() throws Exception {
+        MailboxResponse response = makeResponse(1L, "support@caseflow.dev");
+        when(mailboxService.activate(1L)).thenReturn(new EmailMailbox());
+        when(mailboxMapper.toResponse(any())).thenReturn(response);
+
+        mockMvc.perform(patch("/api/admin/mailboxes/1/activate").with(csrf()))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithMockUser(authorities = "PERM_EMAIL_CONFIG_MANAGE")
+    void deactivate_returns200() throws Exception {
+        MailboxResponse response = makeResponse(1L, "support@caseflow.dev");
+        when(mailboxService.deactivate(1L)).thenReturn(new EmailMailbox());
+        when(mailboxMapper.toResponse(any())).thenReturn(response);
+
+        mockMvc.perform(patch("/api/admin/mailboxes/1/deactivate").with(csrf()))
                 .andExpect(status().isOk());
     }
 
     // ── DELETE /api/admin/mailboxes/{id} ──────────────────────────────────────
 
     @Test
-    @WithMockUser(authorities = "PERM_ADMIN_CONFIG")
+    @WithMockUser(authorities = "PERM_EMAIL_CONFIG_MANAGE")
     void delete_returns204() throws Exception {
         mockMvc.perform(delete("/api/admin/mailboxes/1").with(csrf()))
                 .andExpect(status().isNoContent());
@@ -145,9 +170,17 @@ class MailboxControllerTest {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private MailboxResponse makeResponse(Long id, String address) {
-        return new MailboxResponse(id, "Support Inbox", address,
+    private MailboxRequest makeRequest() {
+        return new MailboxRequest(
+                "Support Inbox", null, "support@caseflow.dev",
                 ProviderType.SMTP_RELAY, InboundMode.WEBHOOK, OutboundMode.SMTP,
-                true, null, null, null, false, Instant.now(), Instant.now());
+                true, null, null, null, null, null, null, null);
+    }
+
+    private MailboxResponse makeResponse(Long id, String address) {
+        return new MailboxResponse(id, "Support Inbox", null, address,
+                ProviderType.SMTP_RELAY, InboundMode.WEBHOOK, OutboundMode.SMTP,
+                true, null, null, null, null, null, false, null, null,
+                Instant.now(), Instant.now());
     }
 }

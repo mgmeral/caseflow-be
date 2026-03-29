@@ -35,6 +35,11 @@ public class EmailIngressEventQueryService {
     }
 
     @Transactional(readOnly = true)
+    public List<EmailIngressEvent> findByMailboxId(Long mailboxId) {
+        return eventRepository.findByMailboxId(mailboxId);
+    }
+
+    @Transactional(readOnly = true)
     public List<EmailIngressEvent> findAll() {
         return eventRepository.findAll();
     }

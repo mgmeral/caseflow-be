@@ -88,13 +88,18 @@ public class TicketAuthorizationService {
         return inScope(auth, ticketQueryService.getById(ticketId));
     }
 
-    /**
-     * Customer reply outbound is not yet implemented.
-     * Permission + scope check still applies: authorized users receive 501,
-     * unauthorized users receive 403. Both are honest responses.
-     */
     public boolean canSendCustomerReply(Authentication auth, Long ticketId) {
         if (!hasPermission(auth, Permission.CUSTOMER_REPLY_SEND)) return false;
+        return inScope(auth, ticketQueryService.getById(ticketId));
+    }
+
+    public boolean canViewTicketEmail(Authentication auth, Long ticketId) {
+        if (!hasPermission(auth, Permission.TICKET_EMAIL_VIEW)) return false;
+        return inScope(auth, ticketQueryService.getById(ticketId));
+    }
+
+    public boolean canSendTicketEmailReply(Authentication auth, Long ticketId) {
+        if (!hasPermission(auth, Permission.TICKET_EMAIL_REPLY_SEND)) return false;
         return inScope(auth, ticketQueryService.getById(ticketId));
     }
 

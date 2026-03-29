@@ -128,6 +128,44 @@ class EmailIngressServiceTest {
         verify(routingService, org.mockito.Mockito.never()).route(any());
     }
 
+    // ── quarantineEvent ───────────────────────────────────────────────────────
+
+    @Test
+    void quarantineEvent_setsQuarantinedStatus() {
+        EmailIngressEvent event = eventWithId(1L, IngressEventStatus.RECEIVED);
+        when(eventRepository.findById(1L)).thenReturn(Optional.of(event));
+        when(eventRepository.save(any())).thenReturn(event);
+
+        ingressService.quarantineEvent(1L, "Spam");
+
+        verify(eventRepository).save(any(EmailIngressEvent.class));
+        verify(metrics).inboundQuarantined();
+    }
+
+    // ── releaseEvent ──────────────────────────────────────────────────────────
+
+    @Test
+    void releaseEvent_resetsToReceived_whenQuarantined() {
+        EmailIngressEvent event = eventWithId(1L, IngressEventStatus.QUARANTINED);
+        when(eventRepository.findById(1L)).thenReturn(Optional.of(event));
+        when(eventRepository.save(any())).thenReturn(event);
+
+        ingressService.releaseEvent(1L);
+
+        verify(eventRepository).save(any(EmailIngressEvent.class));
+    }
+
+    @Test
+    void releaseEvent_doesNothing_whenNotQuarantined() {
+        EmailIngressEvent event = eventWithId(1L, IngressEventStatus.PROCESSED);
+        when(eventRepository.findById(1L)).thenReturn(Optional.of(event));
+
+        ingressService.releaseEvent(1L);
+
+        // No save should be called for already-processed event
+        verify(eventRepository, org.mockito.Mockito.never()).save(any());
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private EmailIngressEvent eventWithId(Long id, IngressEventStatus status) {

@@ -162,6 +162,35 @@ public class EmailIngressServiceImpl implements EmailIngressService {
         }
     }
 
+    // ── Operator actions ──────────────────────────────────────────────────────
+
+    @Override
+    @Transactional
+    public void quarantineEvent(Long eventId, String reason) {
+        EmailIngressEvent event = eventRepository.findById(eventId)
+                .orElseThrow(() -> new IngressEventNotFoundException(eventId));
+        event.setStatus(IngressEventStatus.QUARANTINED);
+        event.setFailureReason(reason);
+        eventRepository.save(event);
+        log.info("Event {} manually quarantined — reason: {}", eventId, reason);
+        metrics.inboundQuarantined();
+    }
+
+    @Override
+    @Transactional
+    public void releaseEvent(Long eventId) {
+        EmailIngressEvent event = eventRepository.findById(eventId)
+                .orElseThrow(() -> new IngressEventNotFoundException(eventId));
+        if (event.getStatus() != IngressEventStatus.QUARANTINED) {
+            log.warn("Release requested for non-quarantined event {} (status={})", eventId, event.getStatus());
+            return;
+        }
+        event.setStatus(IngressEventStatus.RECEIVED);
+        event.setFailureReason(null);
+        eventRepository.save(event);
+        log.info("Event {} released from quarantine — re-queued as RECEIVED", eventId);
+    }
+
     // ── Private helpers ───────────────────────────────────────────────────────
 
     private Long createTicketFromEvent(EmailIngressEvent event, Long customerId) {

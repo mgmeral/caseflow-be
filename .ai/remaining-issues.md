@@ -1,99 +1,128 @@
 # CaseFlow — Remaining Issues
 
-**Last updated:** 2026-03-27 (V2 pass)
+**Last updated:** 2026-03-29 (V6 pass)
 
 ---
 
 ## Resolved in V2
 
-- ✅ JWT auth replaces HTTP Basic (`AuthController`, `JwtTokenService`, `SecurityConfig`)
-- ✅ Attachment upload/download endpoints (`AttachmentController`)
-- ✅ `POST /api/emails/ingest` — email ingestion with idempotency and thread resolution
+- ✅ JWT auth replaces HTTP Basic
+- ✅ Attachment upload/download endpoints
+- ✅ `POST /api/emails/ingest` — idempotent email ingestion
 - ✅ `createdBy`/`performedBy` removed from request bodies — resolved from JWT SecurityContext
 - ✅ `GET /api/tickets/{id}/detail` — full response with attachments and history
-- ✅ `GET /api/tickets` — pagination with `PagedResponse<T>` and JPA Specifications
-- ✅ `CorrelationIdFilter` — MDC-based correlation IDs on all requests
+- ✅ `GET /api/tickets` — pagination + JPA Specifications
+- ✅ `CorrelationIdFilter` — MDC-based correlation IDs
+
+## Resolved in V5
+
+- ✅ Durable two-stage email ingress pipeline (receiveEvent → processEvent)
+- ✅ EmailMailbox, EmailIngressEvent, OutboundEmailDispatch JPA entities
+- ✅ EmailRoutingService — deterministic routing (exact-email → domain → contact → policy)
+- ✅ EmailThreadingService — In-Reply-To / References header chain resolution
+- ✅ LoopDetectionService — auto-reply/bounce/mailer-daemon detection
+- ✅ SmtpEmailSender — optional JavaMailSender, permanent failure if unconfigured
+- ✅ EmailDispatchService + EmailReplyService — durable outbound queue
+- ✅ SKIP LOCKED scheduler workers (EmailIngressRetryScheduler, OutboundDispatchScheduler)
+- ✅ CustomerEmailSettings + CustomerEmailRoutingRule entities and services
+- ✅ Micrometer email metrics
+
+## Resolved in V6
+
+- ✅ New permissions: EMAIL_CONFIG_VIEW/MANAGE, EMAIL_OPERATIONS_VIEW/MANAGE, TICKET_EMAIL_VIEW, TICKET_EMAIL_REPLY_SEND — added to Permission enum + seeded in V10 migration
+- ✅ `GET /api/auth/me` exposes `permissionCodes[]` — FE uses these, not role names
+- ✅ EmailMailbox: displayName, defaultGroupId, defaultPriority, lastSuccessfulInboundAt, lastSuccessfulOutboundAt fields
+- ✅ CustomerEmailSettings: trustedContactsOnly, autoCreateContact, allowSubdomains, defaultGroupId, defaultPriority fields
+- ✅ MailboxController: PATCH activate/deactivate; permissions → PERM_EMAIL_CONFIG_VIEW/MANAGE
+- ✅ IngressEventController: POST quarantine/release; list filters (status, mailboxId, ticketId); permissions → PERM_EMAIL_OPERATIONS_VIEW/MANAGE
+- ✅ CustomerEmailSettingsController: PUT /rules/{ruleId}; permissions → PERM_EMAIL_CONFIG_VIEW/MANAGE
+- ✅ TicketEmailController: GET /thread (primary FE contract), GET /inbound/{id}, GET /outbound/{id}; permissions → TICKET_EMAIL_VIEW / TICKET_EMAIL_REPLY_SEND via TicketAuthorizationService
+- ✅ EmailIngressService: quarantineEvent, releaseEvent
+- ✅ EmailDispatchService: getById
+- ✅ RoutingRuleNotFoundException, DispatchNotFoundException — GlobalExceptionHandler updated
+- ✅ V10 Flyway migration for new columns and permission seeds
+- ✅ 202/202 tests passing (33 new: MailboxControllerTest expanded, IngressEventControllerTest, TicketEmailControllerTest, CustomerEmailSettingsControllerTest, EmailIngressServiceTest quarantine/release)
+- ✅ docs/frontend-contract.md fully updated with V6 permission model and all email endpoints
 
 ---
 
 ## P1 — Blockers for Production Use
 
-(None remaining from original backlog)
+(None)
 
 ---
 
 ## P2 — Important but Non-Blocking
 
+### `lastSuccessfulInboundAt` / `lastSuccessfulOutboundAt` not populated
+- `EmailMailbox` has these fields but nothing writes to them yet
+- They should be set by `EmailIngressServiceImpl` (after successful Stage-2) and `OutboundDispatchScheduler` (after successful send)
+- Currently always `null`
+
 ### Ticket number generation
-- `TicketService.createTicket()` needs to generate unique ticket numbers (e.g., TKT-00042)
-- Currently the field exists but generation strategy is not implemented
-- Suggest: DB sequence + zero-padded string, or UUID-based if human-readability is not required
+- `TicketService.createTicket()` generates `TKT-<random-8-chars>` — not sequential
+- Production systems typically need ordered, collision-free numbers
+- Suggest: DB sequence + zero-padded string
 
 ### MongoDB indexes not declared programmatically
-- `EmailDocument` fields `messageId`, `threadKey`, `ticketId` are indexed via `@Indexed` on the entity
-- These create indexes on startup by default in Spring Data MongoDB
-- Verify `spring.data.mongodb.auto-index-creation=true` (Spring Boot default) is acceptable, or add explicit `@Document`-level `@CompoundIndex` for query paths
+- `EmailDocument` fields `messageId`, `threadKey`, `ticketId` use `@Indexed`
+- Verify `spring.data.mongodb.auto-index-creation=true` is acceptable, or add explicit `@CompoundIndex`
 
 ---
 
 ## P3 — Quality / Nice to Have
 
 ### Integration tests
-- All existing tests are unit tests (Mockito / @WebMvcTest)
-- No integration tests against real databases
-- Add a test profile with Testcontainers for PostgreSQL + MongoDB to catch schema/query issues
+- All 202 tests are unit / @WebMvcTest — no real DB
+- Schema errors only surface at deploy time
+- Fix: `@SpringBootTest` + Testcontainers for PostgreSQL + MongoDB
 
-### More controller tests
-- `GroupController`, `UserController`, `AssignmentController`, `TransferController`, `EmailDocumentController` have no tests yet
-- `ContactController` has no tests yet
+### Controller coverage gaps
+- `GroupController`, `UserController`, `AssignmentController`, `TransferController`, `ContactController`, `AttachmentController`, `EmailDocumentController` — no tests
+
+### Ingress event list lacks pagination
+- `GET /api/admin/ingress-events` returns an unbounded list
+- Add `PagedResponse` + `Pageable` support for large event tables
+
+### Mailbox list lacks active-only filter
+- `GET /api/admin/mailboxes` always returns all mailboxes
+- Add `?activeOnly=true` delegating to `findActive()`
+
+### Routing rule missing `updatedAt`
+- `CustomerEmailRoutingRule` has no `updated_at` — the update endpoint leaves no audit timestamp
+- Add the column in a future migration if change history matters
 
 ### Validation messages
-- Currently use Jakarta default messages (e.g., "must not be blank")
-- Consider adding `ValidationMessages.properties` for custom, more user-friendly messages
+- Jakarta defaults ("must not be blank") — consider `ValidationMessages.properties`
 
 ### Storage: cloud provider
-- `LocalFileStorageService` is the only implementation
-- S3/MinIO/Azure Blob provider can be added as a second implementation
-- Activate via `caseflow.storage.provider=s3` and spring profile-based conditional bean
+- `LocalFileStorageService` only; S3/MinIO/Azure Blob via `caseflow.storage.provider=s3`
 
-### Flyway: additional migrations
-- V1 is the baseline schema
-- Future changes to schema (e.g., adding `password` to users) should use V2__add_user_password.sql, etc.
-
-### API rate limiting / request throttling
-- Not currently implemented
-- Consider Spring Boot's Bucket4j or an API gateway layer if needed
+### API rate limiting
+- Not implemented; consider Bucket4j or API gateway
 
 ---
 
----
-
-## CI/CD — External Dependencies (requires real environment)
-
-### GHCR visibility
-- First push to `ghcr.io` may fail if GitHub Actions workflow permissions are not set to "Read and write"
-- Fix: `Settings → Actions → General → Workflow permissions → Read and write permissions`
-- Alternatively set explicit `permissions: packages: write` (already in ci.yml) and ensure the repo owner has accepted the GitHub Packages ToS
+## CI/CD — External Dependencies
 
 ### No integration tests in CI
-- All 46 tests are unit / `@WebMvcTest` (no Testcontainers)
-- Real database connectivity (Flyway migrations, JPA queries, MongoDB document ops) is NOT verified in CI
-- Risk: schema migration errors only appear at deployment time
-- Fix: add `@SpringBootTest` + Testcontainers tests with a `ci` profile that spins up real postgres + mongo + minio
+- Flyway migration regressions only surface at deployment time
+- Add `@SpringBootTest` + Testcontainers profile
 
-### CI badge URL needs updating
-- `README.md` contains `your-org/caseflow` placeholder in the CI badge URL
-- Replace with actual GitHub org/username once the repo is pushed
+### GHCR visibility
+- First push may fail if `Settings → Actions → Workflow permissions` is not "Read and write"
+
+### CI badge URL placeholder
+- `README.md` contains `your-org/caseflow` — replace once repo is pushed
 
 ### Maven not wrapped
-- No `mvnw` in the repo — CI uses system Maven provided by `actions/setup-java`
-- Locally, developers must have Maven 3.9+ installed
-- Fix: run `mvn wrapper:wrapper -Dmaven=3.9.6` to generate `mvnw`, then commit
+- No `mvnw` — run `mvn wrapper:wrapper -Dmaven=3.9.6`
 
 ---
 
 ## Known Assumptions
 
 - `groups` table name is used as-is in PostgreSQL (not a reserved keyword at table level)
-- `performed_by` in `ticket_history` is nullable to support system-generated events
-- `flyway.baseline-on-migrate=true` assumes the database may already have tables from `ddl-auto=create` runs
+- `performed_by` in `ticket_history` is nullable for system-generated events
+- `flyway.baseline-on-migrate=true` — database may have tables from prior `ddl-auto=create` runs
+- V10 permission seeds use `WHERE r.code = 'ADMIN'` etc. — safe no-ops if those role codes don't exist

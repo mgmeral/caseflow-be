@@ -12,5 +12,10 @@ public record CustomerEmailSettingsRequest(
         @NotNull
         MatchingStrategy matchingStrategy,
 
-        Boolean isActive
+        Boolean isActive,
+        Boolean trustedContactsOnly,
+        Boolean autoCreateContact,
+        Boolean allowSubdomains,
+        Long defaultGroupId,
+        String defaultPriority
 ) {}

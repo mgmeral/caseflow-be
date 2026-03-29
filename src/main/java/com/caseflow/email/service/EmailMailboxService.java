@@ -32,11 +32,14 @@ public class EmailMailboxService {
     public EmailMailbox update(Long id, EmailMailbox updates) {
         EmailMailbox existing = findOrThrow(id);
         existing.setName(updates.getName());
+        existing.setDisplayName(updates.getDisplayName());
         existing.setAddress(updates.getAddress());
         existing.setProviderType(updates.getProviderType());
         existing.setInboundMode(updates.getInboundMode());
         existing.setOutboundMode(updates.getOutboundMode());
         existing.setIsActive(updates.getIsActive());
+        existing.setDefaultGroupId(updates.getDefaultGroupId());
+        existing.setDefaultPriority(updates.getDefaultPriority());
         existing.setSmtpHost(updates.getSmtpHost());
         existing.setSmtpPort(updates.getSmtpPort());
         existing.setSmtpUsername(updates.getSmtpUsername());
@@ -46,6 +49,24 @@ public class EmailMailboxService {
         existing.setSmtpUseSsl(updates.getSmtpUseSsl());
         EmailMailbox saved = mailboxRepository.save(existing);
         log.info("Mailbox updated — id: {}", id);
+        return saved;
+    }
+
+    @Transactional
+    public EmailMailbox activate(Long id) {
+        EmailMailbox existing = findOrThrow(id);
+        existing.setIsActive(Boolean.TRUE);
+        EmailMailbox saved = mailboxRepository.save(existing);
+        log.info("Mailbox activated — id: {}", id);
+        return saved;
+    }
+
+    @Transactional
+    public EmailMailbox deactivate(Long id) {
+        EmailMailbox existing = findOrThrow(id);
+        existing.setIsActive(Boolean.FALSE);
+        EmailMailbox saved = mailboxRepository.save(existing);
+        log.info("Mailbox deactivated — id: {}", id);
         return saved;
     }
 

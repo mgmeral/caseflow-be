@@ -1,5 +1,6 @@
 package com.caseflow.email.service;
 
+import com.caseflow.common.exception.DispatchNotFoundException;
 import com.caseflow.email.domain.DispatchStatus;
 import com.caseflow.email.domain.OutboundEmailDispatch;
 import com.caseflow.email.repository.OutboundEmailDispatchRepository;
@@ -78,6 +79,12 @@ public class EmailDispatchService {
         dispatch.setFailureReason(reason);
         dispatchRepository.save(dispatch);
         log.error("Dispatch permanently failed — dispatchId: {}, reason: {}", dispatch.getId(), reason);
+    }
+
+    @Transactional(readOnly = true)
+    public OutboundEmailDispatch getById(Long id) {
+        return dispatchRepository.findById(id)
+                .orElseThrow(() -> new DispatchNotFoundException(id));
     }
 
     @Transactional(readOnly = true)
