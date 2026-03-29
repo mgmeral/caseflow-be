@@ -1,8 +1,10 @@
 package com.caseflow.email.api;
 
+import com.caseflow.common.api.PagedResponse;
 import com.caseflow.email.api.dto.IngressEventResponse;
 import com.caseflow.email.api.dto.QuarantineRequest;
 import com.caseflow.email.api.mapper.IngressEventMapper;
+import com.caseflow.email.domain.EmailIngressEvent;
 import com.caseflow.email.domain.IngressEventStatus;
 import com.caseflow.email.service.EmailIngressEventQueryService;
 import com.caseflow.email.service.EmailIngressService;
@@ -11,6 +13,10 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -20,8 +26,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-
-import java.util.List;
 
 @Tag(name = "Admin — Ingress Events", description = "Email ingress event monitoring and replay")
 @SecurityRequirement(name = "bearerAuth")
@@ -51,21 +55,13 @@ public class IngressEventController {
 
     @GetMapping
     @PreAuthorize("hasAuthority('PERM_EMAIL_OPERATIONS_VIEW')")
-    public ResponseEntity<List<IngressEventResponse>> list(
+    public ResponseEntity<PagedResponse<IngressEventResponse>> list(
             @RequestParam(required = false) IngressEventStatus status,
             @RequestParam(required = false) Long mailboxId,
-            @RequestParam(required = false) Long ticketId) {
-        List<IngressEventResponse> result;
-        if (ticketId != null) {
-            result = mapper.toResponseList(queryService.findByTicketId(ticketId));
-        } else if (mailboxId != null) {
-            result = mapper.toResponseList(queryService.findByMailboxId(mailboxId));
-        } else if (status != null) {
-            result = mapper.toResponseList(queryService.findByStatus(status));
-        } else {
-            result = mapper.toResponseList(queryService.findAll());
-        }
-        return ResponseEntity.ok(result);
+            @RequestParam(required = false) Long ticketId,
+            @PageableDefault(size = 20, sort = "receivedAt", direction = Sort.Direction.DESC) Pageable pageable) {
+        Page<EmailIngressEvent> page = queryService.searchPaged(status, mailboxId, ticketId, pageable);
+        return ResponseEntity.ok(PagedResponse.from(page.map(mapper::toResponse)));
     }
 
     /**

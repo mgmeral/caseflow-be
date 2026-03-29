@@ -2,6 +2,7 @@ package com.caseflow.email.scheduler;
 
 import com.caseflow.common.exception.EmailDispatchException;
 import com.caseflow.email.domain.OutboundEmailDispatch;
+import com.caseflow.email.repository.EmailMailboxRepository;
 import com.caseflow.email.repository.OutboundEmailDispatchRepository;
 import com.caseflow.email.service.EmailDispatchService;
 import com.caseflow.email.service.EmailMetrics;
@@ -13,6 +14,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.List;
 
 /**
@@ -27,17 +29,20 @@ public class OutboundDispatchScheduler {
 
     private final OutboundEmailDispatchRepository dispatchRepository;
     private final EmailDispatchService dispatchService;
+    private final EmailMailboxRepository mailboxRepository;
     private final SmtpEmailSender smtpSender;
     private final EmailMetrics metrics;
     private final int maxAttempts;
 
     public OutboundDispatchScheduler(OutboundEmailDispatchRepository dispatchRepository,
                                       EmailDispatchService dispatchService,
+                                      EmailMailboxRepository mailboxRepository,
                                       SmtpEmailSender smtpSender,
                                       EmailMetrics metrics,
                                       @Value("${caseflow.email.dispatch.max-attempts:3}") int maxAttempts) {
         this.dispatchRepository = dispatchRepository;
         this.dispatchService = dispatchService;
+        this.mailboxRepository = mailboxRepository;
         this.smtpSender = smtpSender;
         this.metrics = metrics;
         this.maxAttempts = maxAttempts;
@@ -81,6 +86,7 @@ public class OutboundDispatchScheduler {
         try {
             smtpSender.send(dispatch);
             dispatchService.markSent(dispatch);
+            stampOutboundAt(dispatch.getFromAddress());
             metrics.outboundSent();
         } catch (EmailDispatchException e) {
             if (dispatch.getAttempts() >= maxAttempts) {
@@ -96,5 +102,13 @@ public class OutboundDispatchScheduler {
             dispatchService.markFailed(dispatch, "Unexpected error: " + e.getMessage());
             metrics.outboundFailed();
         }
+    }
+
+    private void stampOutboundAt(String fromAddress) {
+        if (fromAddress == null) return;
+        mailboxRepository.findByAddress(fromAddress).ifPresent(m -> {
+            m.setLastSuccessfulOutboundAt(Instant.now());
+            mailboxRepository.save(m);
+        });
     }
 }

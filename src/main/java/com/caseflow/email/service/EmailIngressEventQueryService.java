@@ -4,6 +4,8 @@ import com.caseflow.common.exception.IngressEventNotFoundException;
 import com.caseflow.email.domain.EmailIngressEvent;
 import com.caseflow.email.domain.IngressEventStatus;
 import com.caseflow.email.repository.EmailIngressEventRepository;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -42,5 +44,14 @@ public class EmailIngressEventQueryService {
     @Transactional(readOnly = true)
     public List<EmailIngressEvent> findAll() {
         return eventRepository.findAll();
+    }
+
+    @Transactional(readOnly = true)
+    public Page<EmailIngressEvent> searchPaged(IngressEventStatus status, Long mailboxId,
+                                               Long ticketId, Pageable pageable) {
+        if (ticketId != null) return eventRepository.findByTicketId(ticketId, pageable);
+        if (mailboxId != null) return eventRepository.findByMailboxId(mailboxId, pageable);
+        if (status != null) return eventRepository.findByStatus(status, pageable);
+        return eventRepository.findAll(pageable);
     }
 }

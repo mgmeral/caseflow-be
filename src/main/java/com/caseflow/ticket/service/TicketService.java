@@ -13,7 +13,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
-import java.util.UUID;
 
 @Service
 public class TicketService {
@@ -109,6 +108,6 @@ public class TicketService {
     }
 
     private String generateTicketNo() {
-        return "TKT-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
+        return String.format("TKT-%07d", ticketRepository.nextTicketSeq());
     }
 }

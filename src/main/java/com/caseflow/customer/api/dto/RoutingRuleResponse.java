@@ -11,5 +11,6 @@ public record RoutingRuleResponse(
         String matchValue,
         Integer priority,
         Boolean isActive,
-        Instant createdAt
+        Instant createdAt,
+        Instant updatedAt
 ) {}

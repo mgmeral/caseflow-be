@@ -4,6 +4,7 @@ import com.caseflow.email.domain.EmailIngressEvent;
 import com.caseflow.email.domain.IngressEventStatus;
 import com.caseflow.email.repository.EmailDocumentRepository;
 import com.caseflow.email.repository.EmailIngressEventRepository;
+import com.caseflow.email.repository.EmailMailboxRepository;
 import com.caseflow.ticket.repository.TicketRepository;
 import com.caseflow.workflow.history.TicketHistoryService;
 import org.junit.jupiter.api.Test;
@@ -29,6 +30,7 @@ class EmailIngressServiceTest {
     @Mock private EmailIngressEventRepository eventRepository;
     @Mock private EmailDocumentRepository documentRepository;
     @Mock private TicketRepository ticketRepository;
+    @Mock private EmailMailboxRepository mailboxRepository;
     @Mock private EmailRoutingService routingService;
     @Mock private EmailThreadingService threadingService;
     @Mock private LoopDetectionService loopDetectionService;

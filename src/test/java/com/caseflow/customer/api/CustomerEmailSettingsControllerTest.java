@@ -187,6 +187,6 @@ class CustomerEmailSettingsControllerTest {
     private RoutingRuleResponse makeRuleResponse(Long id, Long customerId) {
         return new RoutingRuleResponse(
                 id, customerId, SenderMatchType.EXACT_EMAIL,
-                "support@bigcorp.com", 10, true, Instant.now());
+                "support@bigcorp.com", 10, true, Instant.now(), null);
     }
 }

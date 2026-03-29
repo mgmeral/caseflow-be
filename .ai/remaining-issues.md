@@ -1,6 +1,6 @@
 # CaseFlow — Remaining Issues
 
-**Last updated:** 2026-03-29 (V6 pass)
+**Last updated:** 2026-03-29 (V7 pass — P2 all resolved, P3 partial)
 
 ---
 
@@ -52,21 +52,21 @@
 
 ---
 
+## Resolved in V7
+
+- ✅ `lastSuccessfulInboundAt` stamped by `EmailIngressServiceImpl` after CREATE_TICKET / LINK_TO_TICKET
+- ✅ `lastSuccessfulOutboundAt` stamped by `OutboundDispatchScheduler` after successful SMTP send (via `findByAddress`)
+- ✅ Ticket numbers are now sequential — `V11__ticket_no_sequence.sql` + `ticket_no_seq` PostgreSQL sequence; format `TKT-%07d`; both `TicketService` and `EmailIngressServiceImpl.createTicketFromEvent` use it
+- ✅ MongoDB indexes activated — `spring.data.mongodb.auto-index-creation=true` added; `@CompoundIndex(ticket_received)` added to `EmailDocument`
+- ✅ Ingress event list paginated — `GET /api/admin/ingress-events` now returns `PagedResponse<IngressEventResponse>`; defaults `size=20, sort=receivedAt DESC`; `searchPaged()` method on `EmailIngressEventQueryService`
+- ✅ Mailbox list `?activeOnly=true` filter added to `GET /api/admin/mailboxes`
+- ✅ `CustomerEmailRoutingRule.updatedAt` — `V12__routing_rule_updated_at.sql` + `@PreUpdate` lifecycle hook; exposed in `RoutingRuleResponse`
+
+---
+
 ## P2 — Important but Non-Blocking
 
-### `lastSuccessfulInboundAt` / `lastSuccessfulOutboundAt` not populated
-- `EmailMailbox` has these fields but nothing writes to them yet
-- They should be set by `EmailIngressServiceImpl` (after successful Stage-2) and `OutboundDispatchScheduler` (after successful send)
-- Currently always `null`
-
-### Ticket number generation
-- `TicketService.createTicket()` generates `TKT-<random-8-chars>` — not sequential
-- Production systems typically need ordered, collision-free numbers
-- Suggest: DB sequence + zero-padded string
-
-### MongoDB indexes not declared programmatically
-- `EmailDocument` fields `messageId`, `threadKey`, `ticketId` use `@Indexed`
-- Verify `spring.data.mongodb.auto-index-creation=true` is acceptable, or add explicit `@CompoundIndex`
+(None)
 
 ---
 
@@ -79,18 +79,6 @@
 
 ### Controller coverage gaps
 - `GroupController`, `UserController`, `AssignmentController`, `TransferController`, `ContactController`, `AttachmentController`, `EmailDocumentController` — no tests
-
-### Ingress event list lacks pagination
-- `GET /api/admin/ingress-events` returns an unbounded list
-- Add `PagedResponse` + `Pageable` support for large event tables
-
-### Mailbox list lacks active-only filter
-- `GET /api/admin/mailboxes` always returns all mailboxes
-- Add `?activeOnly=true` delegating to `findActive()`
-
-### Routing rule missing `updatedAt`
-- `CustomerEmailRoutingRule` has no `updated_at` — the update endpoint leaves no audit timestamp
-- Add the column in a future migration if change history matters
 
 ### Validation messages
 - Jakarta defaults ("must not be blank") — consider `ValidationMessages.properties`

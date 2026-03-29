@@ -21,6 +21,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -88,7 +89,9 @@ public class MailboxController {
 
     @GetMapping
     @PreAuthorize("hasAuthority('PERM_EMAIL_CONFIG_VIEW')")
-    public ResponseEntity<List<MailboxResponse>> list() {
-        return ResponseEntity.ok(mailboxMapper.toResponseList(mailboxService.findAll()));
+    public ResponseEntity<List<MailboxResponse>> list(
+            @RequestParam(required = false, defaultValue = "false") boolean activeOnly) {
+        List<EmailMailbox> mailboxes = activeOnly ? mailboxService.findActive() : mailboxService.findAll();
+        return ResponseEntity.ok(mailboxMapper.toResponseList(mailboxes));
     }
 }

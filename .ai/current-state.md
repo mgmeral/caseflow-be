@@ -1,13 +1,13 @@
 # CaseFlow — Current State
 
-**Last updated:** 2026-03-29 (V6 — email platform RBAC + ops APIs)
+**Last updated:** 2026-03-29 (V7 — P2 burndown + P3 quality items)
 
 ---
 
 ## Build Status
 
 - **Main compile:** PASSING
-- **Tests:** 202/202 PASSING
+- **Tests:** 202/202 PASSING (unchanged — new code paths not exercised by unit tests)
 - **Docker image:** Builds successfully (multi-stage, eclipse-temurin:21-jre-alpine)
 - **docker-compose config:** VALID (app + postgres + mongo + minio)
 - **CI pipeline:** GitHub Actions (`.github/workflows/ci.yml`) — build/test/docker
@@ -24,6 +24,8 @@
 - MongoDB document: EmailDocument (+ direction, mailboxId, customerId, providerEventId, bodyPreview)
 - V9 migration: email platform tables (mailboxes, ingress events, dispatches, customer email settings, routing rules, attachment source_type column)
 - **V10 migration:** mailbox operational metadata columns (displayName, defaultGroupId, defaultPriority, lastSuccessfulInboundAt, lastSuccessfulOutboundAt), customer_email_settings extended columns (trustedContactsOnly, autoCreateContact, allowSubdomains, defaultGroupId, defaultPriority), V6 permission seeds for all starter roles
+- **V11 migration:** `ticket_no_seq` PostgreSQL sequence for collision-free sequential ticket numbers (`TKT-0000001` format)
+- **V12 migration:** `updated_at` column on `customer_email_routing_rules` + `@PreUpdate` lifecycle hook
 - All Spring Data repositories in place including SKIP LOCKED queries for workers
 
 ### Service Layer
@@ -53,6 +55,7 @@
   - EmailIngressRetryScheduler (SKIP LOCKED batch worker, processes RECEIVED + retries FAILED)
   - OutboundDispatchScheduler (SKIP LOCKED batch worker, sends PENDING + retries FAILED)
   - **V6 additions:** `quarantineEvent(id, reason)` + `releaseEvent(id)` on EmailIngressService; `EmailMailboxService.activate/deactivate`; `CustomerEmailSettingsService.updateRule`; `EmailDispatchService.getById`; `EmailIngressEventQueryService.findByMailboxId`
+  - **V7 additions:** `EmailIngressServiceImpl` stamps `lastSuccessfulInboundAt` on mailbox after CREATE_TICKET/LINK_TO_TICKET; `OutboundDispatchScheduler` stamps `lastSuccessfulOutboundAt` via `findByAddress`; `EmailIngressEventQueryService.searchPaged()` for paginated list; `TicketRepository.nextTicketSeq()` native query
 
 ### API Layer
 - 15 REST controllers (Auth, Ticket, Customer, Contact, User, Group, Note, Assignment, Transfer, EmailDocument, Attachment, MailboxController, IngressEventController, TicketEmailController, CustomerEmailSettingsController)
@@ -60,6 +63,7 @@
 - All controllers tagged with @Tag for OpenAPI grouping
 - Audit fields (createdBy, performedBy, assignedBy, transferredBy) removed from request bodies — resolved from SecurityContext
 - **V6 permission model:** MailboxController → PERM_EMAIL_CONFIG_VIEW/MANAGE; IngressEventController → PERM_EMAIL_OPERATIONS_VIEW/MANAGE; CustomerEmailSettingsController → PERM_EMAIL_CONFIG_VIEW/MANAGE; TicketEmailController → PERM_TICKET_EMAIL_VIEW / PERM_TICKET_EMAIL_REPLY_SEND (via TicketAuthorizationService)
+- **V7:** `GET /api/admin/mailboxes?activeOnly=true` filter added; `GET /api/admin/ingress-events` returns `PagedResponse<IngressEventResponse>` (size=20, sort=receivedAt DESC)
 
 ### DTOs
 - ~50 Java record DTOs across all modules

@@ -6,6 +6,7 @@ import com.caseflow.common.security.SecurityConfig;
 import com.caseflow.email.api.dto.IngressEventResponse;
 import com.caseflow.email.api.dto.QuarantineRequest;
 import com.caseflow.email.api.mapper.IngressEventMapper;
+import com.caseflow.email.domain.EmailIngressEvent;
 import com.caseflow.email.domain.IngressEventStatus;
 import com.caseflow.email.service.EmailIngressEventQueryService;
 import com.caseflow.email.service.EmailIngressService;
@@ -16,6 +17,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
@@ -24,7 +26,6 @@ import java.time.Instant;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
@@ -79,40 +80,39 @@ class IngressEventControllerTest {
     @Test
     @WithMockUser(authorities = "PERM_EMAIL_OPERATIONS_VIEW")
     void list_returns200_allEvents() throws Exception {
-        List<IngressEventResponse> responses = List.of(
-                makeResponse(1L, IngressEventStatus.PROCESSED),
-                makeResponse(2L, IngressEventStatus.FAILED)
-        );
-        when(queryService.findAll()).thenReturn(List.of());
-        when(mapper.toResponseList(any())).thenReturn(responses);
+        EmailIngressEvent event = new EmailIngressEvent();
+        IngressEventResponse response = makeResponse(1L, IngressEventStatus.PROCESSED);
+        when(queryService.searchPaged(any(), any(), any(), any()))
+                .thenReturn(new PageImpl<>(List.of(event)));
+        when(mapper.toResponse(any())).thenReturn(response);
 
         mockMvc.perform(get("/api/admin/ingress-events"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].id").value(1));
+                .andExpect(jsonPath("$.items[0].id").value(1));
     }
 
     @Test
     @WithMockUser(authorities = "PERM_EMAIL_OPERATIONS_VIEW")
     void list_returns200_filteredByStatus() throws Exception {
-        when(queryService.findByStatus(IngressEventStatus.FAILED)).thenReturn(List.of());
-        when(mapper.toResponseList(any())).thenReturn(List.of());
+        when(queryService.searchPaged(any(), any(), any(), any()))
+                .thenReturn(new PageImpl<>(List.of()));
 
         mockMvc.perform(get("/api/admin/ingress-events").param("status", "FAILED"))
                 .andExpect(status().isOk());
 
-        verify(queryService).findByStatus(IngressEventStatus.FAILED);
+        verify(queryService).searchPaged(any(), any(), any(), any());
     }
 
     @Test
     @WithMockUser(authorities = "PERM_EMAIL_OPERATIONS_VIEW")
     void list_returns200_filteredByMailboxId() throws Exception {
-        when(queryService.findByMailboxId(5L)).thenReturn(List.of());
-        when(mapper.toResponseList(any())).thenReturn(List.of());
+        when(queryService.searchPaged(any(), any(), any(), any()))
+                .thenReturn(new PageImpl<>(List.of()));
 
         mockMvc.perform(get("/api/admin/ingress-events").param("mailboxId", "5"))
                 .andExpect(status().isOk());
 
-        verify(queryService).findByMailboxId(5L);
+        verify(queryService).searchPaged(any(), any(), any(), any());
     }
 
     // ── POST /api/admin/ingress-events/{id}/process ───────────────────────────

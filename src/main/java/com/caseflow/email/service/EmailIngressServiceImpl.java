@@ -4,9 +4,11 @@ import com.caseflow.common.exception.IngressEventNotFoundException;
 import com.caseflow.email.document.EmailDocument;
 import com.caseflow.email.domain.EmailDirection;
 import com.caseflow.email.domain.EmailIngressEvent;
+import com.caseflow.email.domain.EmailMailbox;
 import com.caseflow.email.domain.IngressEventStatus;
 import com.caseflow.email.repository.EmailDocumentRepository;
 import com.caseflow.email.repository.EmailIngressEventRepository;
+import com.caseflow.email.repository.EmailMailboxRepository;
 import com.caseflow.ticket.domain.Ticket;
 import com.caseflow.ticket.domain.TicketPriority;
 import com.caseflow.ticket.domain.TicketStatus;
@@ -18,7 +20,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
-import java.util.UUID;
 
 @Service
 public class EmailIngressServiceImpl implements EmailIngressService {
@@ -28,6 +29,7 @@ public class EmailIngressServiceImpl implements EmailIngressService {
     private final EmailIngressEventRepository eventRepository;
     private final EmailDocumentRepository documentRepository;
     private final TicketRepository ticketRepository;
+    private final EmailMailboxRepository mailboxRepository;
     private final EmailRoutingService routingService;
     private final EmailThreadingService threadingService;
     private final LoopDetectionService loopDetectionService;
@@ -37,6 +39,7 @@ public class EmailIngressServiceImpl implements EmailIngressService {
     public EmailIngressServiceImpl(EmailIngressEventRepository eventRepository,
                                    EmailDocumentRepository documentRepository,
                                    TicketRepository ticketRepository,
+                                   EmailMailboxRepository mailboxRepository,
                                    EmailRoutingService routingService,
                                    EmailThreadingService threadingService,
                                    LoopDetectionService loopDetectionService,
@@ -45,6 +48,7 @@ public class EmailIngressServiceImpl implements EmailIngressService {
         this.eventRepository = eventRepository;
         this.documentRepository = documentRepository;
         this.ticketRepository = ticketRepository;
+        this.mailboxRepository = mailboxRepository;
         this.routingService = routingService;
         this.threadingService = threadingService;
         this.loopDetectionService = loopDetectionService;
@@ -139,6 +143,7 @@ public class EmailIngressServiceImpl implements EmailIngressService {
                     event.setStatus(IngressEventStatus.PROCESSED);
                     event.setProcessedAt(Instant.now());
                     eventRepository.save(event);
+                    stampInboundAt(event.getMailboxId());
                     metrics.inboundProcessed();
                 }
                 case LINK_TO_TICKET -> {
@@ -149,6 +154,7 @@ public class EmailIngressServiceImpl implements EmailIngressService {
                     eventRepository.save(event);
                     historyService.record(routing.ticketId(), "EMAIL_LINKED", null,
                             "messageId=" + event.getMessageId());
+                    stampInboundAt(event.getMailboxId());
                     metrics.inboundProcessed();
                 }
             }
@@ -193,11 +199,19 @@ public class EmailIngressServiceImpl implements EmailIngressService {
 
     // ── Private helpers ───────────────────────────────────────────────────────
 
+    private void stampInboundAt(Long mailboxId) {
+        if (mailboxId == null) return;
+        mailboxRepository.findById(mailboxId).ifPresent(m -> {
+            m.setLastSuccessfulInboundAt(Instant.now());
+            mailboxRepository.save(m);
+        });
+    }
+
     private Long createTicketFromEvent(EmailIngressEvent event, Long customerId) {
         String subject = event.getRawSubject();
         if (subject == null || subject.isBlank()) subject = "(no subject)";
         Ticket ticket = new Ticket();
-        ticket.setTicketNo("TKT-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase());
+        ticket.setTicketNo(String.format("TKT-%07d", ticketRepository.nextTicketSeq()));
         ticket.setSubject(subject);
         ticket.setStatus(TicketStatus.NEW);
         ticket.setPriority(TicketPriority.MEDIUM);

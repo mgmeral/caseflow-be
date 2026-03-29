@@ -61,7 +61,8 @@ public class CustomerEmailSettingsMapper {
                 rule.getMatchValue(),
                 rule.getPriority(),
                 rule.getIsActive(),
-                rule.getCreatedAt()
+                rule.getCreatedAt(),
+                rule.getUpdatedAt()
         );
     }
 }

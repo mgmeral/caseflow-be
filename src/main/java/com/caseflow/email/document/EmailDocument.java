@@ -2,6 +2,7 @@ package com.caseflow.email.document;
 
 import com.caseflow.email.domain.EmailDirection;
 import org.springframework.data.annotation.Id;
+import org.springframework.data.mongodb.core.index.CompoundIndex;
 import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 
@@ -9,6 +10,7 @@ import java.time.Instant;
 import java.util.List;
 
 @Document(collection = "emails")
+@CompoundIndex(name = "ticket_received", def = "{'ticketId': 1, 'receivedAt': 1}")
 public class EmailDocument {
 
     @Id

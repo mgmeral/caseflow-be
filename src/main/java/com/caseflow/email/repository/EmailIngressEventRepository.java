@@ -3,13 +3,15 @@ package com.caseflow.email.repository;
 import com.caseflow.email.domain.EmailIngressEvent;
 import com.caseflow.email.domain.IngressEventStatus;
 import jakarta.persistence.LockModeType;
+import jakarta.persistence.QueryHint;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.jpa.repository.QueryHints;
 import org.springframework.data.repository.query.Param;
 
-import jakarta.persistence.QueryHint;
 import java.util.List;
 import java.util.Optional;
 
@@ -18,6 +20,8 @@ public interface EmailIngressEventRepository extends JpaRepository<EmailIngressE
     Optional<EmailIngressEvent> findByMessageId(String messageId);
 
     List<EmailIngressEvent> findByStatus(IngressEventStatus status);
+
+    Page<EmailIngressEvent> findByStatus(IngressEventStatus status, Pageable pageable);
 
     /**
      * Fetches up to {@code limit} RECEIVED events, locking them for update with SKIP LOCKED
@@ -50,5 +54,9 @@ public interface EmailIngressEventRepository extends JpaRepository<EmailIngressE
 
     List<EmailIngressEvent> findByTicketId(Long ticketId);
 
+    Page<EmailIngressEvent> findByTicketId(Long ticketId, Pageable pageable);
+
     List<EmailIngressEvent> findByMailboxId(Long mailboxId);
+
+    Page<EmailIngressEvent> findByMailboxId(Long mailboxId, Pageable pageable);
 }
