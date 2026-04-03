@@ -7,6 +7,8 @@ import com.caseflow.customer.domain.SenderMatchType;
 import com.caseflow.customer.repository.CustomerEmailRoutingRuleRepository;
 import com.caseflow.customer.repository.CustomerEmailSettingsRepository;
 import com.caseflow.email.domain.EmailIngressEvent;
+import com.caseflow.email.domain.EmailMailbox;
+import com.caseflow.email.repository.EmailMailboxRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -35,6 +37,7 @@ class EmailRoutingServiceTest {
 
     @Mock private CustomerEmailSettingsRepository settingsRepository;
     @Mock private CustomerEmailRoutingRuleRepository routingRuleRepository;
+    @Mock private EmailMailboxRepository mailboxRepository;
     @Mock private EmailThreadingService threadingService;
 
     @InjectMocks
@@ -45,6 +48,7 @@ class EmailRoutingServiceTest {
         lenient().when(routingRuleRepository.findAll()).thenReturn(List.of());
         lenient().when(settingsRepository.findAll()).thenReturn(List.of());
         lenient().when(threadingService.resolveTicketId(any(), any())).thenReturn(Optional.empty());
+        lenient().when(mailboxRepository.findById(any())).thenReturn(Optional.empty());
     }
 
     // ── Thread resolution → LINK_TO_TICKET ───────────────────────────────────
@@ -229,5 +233,218 @@ class EmailRoutingServiceTest {
         rule.setPriority(priority);
         rule.setIsActive(true);
         return rule;
+    }
+
+    // ── Subdomain matching ────────────────────────────────────────────────────
+
+    @Test
+    void route_matchesSubdomain_whenAllowSubdomainsTrue() {
+        CustomerEmailRoutingRule rule = rule(5L, SenderMatchType.DOMAIN, "bigcorp.com", 10);
+        rule.setAllowSubdomains(true);
+        when(routingRuleRepository.findAll()).thenReturn(List.of(rule));
+
+        RoutingResult result = routingService.route(event("user@mail.bigcorp.com"));
+
+        assertEquals(RoutingResult.Action.CREATE_TICKET, result.action());
+        assertEquals(5L, result.customerId());
+    }
+
+    @Test
+    void route_doesNotMatchSubdomain_whenAllowSubdomainsFalse() {
+        CustomerEmailRoutingRule rule = rule(5L, SenderMatchType.DOMAIN, "bigcorp.com", 10);
+        rule.setAllowSubdomains(false);
+        when(routingRuleRepository.findAll()).thenReturn(List.of(rule));
+
+        RoutingResult result = routingService.route(event("user@mail.bigcorp.com"));
+
+        // Should fall through to unknown sender
+        assertEquals(RoutingResult.Action.QUARANTINE, result.action());
+    }
+
+    @Test
+    void route_exactDomainStillMatchesWhenAllowSubdomainsTrue() {
+        CustomerEmailRoutingRule rule = rule(5L, SenderMatchType.DOMAIN, "bigcorp.com", 10);
+        rule.setAllowSubdomains(true);
+        when(routingRuleRepository.findAll()).thenReturn(List.of(rule));
+
+        RoutingResult result = routingService.route(event("user@bigcorp.com"));
+
+        assertEquals(RoutingResult.Action.CREATE_TICKET, result.action());
+        assertEquals(5L, result.customerId());
+    }
+
+    // ── Ambiguous domain rule detection ───────────────────────────────────────
+
+    @Test
+    void route_quarantines_whenAmbiguousEqualPriorityDomainRules() {
+        // Two domain rules at same priority, same domain length — ambiguous
+        CustomerEmailRoutingRule rule1 = rule(5L, SenderMatchType.DOMAIN, "acme.com", 10);
+        CustomerEmailRoutingRule rule2 = rule(7L, SenderMatchType.DOMAIN, "acme.com", 10);
+        when(routingRuleRepository.findAll()).thenReturn(List.of(rule1, rule2));
+
+        RoutingResult result = routingService.route(event("user@acme.com"));
+
+        assertEquals(RoutingResult.Action.QUARANTINE, result.action());
+        assertNull(result.customerId());
+    }
+
+    @Test
+    void route_longerDomainWinsOverShorterDomain_samePriority() {
+        // More specific rule (longer domain) should win
+        CustomerEmailRoutingRule shortRule  = rule(5L, SenderMatchType.DOMAIN, "corp.com", 10);
+        CustomerEmailRoutingRule longerRule = rule(7L, SenderMatchType.DOMAIN, "mail.corp.com", 10);
+        longerRule.setAllowSubdomains(false);
+        shortRule.setAllowSubdomains(true); // allows sub.corp.com
+        when(routingRuleRepository.findAll()).thenReturn(List.of(shortRule, longerRule));
+
+        RoutingResult result = routingService.route(event("user@mail.corp.com"));
+
+        assertEquals(RoutingResult.Action.CREATE_TICKET, result.action());
+        assertEquals(7L, result.customerId()); // more specific rule wins
+    }
+
+    // ── Mailbox-level unknown sender policy ───────────────────────────────────
+
+    @Test
+    void route_usesMailboxPolicy_beforeGlobalPolicy() {
+        // Mailbox says IGNORE, global says MANUAL_REVIEW — global should never be consulted
+        EmailMailbox mailbox = new EmailMailbox();
+        mailbox.setUnknownSenderPolicy(UnknownSenderPolicy.IGNORE);
+        when(mailboxRepository.findById(42L)).thenReturn(Optional.of(mailbox));
+
+        EmailIngressEvent event = event("stranger@unknown.com");
+        event.setMailboxId(42L);
+
+        RoutingResult result = routingService.route(event);
+
+        assertEquals(RoutingResult.Action.IGNORE, result.action());
+    }
+
+    @Test
+    void route_fallsBackToGlobalPolicy_whenMailboxHasNoPolicy() {
+        EmailMailbox mailbox = new EmailMailbox();
+        mailbox.setUnknownSenderPolicy(null); // not set
+        when(mailboxRepository.findById(42L)).thenReturn(Optional.of(mailbox));
+
+        CustomerEmailSettings globalSettings = new CustomerEmailSettings();
+        globalSettings.setUnknownSenderPolicy(UnknownSenderPolicy.IGNORE);
+        globalSettings.setIsActive(true);
+        when(settingsRepository.findAll()).thenReturn(List.of(globalSettings));
+
+        EmailIngressEvent event = event("stranger@unknown.com");
+        event.setMailboxId(42L);
+
+        RoutingResult result = routingService.route(event);
+
+        assertEquals(RoutingResult.Action.IGNORE, result.action());
+    }
+
+    // ── routeHeaders() — header-only precheck path ────────────────────────────
+
+    @Test
+    void routeHeaders_linksToTicket_whenThreadResolvesViaInReplyTo() {
+        when(threadingService.resolveTicketId(any(), any())).thenReturn(Optional.of(55L));
+
+        RoutingResult result = routingService.routeHeaders(
+                "sender@example.com", "<parent@example.com>", List.of(), null);
+
+        assertEquals(RoutingResult.Action.LINK_TO_TICKET, result.action());
+        assertEquals(55L, result.ticketId());
+    }
+
+    @Test
+    void routeHeaders_createsTicket_forExactEmailRule() {
+        CustomerEmailRoutingRule rule = rule(3L, SenderMatchType.EXACT_EMAIL, "ops@bigcorp.com", 10);
+        when(routingRuleRepository.findAll()).thenReturn(List.of(rule));
+
+        RoutingResult result = routingService.routeHeaders(
+                "ops@bigcorp.com", null, List.of(), null);
+
+        assertEquals(RoutingResult.Action.CREATE_TICKET, result.action());
+        assertEquals(3L, result.customerId());
+    }
+
+    @Test
+    void routeHeaders_createsTicket_forDomainRule() {
+        CustomerEmailRoutingRule rule = rule(7L, SenderMatchType.DOMAIN, "bigcorp.com", 10);
+        when(routingRuleRepository.findAll()).thenReturn(List.of(rule));
+
+        RoutingResult result = routingService.routeHeaders(
+                "any@bigcorp.com", null, List.of(), null);
+
+        assertEquals(RoutingResult.Action.CREATE_TICKET, result.action());
+        assertEquals(7L, result.customerId());
+    }
+
+    @Test
+    void routeHeaders_quarantines_byDefault_whenNoMatch() {
+        RoutingResult result = routingService.routeHeaders(
+                "stranger@unknown.com", null, List.of(), null);
+
+        assertEquals(RoutingResult.Action.QUARANTINE, result.action());
+    }
+
+    @Test
+    void routeHeaders_appliesMailboxPolicy_whenNoRuleMatches() {
+        EmailMailbox mailbox = new EmailMailbox();
+        mailbox.setUnknownSenderPolicy(UnknownSenderPolicy.IGNORE);
+        when(mailboxRepository.findById(99L)).thenReturn(Optional.of(mailbox));
+
+        RoutingResult result = routingService.routeHeaders(
+                "stranger@unknown.com", null, List.of(), 99L);
+
+        assertEquals(RoutingResult.Action.IGNORE, result.action());
+    }
+
+    @Test
+    void routeHeaders_stripsDisplayName_beforeMatching() {
+        CustomerEmailRoutingRule rule = rule(8L, SenderMatchType.EXACT_EMAIL, "alice@acme.com", 10);
+        when(routingRuleRepository.findAll()).thenReturn(List.of(rule));
+
+        RoutingResult result = routingService.routeHeaders(
+                "Alice Acme <alice@acme.com>", null, List.of(), null);
+
+        assertEquals(RoutingResult.Action.CREATE_TICKET, result.action());
+        assertEquals(8L, result.customerId());
+    }
+
+    // ── Exact-email ambiguity → QUARANTINE ───────────────────────────────────
+
+    @Test
+    void route_quarantines_whenTwoExactRulesForDifferentCustomersMatchSameSender() {
+        // Two exact rules for the same address but different customers → operator conflict
+        CustomerEmailRoutingRule rule1 = rule(10L, SenderMatchType.EXACT_EMAIL, "shared@partner.com", 10);
+        CustomerEmailRoutingRule rule2 = rule(20L, SenderMatchType.EXACT_EMAIL, "shared@partner.com", 5);
+        when(routingRuleRepository.findAll()).thenReturn(List.of(rule1, rule2));
+
+        RoutingResult result = routingService.route(event("shared@partner.com"));
+
+        assertEquals(RoutingResult.Action.QUARANTINE, result.action());
+        assertNull(result.customerId());
+    }
+
+    @Test
+    void routeHeaders_quarantines_whenTwoExactRulesForDifferentCustomersMatchSameSender() {
+        CustomerEmailRoutingRule rule1 = rule(10L, SenderMatchType.EXACT_EMAIL, "shared@partner.com", 10);
+        CustomerEmailRoutingRule rule2 = rule(20L, SenderMatchType.EXACT_EMAIL, "shared@partner.com", 5);
+        when(routingRuleRepository.findAll()).thenReturn(List.of(rule1, rule2));
+
+        RoutingResult result = routingService.routeHeaders(
+                "shared@partner.com", null, List.of(), null);
+
+        assertEquals(RoutingResult.Action.QUARANTINE, result.action());
+    }
+
+    @Test
+    void route_doesNotQuarantine_whenTwoExactRulesForSameCustomerMatchSameSender() {
+        // Same customer — not ambiguous
+        CustomerEmailRoutingRule rule1 = rule(10L, SenderMatchType.EXACT_EMAIL, "ops@partner.com", 10);
+        CustomerEmailRoutingRule rule2 = rule(10L, SenderMatchType.EXACT_EMAIL, "ops@partner.com", 5);
+        when(routingRuleRepository.findAll()).thenReturn(List.of(rule1, rule2));
+
+        RoutingResult result = routingService.route(event("ops@partner.com"));
+
+        assertEquals(RoutingResult.Action.CREATE_TICKET, result.action());
+        assertEquals(10L, result.customerId());
     }
 }

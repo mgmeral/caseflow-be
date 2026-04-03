@@ -40,6 +40,14 @@ public class EmailDocument {
 
     private String htmlBody;
 
+    /**
+     * Sanitized version of {@link #htmlBody} — safe to render in the operator UI.
+     * Computed at ingress time via Jsoup {@code Safelist.relaxed()}; strips scripts,
+     * iframes, event handlers, and dangerous attributes while preserving formatting.
+     * Null when the original email had no HTML body.
+     */
+    private String sanitizedHtmlBody;
+
     private String textBody;
 
     private List<AttachmentMetadata> attachments;
@@ -154,6 +162,14 @@ public class EmailDocument {
 
     public void setHtmlBody(String htmlBody) {
         this.htmlBody = htmlBody;
+    }
+
+    public String getSanitizedHtmlBody() {
+        return sanitizedHtmlBody;
+    }
+
+    public void setSanitizedHtmlBody(String sanitizedHtmlBody) {
+        this.sanitizedHtmlBody = sanitizedHtmlBody;
     }
 
     public String getTextBody() {

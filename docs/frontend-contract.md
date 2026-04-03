@@ -374,11 +374,12 @@ Stage-2 processing (routing, ticket creation) runs asynchronously via the retry 
 
 **Legacy email document endpoints (do not use for new UI):**
 
-| Method | Path                   | Permission   | Notes                                             |
-|--------|------------------------|--------------|---------------------------------------------------|
-| GET    | /emails/{id}           | TICKET_READ  | MongoDB document by ID (internal use)             |
-| GET    | /emails/by-ticket/{id} | TICKET_READ  | Legacy list view; use `/tickets/{id}/email/thread` instead |
-| GET    | /emails/by-thread/{key}| TICKET_READ  | MongoDB thread lookup by threadKey                |
+| Method | Path                     | Permission              | Notes                                                        |
+|--------|--------------------------|-------------------------|--------------------------------------------------------------|
+| GET    | /emails/{id}             | TICKET_READ             | MongoDB document — returns **sanitized** `sanitizedHtmlBody`; safe to render |
+| GET    | /emails/{id}/raw         | EMAIL_OPERATIONS_MANAGE | Raw unsanitized `htmlBody` — **audit/debug only, never render directly** |
+| GET    | /emails/by-ticket/{id}   | TICKET_READ             | Legacy list view; use `/tickets/{id}/email/thread` instead   |
+| GET    | /emails/by-thread/{key}  | TICKET_READ             | MongoDB thread lookup by threadKey                           |
 
 ---
 
@@ -544,7 +545,7 @@ InboundMode         : WEBHOOK | IMAP_POLL | MANUAL
 OutboundMode        : SMTP | API
 SenderMatchType     : EXACT_EMAIL | DOMAIN
 MatchingStrategy    : CONTACT_FIRST | RULE_FIRST
-UnknownSenderPolicy : MANUAL_REVIEW | CREATE_UNMATCHED_TICKET | IGNORE | REJECT
+UnknownSenderPolicy : MANUAL_REVIEW | IGNORE | REJECT
 ```
 
 All enums serialize as their string name (Spring Boot default).
@@ -592,4 +593,5 @@ Start with `SPRING_PROFILES_ACTIVE=dev`:
 | GET `/tickets/{id}/email/dispatches`| compat  | GET `/tickets/{id}/email/thread`                |
 | GET `/emails/by-ticket/{id}`     | legacy  | GET `/tickets/{id}/email/thread`                  |
 | GET `/emails/by-thread/{key}`    | legacy  | Internal/ops use only; no FE equivalent needed    |
-| GET `/emails/{id}`               | legacy  | Internal/ops use only (MongoDB document)          |
+| GET `/emails/{id}`               | legacy  | Returns sanitized body (`sanitizedHtmlBody`) — safe to render  |
+| GET `/emails/{id}/raw`           | debug   | Raw unsanitized HTML — audit only, never render directly        |

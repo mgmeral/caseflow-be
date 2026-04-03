@@ -1,5 +1,6 @@
 package com.caseflow.email.api;
 
+import com.caseflow.email.api.dto.EmailDocumentRawResponse;
 import com.caseflow.email.api.dto.EmailDocumentResponse;
 import com.caseflow.email.api.dto.EmailDocumentSummaryResponse;
 import com.caseflow.email.api.dto.IngestEmailRequest;
@@ -95,6 +96,19 @@ public class EmailDocumentController {
         log.info("GET /emails/{}", id);
         return emailDocumentQueryService.findById(id)
                 .map(doc -> ResponseEntity.ok(emailDocumentMapper.toResponse(doc)))
+                .orElse(ResponseEntity.notFound().build());
+    }
+
+    /**
+     * Raw source view — returns the original unsanitized HTML body for audit and debugging.
+     * Restricted to email operations admins. Never use this as the operator-facing default.
+     */
+    @GetMapping("/{id}/raw")
+    @PreAuthorize("hasAuthority('PERM_EMAIL_OPERATIONS_MANAGE')")
+    public ResponseEntity<EmailDocumentRawResponse> getRawById(@PathVariable String id) {
+        log.info("GET /emails/{}/raw", id);
+        return emailDocumentQueryService.findById(id)
+                .map(doc -> ResponseEntity.ok(emailDocumentMapper.toRawResponse(doc)))
                 .orElse(ResponseEntity.notFound().build());
     }
 

@@ -11,14 +11,18 @@ import com.caseflow.email.domain.IngressEventStatus;
 import com.caseflow.email.repository.EmailDocumentRepository;
 import com.caseflow.email.repository.EmailIngressEventRepository;
 import com.caseflow.email.repository.EmailMailboxRepository;
+import com.caseflow.notification.service.NotificationService;
 import com.caseflow.storage.service.AttachmentService;
 import com.caseflow.ticket.domain.Ticket;
 import com.caseflow.ticket.domain.TicketPriority;
 import com.caseflow.ticket.domain.TicketStatus;
 import com.caseflow.ticket.repository.TicketRepository;
 import com.caseflow.workflow.history.TicketHistoryService;
+import com.caseflow.workflow.state.TicketSystemTransitionService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.jsoup.Jsoup;
+import org.jsoup.safety.Safelist;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -45,7 +49,9 @@ public class EmailIngressServiceImpl implements EmailIngressService {
     private final EmailThreadingService threadingService;
     private final LoopDetectionService loopDetectionService;
     private final TicketHistoryService historyService;
+    private final TicketSystemTransitionService systemTransitionService;
     private final AttachmentService attachmentService;
+    private final NotificationService notificationService;
     private final EmailMetrics metrics;
     private final ObjectMapper objectMapper;
 
@@ -58,7 +64,9 @@ public class EmailIngressServiceImpl implements EmailIngressService {
                                    EmailThreadingService threadingService,
                                    LoopDetectionService loopDetectionService,
                                    TicketHistoryService historyService,
+                                   TicketSystemTransitionService systemTransitionService,
                                    AttachmentService attachmentService,
+                                   NotificationService notificationService,
                                    EmailMetrics metrics,
                                    ObjectMapper objectMapper) {
         this.eventRepository = eventRepository;
@@ -70,7 +78,9 @@ public class EmailIngressServiceImpl implements EmailIngressService {
         this.threadingService = threadingService;
         this.loopDetectionService = loopDetectionService;
         this.historyService = historyService;
+        this.systemTransitionService = systemTransitionService;
         this.attachmentService = attachmentService;
+        this.notificationService = notificationService;
         this.metrics = metrics;
         this.objectMapper = objectMapper;
     }
@@ -189,6 +199,8 @@ public class EmailIngressServiceImpl implements EmailIngressService {
                             "messageId=" + event.getMessageId());
                     stampInboundAt(event.getMailboxId());
                     metrics.inboundProcessed();
+                    // System transition: e.g. WAITING_CUSTOMER → IN_PROGRESS, RESOLVED/CLOSED → REOPENED
+                    systemTransitionService.applyInboundEmailTransition(routing.ticketId(), event.getId());
                 }
             }
 
@@ -255,6 +267,14 @@ public class EmailIngressServiceImpl implements EmailIngressService {
         historyService.recordCreated(saved.getId(), null);
         log.info("Ticket {} created from ingress event {} — customerId: {}",
                 saved.getId(), event.getId(), customerId);
+
+        // Notify group members if a default group was applied
+        if (saved.getAssignedGroupId() != null) {
+            notificationService.notifyGroupTicketCreated(
+                    saved.getId(), saved.getPublicId(), saved.getTicketNo(),
+                    saved.getAssignedGroupId(), null);
+        }
+
         return saved.getId();
     }
 
@@ -291,6 +311,7 @@ public class EmailIngressServiceImpl implements EmailIngressService {
                     doc.setSubject(event.getRawSubject());
                     doc.setTextBody(event.getTextBody());
                     doc.setHtmlBody(event.getHtmlBody());
+                    doc.setSanitizedHtmlBody(sanitizeHtml(event.getHtmlBody()));
                     doc.setReceivedAt(event.getReceivedAt());
                     doc.setParsedAt(Instant.now());
                     doc.setTicketId(ticketId);
@@ -365,5 +386,16 @@ public class EmailIngressServiceImpl implements EmailIngressService {
             log.warn("Failed to deserialize attachments JSON — {}", e.getMessage(), e);
             return Collections.emptyList();
         }
+    }
+
+    /**
+     * Sanitizes raw inbound HTML using Jsoup's relaxed safelist.
+     * Strips scripts, iframes, event handlers, and javascript: URIs while
+     * preserving standard formatting (bold, links, lists, tables, images).
+     * Returns null when the input is null or blank.
+     */
+    private static String sanitizeHtml(String html) {
+        if (html == null || html.isBlank()) return null;
+        return Jsoup.clean(html, Safelist.relaxed());
     }
 }

@@ -1,6 +1,7 @@
 package com.caseflow.email.api.mapper;
 
 import com.caseflow.email.api.dto.EmailAttachmentResponse;
+import com.caseflow.email.api.dto.EmailDocumentRawResponse;
 import com.caseflow.email.api.dto.EmailDocumentResponse;
 import com.caseflow.email.api.dto.EmailDocumentSummaryResponse;
 import com.caseflow.email.document.EmailDocument;
@@ -17,11 +18,17 @@ import java.util.List;
 public interface EmailDocumentMapper {
 
     /**
-     * Full detail mapping. Includes body content and attachment metadata.
-     * Internal-only fields (inReplyTo, references, normalizedSubject, bcc)
+     * Operator-facing detail mapping. Exposes {@code sanitizedHtmlBody} — never raw HTML.
+     * Internal-only fields (inReplyTo, references, normalizedSubject, bcc, htmlBody)
      * are silently dropped via unmappedSourcePolicy = IGNORE.
      */
     EmailDocumentResponse toResponse(EmailDocument document);
+
+    /**
+     * Raw/debug mapping. Exposes the original unsanitized {@code htmlBody}.
+     * Restricted to admin/audit endpoints only — never used as the default view.
+     */
+    EmailDocumentRawResponse toRawResponse(EmailDocument document);
 
     EmailAttachmentResponse toAttachmentResponse(EmailDocument.AttachmentMetadata metadata);
 
