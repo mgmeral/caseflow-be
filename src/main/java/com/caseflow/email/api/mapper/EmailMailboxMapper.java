@@ -42,7 +42,7 @@ public class EmailMailboxMapper {
         mailbox.setInitialSyncStrategy(
                 request.initialSyncStrategy() != null
                         ? request.initialSyncStrategy()
-                        : InitialSyncStrategy.START_FROM_LATEST);
+                        : InitialSyncStrategy.NEW_MESSAGES_ONLY);
 
         return mailbox;
     }

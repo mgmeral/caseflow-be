@@ -1,6 +1,7 @@
 package com.caseflow.email.service;
 
 import com.caseflow.common.exception.DispatchNotFoundException;
+import com.caseflow.email.domain.DispatchFailureCategory;
 import com.caseflow.email.domain.DispatchStatus;
 import com.caseflow.email.domain.OutboundEmailDispatch;
 import com.caseflow.email.repository.OutboundEmailDispatchRepository;
@@ -30,24 +31,44 @@ public class EmailDispatchService {
 
     /**
      * Enqueues an outbound email for durable dispatch.
+     *
+     * @param ticketId             target ticket
+     * @param mailboxId            mailbox used to send (drives SMTP settings selection)
+     * @param sourceIngressEventId source inbound event being replied to (null for proactive sends)
+     * @param sentByUserId         agent who initiated the reply (null for system-generated)
+     * @param fromAddress          sender address (the mailbox address)
+     * @param toAddress            resolved recipient address
+     * @param resolvedToAddress    backend-derived reply target (may equal toAddress or differ if FE override)
+     * @param subject              email subject
+     * @param textBody             plain-text body
+     * @param htmlBody             HTML body (optional)
+     * @param inReplyToMessageId   original messageId for In-Reply-To threading
+     * @param referencesHeader     full RFC 2822 References chain (space-separated message-ids)
      */
     @Transactional
-    public OutboundEmailDispatch enqueue(Long ticketId, String fromAddress, String toAddress,
-                                         String subject, String textBody, String htmlBody,
-                                         String inReplyToMessageId) {
+    public OutboundEmailDispatch enqueue(Long ticketId, Long mailboxId, Long sourceIngressEventId,
+                                         Long sentByUserId, String fromAddress, String toAddress,
+                                         String resolvedToAddress, String subject,
+                                         String textBody, String htmlBody, String inReplyToMessageId,
+                                         String referencesHeader) {
         OutboundEmailDispatch dispatch = new OutboundEmailDispatch();
         dispatch.setTicketId(ticketId);
+        dispatch.setMailboxId(mailboxId);
+        dispatch.setSourceIngressEventId(sourceIngressEventId);
+        dispatch.setSentByUserId(sentByUserId);
         dispatch.setMessageId(generateMessageId());
         dispatch.setFromAddress(fromAddress);
         dispatch.setToAddress(toAddress);
+        dispatch.setResolvedToAddress(resolvedToAddress);
         dispatch.setSubject(subject);
         dispatch.setTextBody(textBody);
         dispatch.setHtmlBody(htmlBody);
         dispatch.setInReplyToMessageId(inReplyToMessageId);
+        dispatch.setReferencesHeader(referencesHeader);
         dispatch.setStatus(DispatchStatus.PENDING);
         OutboundEmailDispatch saved = dispatchRepository.save(dispatch);
-        log.info("Dispatch enqueued — dispatchId: {}, to: '{}', ticketId: {}",
-                saved.getId(), toAddress, ticketId);
+        log.info("SMTP_SEND dispatch enqueued — dispatchId: {}, to: '{}', resolvedTo: '{}', mailboxId: {}, ticketId: {}",
+                saved.getId(), toAddress, resolvedToAddress, mailboxId, ticketId);
         return saved;
     }
 
@@ -67,18 +88,23 @@ public class EmailDispatchService {
     }
 
     @Transactional
-    public void markFailed(OutboundEmailDispatch dispatch, String reason) {
+    public void markFailed(OutboundEmailDispatch dispatch, String reason,
+                           DispatchFailureCategory category) {
         dispatch.setStatus(DispatchStatus.FAILED);
         dispatch.setFailureReason(reason);
+        dispatch.setFailureCategory(category);
         dispatchRepository.save(dispatch);
     }
 
     @Transactional
-    public void markPermanentlyFailed(OutboundEmailDispatch dispatch, String reason) {
+    public void markPermanentlyFailed(OutboundEmailDispatch dispatch, String reason,
+                                       DispatchFailureCategory category) {
         dispatch.setStatus(DispatchStatus.PERMANENTLY_FAILED);
         dispatch.setFailureReason(reason);
+        dispatch.setFailureCategory(category);
         dispatchRepository.save(dispatch);
-        log.error("Dispatch permanently failed — dispatchId: {}, reason: {}", dispatch.getId(), reason);
+        log.error("SMTP_SEND dispatch permanently failed — dispatchId: {}, category: {}, reason: {}",
+                dispatch.getId(), category, reason);
     }
 
     @Transactional(readOnly = true)

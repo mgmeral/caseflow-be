@@ -6,6 +6,7 @@ import com.caseflow.email.domain.IngressEventStatus;
 import com.caseflow.email.repository.EmailDocumentRepository;
 import com.caseflow.email.repository.EmailIngressEventRepository;
 import com.caseflow.email.repository.EmailMailboxRepository;
+import com.caseflow.notification.service.NotificationService;
 import com.caseflow.storage.service.AttachmentService;
 import com.caseflow.ticket.repository.TicketRepository;
 import com.caseflow.workflow.history.TicketHistoryService;
@@ -42,6 +43,7 @@ class EmailIngressServiceTest {
     @Mock private LoopDetectionService loopDetectionService;
     @Mock private TicketHistoryService historyService;
     @Mock private AttachmentService attachmentService;
+    @Mock private NotificationService notificationService;
     @Mock private EmailMetrics metrics;
     @Mock private ObjectMapper objectMapper;
 

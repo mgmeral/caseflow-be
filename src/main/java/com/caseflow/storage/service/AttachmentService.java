@@ -60,6 +60,37 @@ public class AttachmentService {
                 AttachmentSourceType.EMAIL_INBOUND);
     }
 
+    /**
+     * Saves attachment metadata for an IMAP-ingested email with full context.
+     *
+     * @param ticketId       resolved ticket id (null if ticket not yet assigned)
+     * @param ticketPublicId resolved ticket public UUID (null if ticket not yet assigned)
+     * @param emailId        MongoDB EmailDocument id (null if not yet created)
+     * @param ingressEventId source ingress event id
+     * @param fileName       original file name
+     * @param objectKey      object storage key (staging or final)
+     * @param contentType    MIME type
+     * @param size           byte size
+     * @param storageStage   "STAGING" or "FINAL"
+     */
+    @Transactional
+    public AttachmentMetadata saveEmailAttachmentWithContext(
+            Long ticketId, java.util.UUID ticketPublicId, String emailId, Long ingressEventId,
+            String fileName, String objectKey, String contentType, Long size, String storageStage) {
+        AttachmentMetadata metadata = new AttachmentMetadata();
+        metadata.setTicketId(ticketId);
+        metadata.setTicketPublicId(ticketPublicId);
+        metadata.setEmailId(emailId);
+        metadata.setIngressEventId(ingressEventId);
+        metadata.setFileName(fileName);
+        metadata.setObjectKey(objectKey);
+        metadata.setContentType(contentType);
+        metadata.setSize(size);
+        metadata.setSourceType(AttachmentSourceType.EMAIL_INBOUND);
+        metadata.setStorageStage(storageStage);
+        return attachmentMetadataRepository.save(metadata);
+    }
+
     @Transactional(readOnly = true)
     public List<AttachmentMetadata> findByTicketId(Long ticketId) {
         return attachmentMetadataRepository.findByTicketId(ticketId);

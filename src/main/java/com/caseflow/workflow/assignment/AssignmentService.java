@@ -2,6 +2,8 @@ package com.caseflow.workflow.assignment;
 
 import com.caseflow.common.exception.ActiveAssignmentAlreadyExistsException;
 import com.caseflow.common.exception.TicketNotFoundException;
+import com.caseflow.notification.domain.NotificationType;
+import com.caseflow.notification.service.NotificationService;
 import com.caseflow.ticket.domain.Ticket;
 import com.caseflow.ticket.repository.TicketRepository;
 import com.caseflow.workflow.domain.Assignment;
@@ -13,6 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.Objects;
 import java.util.Optional;
 
 @Service
@@ -28,13 +31,16 @@ public class AssignmentService {
     private final AssignmentRepository assignmentRepository;
     private final TicketRepository ticketRepository;
     private final TicketHistoryService ticketHistoryService;
+    private final NotificationService notificationService;
 
     public AssignmentService(AssignmentRepository assignmentRepository,
                              TicketRepository ticketRepository,
-                             TicketHistoryService ticketHistoryService) {
+                             TicketHistoryService ticketHistoryService,
+                             NotificationService notificationService) {
         this.assignmentRepository = assignmentRepository;
         this.ticketRepository = ticketRepository;
         this.ticketHistoryService = ticketHistoryService;
+        this.notificationService = notificationService;
     }
 
     @Transactional
@@ -57,6 +63,18 @@ public class AssignmentService {
         Assignment saved = assignmentRepository.save(assignment);
 
         ticketHistoryService.recordAssigned(ticketId, assignedBy, userId, groupId);
+
+        // Notifications: notify group members and/or the assigned user
+        if (groupId != null) {
+            notificationService.notifyGroupTicketCreated(
+                    ticketId, ticket.getPublicId(), ticket.getTicketNo(), groupId, assignedBy);
+        }
+        if (userId != null) {
+            notificationService.notifyUserAssigned(
+                    ticketId, ticket.getPublicId(), ticket.getTicketNo(),
+                    userId, NotificationType.TICKET_ASSIGNED_TO_USER, assignedBy);
+        }
+
         log.info("Ticket {} assigned — userId: {}, groupId: {}", ticketId, userId, groupId);
         return saved;
     }
@@ -67,12 +85,15 @@ public class AssignmentService {
             throw new IllegalArgumentException("Reassignment must target at least one of: newUserId, newGroupId");
         }
         log.info("Reassigning ticket {} — newUserId: {}, newGroupId: {}, reassignedBy: {}", ticketId, newUserId, newGroupId, reassignedBy);
+
+        Ticket ticket = findTicketOrThrow(ticketId);
+        Long previousUserId = ticket.getAssignedUserId();
+
         assignmentRepository.findByTicketIdAndUnassignedAtIsNull(ticketId).ifPresent(active -> {
             active.setUnassignedAt(Instant.now());
             assignmentRepository.save(active);
         });
 
-        Ticket ticket = findTicketOrThrow(ticketId);
         ticket.setAssignedUserId(newUserId);
         ticket.setAssignedGroupId(newGroupId);
         ticketRepository.save(ticket);
@@ -81,6 +102,14 @@ public class AssignmentService {
         Assignment saved = assignmentRepository.save(assignment);
 
         ticketHistoryService.recordReassigned(ticketId, reassignedBy, newUserId, newGroupId);
+
+        // Notifications: only notify if user actually changed (avoid no-op spam)
+        if (newUserId != null && !Objects.equals(previousUserId, newUserId)) {
+            notificationService.notifyUserAssigned(
+                    ticketId, ticket.getPublicId(), ticket.getTicketNo(),
+                    newUserId, NotificationType.TICKET_REASSIGNED_TO_USER, reassignedBy);
+        }
+
         log.info("Ticket {} reassigned — newUserId: {}, newGroupId: {}", ticketId, newUserId, newGroupId);
         return saved;
     }

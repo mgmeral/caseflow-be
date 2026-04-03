@@ -12,6 +12,7 @@ import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 
 import java.time.Instant;
+import java.util.UUID;
 
 @Entity
 @Table(name = "tickets")
@@ -20,6 +21,13 @@ public class Ticket {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
+    /**
+     * Stable external-facing UUID — safe for use in attachment storage paths and external APIs.
+     * Numeric {@code id} remains the internal DB PK. {@code ticketNo} remains the human identifier.
+     */
+    @Column(name = "public_id", nullable = false, updatable = false, unique = true)
+    private UUID publicId;
 
     @Column(name = "ticket_no", nullable = false, unique = true)
     private String ticketNo;
@@ -58,6 +66,7 @@ public class Ticket {
 
     @PrePersist
     private void onCreate() {
+        if (publicId == null) publicId = UUID.randomUUID();
         createdAt = Instant.now();
         updatedAt = Instant.now();
     }
@@ -69,6 +78,10 @@ public class Ticket {
 
     public Long getId() {
         return id;
+    }
+
+    public UUID getPublicId() {
+        return publicId;
     }
 
     public String getTicketNo() {

@@ -21,5 +21,7 @@ public record EmailThreadItem(
         /** First ~500 chars of email body — null if body is unavailable or not yet processed.
          *  INBOUND: from EmailDocument.bodyPreview; OUTBOUND: from OutboundEmailDispatch.textBody.
          *  Fetch /inbound/{eventId} or /outbound/{dispatchId} for the full body. */
-        String bodyPreview
+        String bodyPreview,
+        /** Number of attachments on this email. 0 for outbound (not tracked in dispatch). */
+        int attachmentCount
 ) {}

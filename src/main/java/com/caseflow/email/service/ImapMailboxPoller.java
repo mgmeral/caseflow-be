@@ -4,6 +4,7 @@ import com.caseflow.email.api.dto.MailboxConnectionTestResponse;
 import com.caseflow.email.domain.EmailMailbox;
 import com.caseflow.email.domain.InitialSyncStrategy;
 import com.caseflow.email.repository.EmailMailboxRepository;
+import com.caseflow.storage.AttachmentKeyStrategy;
 import com.caseflow.storage.ObjectStorageService;
 import jakarta.mail.Address;
 import jakarta.mail.Folder;
@@ -15,6 +16,8 @@ import jakarta.mail.Session;
 import jakarta.mail.Store;
 import jakarta.mail.UIDFolder;
 import jakarta.mail.internet.MimeUtility;
+import jakarta.mail.search.ComparisonTerm;
+import jakarta.mail.search.ReceivedDateTerm;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -23,32 +26,43 @@ import org.springframework.transaction.annotation.Transactional;
 import java.io.IOException;
 import java.io.InputStream;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Date;
 import java.util.List;
 import java.util.Properties;
-import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
  * IMAP mailbox poller — fetches new inbound messages and routes them through the ingress pipeline.
  *
- * <h2>Duplicate safety</h2>
+ * <h2>Pre-routing guard (P0 fix)</h2>
+ * Before parsing message bodies or uploading attachments, this poller runs a lightweight
+ * routing precheck using only the message headers (From, In-Reply-To, References).
  * <ul>
- *   <li>UID-based: only fetches messages with UID &gt; {@code lastSeenUid}
- *   <li>MessageId-based: {@code receiveEvent} is idempotent on messageId
+ *   <li>ACCEPT (CREATE_TICKET / LINK_TO_TICKET): full parse + attachment upload + ingest.</li>
+ *   <li>QUARANTINE: parse bodies but skip attachment upload; persist minimal ingress event for
+ *       operator review.</li>
+ *   <li>IGNORE / REJECT: skip entirely — no storage write, no DB persistence.</li>
  * </ul>
+ *
+ * <h2>Attachment gating</h2>
+ * Attachments are NEVER uploaded to object storage until the routing precheck returns ACCEPT.
+ *
+ * <h2>Duplicate safety</h2>
+ * UID-based cursor prevents reprocessing. {@code receiveEvent} provides a secondary messageId
+ * idempotency guard.
  *
  * <h2>Multi-instance safety</h2>
  * The caller (ImapPollingScheduler) claims a DB-level lease before invoking {@code pollMailbox}.
- * This method releases the lease in its {@code finally} block, ensuring the lock is always cleared
- * even if the JVM crashes mid-poll (the lease expires automatically after TTL).
+ * The lease is released in the {@code finally} block.
  *
- * <h2>First-time onboarding</h2>
- * When {@code lastSeenUid} is null:
+ * <h2>Initial sync strategies</h2>
  * <ul>
- *   <li>{@code START_FROM_LATEST}: advances cursor to the current highest UID without ingesting history.
- *   <li>{@code BACKFILL_ALL}: starts from UID 1 and ingests the entire inbox.
+ *   <li>{@code NEW_MESSAGES_ONLY}: advance cursor to current max UID, ingest nothing.</li>
+ *   <li>{@code SCAN_FROM_START}: start from UID 1 (full history).</li>
+ *   <li>{@code SCAN_LAST_1/3/7_DAY}: use IMAP SEARCH to find recent messages by date.</li>
  * </ul>
  *
  * <p>Passwords are never logged.
@@ -64,13 +78,19 @@ public class ImapMailboxPoller {
     private final EmailMailboxRepository mailboxRepository;
     private final EmailIngressService ingressService;
     private final ObjectStorageService objectStorageService;
+    private final AttachmentKeyStrategy keyStrategy;
+    private final EmailRoutingService routingService;
 
     public ImapMailboxPoller(EmailMailboxRepository mailboxRepository,
                              EmailIngressService ingressService,
-                             ObjectStorageService objectStorageService) {
+                             ObjectStorageService objectStorageService,
+                             AttachmentKeyStrategy keyStrategy,
+                             EmailRoutingService routingService) {
         this.mailboxRepository = mailboxRepository;
         this.ingressService = ingressService;
         this.objectStorageService = objectStorageService;
+        this.keyStrategy = keyStrategy;
+        this.routingService = routingService;
     }
 
     // ── Polling ───────────────────────────────────────────────────────────────
@@ -83,13 +103,13 @@ public class ImapMailboxPoller {
     public void pollMailbox(EmailMailbox mailbox) {
         if (!Boolean.TRUE.equals(mailbox.getPollingEnabled())) return;
         if (mailbox.getImapHost() == null || mailbox.getImapUsername() == null) {
-            log.warn("Mailbox {} ({}) has polling enabled but is missing IMAP credentials — skipping",
+            log.warn("IMAP_POLL mailbox {} ({}) has polling enabled but missing IMAP credentials — skipping",
                     mailbox.getId(), mailbox.getAddress());
             return;
         }
 
-        log.info("Polling IMAP mailbox {} ({}) — folder: {}", mailbox.getId(), mailbox.getAddress(),
-                mailbox.getImapFolder());
+        log.info("IMAP_POLL start — mailbox: {} ({}), folder: {}",
+                mailbox.getId(), mailbox.getAddress(), mailbox.getImapFolder());
 
         Store store = null;
         Folder folder = null;
@@ -101,56 +121,81 @@ public class ImapMailboxPoller {
             folder = openFolder(store, mailbox.getImapFolder());
 
             if (!(folder instanceof UIDFolder uidFolder)) {
-                log.warn("Mailbox {} IMAP folder does not support UID operations — skipping", mailbox.getId());
+                log.warn("IMAP_POLL mailbox {} — folder does not support UID operations — skipping",
+                        mailbox.getId());
                 return;
             }
 
-            // ── First-time onboarding ────────────────────────────────────────
+            // ── First-time onboarding (null cursor) ──────────────────────────
             if (mailbox.getLastSeenUid() == null) {
                 InitialSyncStrategy strategy = mailbox.getInitialSyncStrategy() != null
                         ? mailbox.getInitialSyncStrategy()
-                        : InitialSyncStrategy.START_FROM_LATEST;
+                        : InitialSyncStrategy.NEW_MESSAGES_ONLY;
 
-                if (strategy == InitialSyncStrategy.START_FROM_LATEST) {
+                if (strategy == InitialSyncStrategy.NEW_MESSAGES_ONLY) {
                     maxUidSeen = resolveLatestUid(folder, uidFolder);
-                    log.info("Mailbox {} first poll — START_FROM_LATEST strategy; advancing cursor to UID {}; "
+                    log.info("IMAP_CURSOR_INIT mailbox {} — NEW_MESSAGES_ONLY: cursor advanced to UID {}; "
                             + "no historical messages will be ingested", mailbox.getId(), maxUidSeen);
-                    return; // no ingestion; cursor updated in finally
+                    return; // cursor updated in finally
                 }
-                // BACKFILL_ALL: proceed with startUid = 1 (maxUidSeen stays 0)
-                log.info("Mailbox {} first poll — BACKFILL_ALL strategy; ingesting from UID 1",
+
+                if (strategy == InitialSyncStrategy.SCAN_LAST_1_DAY
+                        || strategy == InitialSyncStrategy.SCAN_LAST_3_DAYS
+                        || strategy == InitialSyncStrategy.SCAN_LAST_7_DAYS) {
+                    int days = strategyToDays(strategy);
+                    maxUidSeen = resolveLatestUid(folder, uidFolder); // advance cursor after scan
+                    Instant cutoff = Instant.now().minus(days, ChronoUnit.DAYS);
+                    log.info("IMAP_CURSOR_INIT mailbox {} — {}: scanning last {} day(s) since {}; cursor: {}",
+                            mailbox.getId(), strategy, days, cutoff, maxUidSeen);
+                    Message[] recentMessages = searchSince(folder, cutoff);
+                    log.info("IMAP_POLL mailbox {} — {} scan found {} candidate message(s)",
+                            mailbox.getId(), strategy, recentMessages.length);
+                    for (Message message : recentMessages) {
+                        long uid = uidFolder.getUID(message);
+                        try {
+                            processMessage(mailbox, message, uid);
+                        } catch (Exception e) {
+                            log.error("IMAP_POLL failed to ingest message uid={} mailbox={} — {}",
+                                    uid, mailbox.getId(), e.getMessage(), e);
+                        }
+                    }
+                    return; // cursor updated in finally
+                }
+
+                // SCAN_FROM_START: proceed with startUid = 1 (maxUidSeen stays 0)
+                log.info("IMAP_CURSOR_INIT mailbox {} — SCAN_FROM_START: ingesting from UID 1",
                         mailbox.getId());
             }
 
-            // ── Fetch new messages ───────────────────────────────────────────
+            // ── Fetch new messages via UID cursor ────────────────────────────
             long startUid = maxUidSeen + 1;
             Message[] messages = uidFolder.getMessagesByUID(startUid, UIDFolder.MAXUID);
 
             if (messages.length == 0) {
-                log.debug("No new messages for mailbox {} since uid {}", mailbox.getId(), maxUidSeen);
+                log.debug("IMAP_POLL mailbox {} — no new messages since UID {}", mailbox.getId(), maxUidSeen);
                 return;
             }
 
-            log.info("Found {} new message(s) for mailbox {}", messages.length, mailbox.getId());
+            log.info("IMAP_POLL mailbox {} — {} new message(s) since UID {}",
+                    messages.length, mailbox.getId(), maxUidSeen);
 
             for (Message message : messages) {
                 long uid = uidFolder.getUID(message);
                 try {
-                    processMessage(mailbox, message);
+                    processMessage(mailbox, message, uid);
                     if (uid > maxUidSeen) maxUidSeen = uid;
                 } catch (Exception e) {
-                    log.error("Failed to ingest message uid={} from mailbox {} — {}",
+                    log.error("IMAP_POLL failed to ingest message uid={} mailbox={} — {}",
                             uid, mailbox.getId(), e.getMessage(), e);
                 }
             }
 
         } catch (Exception e) {
-            log.error("IMAP poll failed for mailbox {} — {}", mailbox.getId(), e.getMessage(), e);
+            log.error("IMAP_POLL failed for mailbox {} — {}", mailbox.getId(), e.getMessage(), e);
             pollError = e.getMessage();
         } finally {
             closeQuietly(folder);
             closeQuietly(store);
-            // Always persist cursor advance, clear lease, and update poll timestamps
             if (maxUidSeen > 0 || mailbox.getLastSeenUid() != null) {
                 mailbox.setLastSeenUid(maxUidSeen > 0 ? maxUidSeen : mailbox.getLastSeenUid());
             }
@@ -165,8 +210,8 @@ public class ImapMailboxPoller {
     // ── Connection test ───────────────────────────────────────────────────────
 
     /**
-     * Tests IMAP connectivity and folder access for the given mailbox.
-     * Returns a structured result without throwing — suitable for operator-facing health checks.
+     * Tests IMAP connectivity and folder access.
+     * Returns a structured result without throwing — suitable for operator health checks.
      */
     public MailboxConnectionTestResponse testImapConnection(EmailMailbox mailbox) {
         Store store = null;
@@ -176,11 +221,13 @@ public class ImapMailboxPoller {
             folder = openFolder(store, mailbox.getImapFolder());
             int messageCount = folder.getMessageCount();
             String folderName = mailbox.getImapFolder() != null ? mailbox.getImapFolder() : "INBOX";
+            log.info("IMAP_TEST_CONNECTION success — mailbox: {}, folder: '{}', messages: {}",
+                    mailbox.getId(), folderName, messageCount);
             return new MailboxConnectionTestResponse(true,
-                    "Connection successful. Folder '" + folderName + "' contains " + messageCount + " message(s).",
+                    "IMAP connection successful. Folder '" + folderName + "' contains " + messageCount + " message(s).",
                     Instant.now());
         } catch (Exception e) {
-            log.warn("IMAP connection test failed for mailbox {} — {}", mailbox.getId(), e.getMessage());
+            log.warn("IMAP_TEST_CONNECTION failed — mailbox: {} — {}", mailbox.getId(), e.getMessage());
             return new MailboxConnectionTestResponse(false, sanitizeErrorMessage(e.getMessage()), Instant.now());
         } finally {
             closeQuietly(folder);
@@ -190,13 +237,22 @@ public class ImapMailboxPoller {
 
     // ── Message processing ────────────────────────────────────────────────────
 
-    private void processMessage(EmailMailbox mailbox, Message message) throws MessagingException, IOException {
+    /**
+     * Pre-routing guard: parse headers, run routing precheck, then decide whether to do
+     * full ingest (bodies + attachments), quarantine-ingest (bodies only), or skip entirely.
+     *
+     * <p>Attachments are NEVER uploaded before the routing precheck returns ACCEPT.
+     */
+    private void processMessage(EmailMailbox mailbox, Message message, long imapUid) throws MessagingException, IOException {
         String messageId = getHeader(message, "Message-ID");
         if (messageId == null || messageId.isBlank()) {
             messageId = "<synthetic-" + System.nanoTime() + "@" + mailbox.getAddress() + ">";
-            log.warn("Message from mailbox {} has no Message-ID — using synthetic: {}", mailbox.getId(), messageId);
+            log.warn("IMAP_POLL message has no Message-ID in mailbox {} — using synthetic: {}",
+                    mailbox.getId(), messageId);
         }
+        messageId = messageId.trim();
 
+        // ── Parse minimal headers for routing precheck ───────────────────────
         String inReplyTo  = getHeader(message, "In-Reply-To");
         String refsHeader = getHeader(message, "References");
         String replyTo    = addressHeader(message.getReplyTo());
@@ -204,76 +260,94 @@ public class ImapMailboxPoller {
         String rawTo      = recipientHeader(message, Message.RecipientType.TO);
         String rawCc      = recipientHeader(message, Message.RecipientType.CC);
         String subject    = message.getSubject();
-
         List<String> references = parseReferences(refsHeader);
-
-        String[] textAndHtml = extractBodies(message);
-        String textBody = textAndHtml[0];
-        String htmlBody = textAndHtml[1];
-
-        List<IngressAttachmentData> attachments = extractAndStoreAttachments(message, mailbox.getId());
-
         Instant receivedAt = message.getReceivedDate() != null
                 ? message.getReceivedDate().toInstant()
                 : Instant.now();
 
-        IngressEmailData data = new IngressEmailData(
-                messageId.trim(),
-                rawFrom,
-                rawTo,
-                inReplyTo,
-                references,
-                replyTo,
-                rawCc,
-                subject,
-                textBody,
-                htmlBody,
-                mailbox.getId(),
-                receivedAt,
-                null,        // envelopeRecipient — not available from IMAP headers directly
-                attachments.isEmpty() ? null : attachments
-        );
+        // ── Pre-routing decision (headers only — before any body or attachment work) ──
+        RoutingResult precheck = routingService.routeHeaders(rawFrom, inReplyTo, references, mailbox.getId());
 
-        ingressService.receiveEvent(data);
-        log.debug("Queued message for processing — messageId: '{}', from: '{}', attachments: {}",
-                messageId, rawFrom, attachments.size());
+        switch (precheck.action()) {
+            case IGNORE, REJECT -> {
+                log.info("INGRESS_PRECHECK_REJECT mailbox {} — messageId: '{}', from: '{}', action: {} — skipped",
+                        mailbox.getId(), messageId, rawFrom, precheck.action());
+                log.debug("ATTACHMENT_UPLOAD_SKIPPED mailbox {} — messageId: '{}' ({})",
+                        mailbox.getId(), messageId, precheck.action());
+                return; // no body parse, no upload, no DB write
+            }
+            case QUARANTINE -> {
+                log.info("INGRESS_PRECHECK_REJECT mailbox {} — messageId: '{}', from: '{}', action: QUARANTINE — {}",
+                        mailbox.getId(), messageId, rawFrom, precheck.quarantineReason());
+                log.debug("ATTACHMENT_UPLOAD_SKIPPED mailbox {} — messageId: '{}' (QUARANTINE)",
+                        mailbox.getId(), messageId);
+                // Persist with body for operator review — no attachment upload
+                String[] textAndHtml = extractBodies(message);
+                IngressEmailData data = new IngressEmailData(
+                        messageId, rawFrom, rawTo, inReplyTo, references, replyTo, rawCc,
+                        subject, textAndHtml[0], textAndHtml[1],
+                        mailbox.getId(), receivedAt, null, null);
+                ingressService.receiveEvent(data);
+                return;
+            }
+            case CREATE_TICKET, LINK_TO_TICKET -> {
+                log.info("INGRESS_PRECHECK_ACCEPT mailbox {} — messageId: '{}', from: '{}', action: {}",
+                        mailbox.getId(), messageId, rawFrom, precheck.action());
+                // Full ingest: parse bodies AND upload attachments
+                String[] textAndHtml = extractBodies(message);
+                List<IngressAttachmentData> attachments = extractAndStoreAttachments(message, mailbox.getId(), imapUid);
+                if (!attachments.isEmpty()) {
+                    log.info("ATTACHMENT_UPLOAD_ALLOWED mailbox {} — messageId: '{}', count: {}",
+                            mailbox.getId(), messageId, attachments.size());
+                } else {
+                    log.debug("ATTACHMENT_UPLOAD_SKIPPED mailbox {} — messageId: '{}' (no attachments)",
+                            mailbox.getId(), messageId);
+                }
+                IngressEmailData data = new IngressEmailData(
+                        messageId, rawFrom, rawTo, inReplyTo, references, replyTo, rawCc,
+                        subject, textAndHtml[0], textAndHtml[1],
+                        mailbox.getId(), receivedAt, null,
+                        attachments.isEmpty() ? null : attachments);
+                ingressService.receiveEvent(data);
+                log.debug("IMAP_POLL queued message — messageId: '{}', from: '{}', attachments: {}",
+                        messageId, rawFrom, attachments.size());
+            }
+        }
     }
 
     // ── Attachment extraction ─────────────────────────────────────────────────
 
     /**
      * Extracts attachment parts from the message, stores their binary content in object storage,
-     * and returns the metadata list.  Body parts (text/plain, text/html) are skipped here —
-     * they are extracted separately by {@link #extractBodies(Part)}.
+     * and returns the metadata list. Only called after routing precheck returns ACCEPT.
      */
-    private List<IngressAttachmentData> extractAndStoreAttachments(Part message, Long mailboxId)
+    private List<IngressAttachmentData> extractAndStoreAttachments(Part message, Long mailboxId, long imapUid)
             throws MessagingException, IOException {
         List<IngressAttachmentData> result = new ArrayList<>();
-        collectAttachments(message, mailboxId, result);
+        collectAttachments(message, mailboxId, imapUid, result);
         return result;
     }
 
-    private void collectAttachments(Part part, Long mailboxId, List<IngressAttachmentData> result)
+    private void collectAttachments(Part part, Long mailboxId, long imapUid, List<IngressAttachmentData> result)
             throws MessagingException, IOException {
         String disposition = part.getDisposition();
         boolean isAttachment = Part.ATTACHMENT.equalsIgnoreCase(disposition)
                 || (Part.INLINE.equalsIgnoreCase(disposition) && part.getFileName() != null);
 
         if (isAttachment && part.getFileName() != null) {
-            storeAttachment(part, mailboxId, result);
+            storeAttachment(part, mailboxId, imapUid, result);
             return;
         }
 
         if (part.isMimeType("multipart/*")) {
             Multipart mp = (Multipart) part.getContent();
             for (int i = 0; i < mp.getCount(); i++) {
-                collectAttachments(mp.getBodyPart(i), mailboxId, result);
+                collectAttachments(mp.getBodyPart(i), mailboxId, imapUid, result);
             }
         }
-        // text/plain, text/html, and other non-attachment inline parts are skipped here
     }
 
-    private void storeAttachment(Part part, Long mailboxId, List<IngressAttachmentData> result) {
+    private void storeAttachment(Part part, Long mailboxId, long imapUid, List<IngressAttachmentData> result) {
         try {
             String rawFileName = part.getFileName();
             String fileName = MimeUtility.decodeText(rawFileName);
@@ -287,27 +361,22 @@ public class ImapMailboxPoller {
             }
 
             if (data.length > MAX_ATTACHMENT_BYTES) {
-                log.warn("Attachment '{}' from mailbox {} exceeds {}MB — skipping",
+                log.warn("ATTACHMENT_UPLOAD_SKIPPED attachment '{}' from mailbox {} exceeds {}MB — skipping",
                         fileName, mailboxId, MAX_ATTACHMENT_BYTES / (1024 * 1024));
                 return;
             }
 
-            String objectKey = "email-inbound/" + mailboxId + "/" + UUID.randomUUID()
-                    + "_" + sanitizeFileName(fileName);
+            String objectKey = keyStrategy.stagingKey(mailboxId, imapUid, fileName);
             objectStorageService.store(objectKey, data, contentType);
 
             result.add(new IngressAttachmentData(fileName, objectKey, contentType, (long) data.length));
-            log.debug("Stored attachment '{}' — objectKey: '{}', size: {} bytes", fileName, objectKey, data.length);
+            log.debug("ATTACHMENT_UPLOAD_ALLOWED stored '{}' — key: '{}', size: {} bytes",
+                    fileName, objectKey, data.length);
 
         } catch (Exception e) {
-            log.warn("Failed to extract/store attachment from mailbox {} — {}", mailboxId, e.getMessage(), e);
+            log.warn("IMAP_POLL failed to extract/store attachment from mailbox {} — {}",
+                    mailboxId, e.getMessage(), e);
         }
-    }
-
-    private String sanitizeFileName(String fileName) {
-        if (fileName == null || fileName.isBlank()) return "unnamed";
-        String safe = fileName.replaceAll("[^a-zA-Z0-9._\\-]", "_");
-        return safe.length() > 100 ? safe.substring(0, 100) : safe;
     }
 
     // ── IMAP connection helpers ───────────────────────────────────────────────
@@ -336,15 +405,35 @@ public class ImapMailboxPoller {
         return folder;
     }
 
-    /**
-     * Returns the highest UID currently in the folder, or 0 if the folder is empty.
-     * Used to advance the cursor without ingesting historical messages.
-     */
     private long resolveLatestUid(Folder folder, UIDFolder uidFolder) throws MessagingException {
         int count = folder.getMessageCount();
         if (count <= 0) return 0L;
         Message lastMessage = folder.getMessage(count);
         return uidFolder.getUID(lastMessage);
+    }
+
+    /**
+     * Uses IMAP SEARCH (SINCE) to find messages received on or after the cutoff.
+     * Falls back to an empty array if the server does not support SEARCH.
+     */
+    private Message[] searchSince(Folder folder, Instant cutoff) {
+        try {
+            ReceivedDateTerm since = new ReceivedDateTerm(ComparisonTerm.GE, Date.from(cutoff));
+            return folder.search(since);
+        } catch (Exception e) {
+            log.warn("IMAP_POLL SEARCH SINCE not supported by server — falling back to empty scan: {}",
+                    e.getMessage());
+            return new Message[0];
+        }
+    }
+
+    private static int strategyToDays(InitialSyncStrategy strategy) {
+        return switch (strategy) {
+            case SCAN_LAST_1_DAY -> 1;
+            case SCAN_LAST_3_DAYS -> 3;
+            case SCAN_LAST_7_DAYS -> 7;
+            default -> throw new IllegalArgumentException("Not a SCAN_LAST strategy: " + strategy);
+        };
     }
 
     private void closeQuietly(Folder folder) {
@@ -396,7 +485,6 @@ public class ImapMailboxPoller {
     }
 
     private void extractBodiesInto(Part part, String[] result) throws MessagingException, IOException {
-        // Skip attachment parts — those are handled by extractAndStoreAttachments
         String disposition = part.getDisposition();
         if (Part.ATTACHMENT.equalsIgnoreCase(disposition)) return;
 
@@ -412,7 +500,6 @@ public class ImapMailboxPoller {
         }
     }
 
-    /** Removes potential credential leakage from IMAP error messages before returning to callers. */
     private String sanitizeErrorMessage(String message) {
         if (message == null) return "Connection failed";
         return message

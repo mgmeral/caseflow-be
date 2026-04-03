@@ -13,15 +13,20 @@ public class DispatchMapper {
         return new DispatchResponse(
                 dispatch.getId(),
                 dispatch.getTicketId(),
+                dispatch.getMailboxId(),
+                dispatch.getSourceIngressEventId(),
+                dispatch.getSentByUserId(),
                 dispatch.getMessageId(),
                 dispatch.getFromAddress(),
                 dispatch.getToAddress(),
+                dispatch.getResolvedToAddress(),
                 dispatch.getSubject(),
                 dispatch.getStatus(),
                 dispatch.getAttempts(),
                 dispatch.getLastAttemptAt(),
                 dispatch.getSentAt(),
                 dispatch.getFailureReason(),
+                dispatch.getFailureCategory(),
                 dispatch.getScheduledAt(),
                 dispatch.getCreatedAt()
         );

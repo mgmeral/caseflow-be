@@ -4,14 +4,20 @@ import com.caseflow.auth.CaseFlowUserDetails;
 import com.caseflow.email.api.dto.DispatchResponse;
 import com.caseflow.email.api.dto.EmailThreadItem;
 import com.caseflow.email.api.dto.IngressEventResponse;
+import com.caseflow.email.api.dto.ReplyEnqueuedResponse;
 import com.caseflow.email.api.dto.SendReplyRequest;
 import com.caseflow.email.api.mapper.DispatchMapper;
 import com.caseflow.email.api.mapper.IngressEventMapper;
+import com.caseflow.email.domain.EmailIngressEvent;
+import com.caseflow.email.domain.OutboundEmailDispatch;
+import java.time.Instant;
 import com.caseflow.email.service.EmailDispatchService;
 import com.caseflow.email.service.EmailDocumentQueryService;
 import com.caseflow.email.service.EmailIngressEventQueryService;
 import com.caseflow.email.service.EmailMailboxService;
 import com.caseflow.email.service.EmailReplyService;
+import com.caseflow.storage.service.AttachmentService;
+import com.caseflow.ticket.repository.AttachmentMetadataRepository;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -27,8 +33,8 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -48,6 +54,7 @@ public class TicketEmailController {
     private final EmailDocumentQueryService docQueryService;
     private final EmailReplyService replyService;
     private final EmailMailboxService mailboxService;
+    private final AttachmentMetadataRepository attachmentMetadataRepository;
     private final IngressEventMapper ingressMapper;
     private final DispatchMapper dispatchMapper;
 
@@ -56,6 +63,7 @@ public class TicketEmailController {
                                   EmailDocumentQueryService docQueryService,
                                   EmailReplyService replyService,
                                   EmailMailboxService mailboxService,
+                                  AttachmentMetadataRepository attachmentMetadataRepository,
                                   IngressEventMapper ingressMapper,
                                   DispatchMapper dispatchMapper) {
         this.ingressQueryService = ingressQueryService;
@@ -63,6 +71,7 @@ public class TicketEmailController {
         this.docQueryService = docQueryService;
         this.replyService = replyService;
         this.mailboxService = mailboxService;
+        this.attachmentMetadataRepository = attachmentMetadataRepository;
         this.ingressMapper = ingressMapper;
         this.dispatchMapper = dispatchMapper;
     }
@@ -82,6 +91,11 @@ public class TicketEmailController {
                     ? docQueryService.findById(event.getDocumentId())
                             .map(doc -> doc.getBodyPreview()).orElse(null)
                     : null;
+            int attachmentCount = event.getDocumentId() != null
+                    ? docQueryService.findById(event.getDocumentId())
+                            .map(doc -> doc.getAttachments() != null ? doc.getAttachments().size() : 0)
+                            .orElse(0)
+                    : 0;
             items.add(new EmailThreadItem(
                     "INBOUND",
                     event.getId(),
@@ -91,7 +105,8 @@ public class TicketEmailController {
                     event.getRawSubject(),
                     event.getStatus().name(),
                     event.getReceivedAt(),
-                    preview
+                    preview,
+                    attachmentCount
             ));
         });
 
@@ -109,7 +124,8 @@ public class TicketEmailController {
                     dispatch.getSubject(),
                     dispatch.getStatus().name(),
                     dispatch.getSentAt() != null ? dispatch.getSentAt() : dispatch.getCreatedAt(),
-                    preview
+                    preview,
+                    0
             ));
         });
 
@@ -119,26 +135,41 @@ public class TicketEmailController {
     }
 
     /**
-     * Detail view for a specific inbound event under this ticket's context.
+     * Detail view for a specific inbound event.
+     * Verifies the event belongs to the path ticketId.
      */
     @GetMapping("/inbound/{eventId}")
     @PreAuthorize("@ticketAuth.canViewTicketEmail(authentication, #ticketId)")
     public ResponseEntity<IngressEventResponse> getInboundEvent(@PathVariable Long ticketId,
                                                                  @PathVariable Long eventId) {
         log.info("GET /tickets/{}/email/inbound/{}", ticketId, eventId);
-        return ResponseEntity.ok(ingressMapper.toResponse(ingressQueryService.getById(eventId)));
+        EmailIngressEvent event = ingressQueryService.getById(eventId);
+        if (!ticketId.equals(event.getTicketId())) {
+            log.warn("Ownership mismatch — eventId: {} belongs to ticketId: {}, requested under ticketId: {}",
+                    eventId, event.getTicketId(), ticketId);
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND,
+                    "Inbound event " + eventId + " not found under ticket " + ticketId);
+        }
+        return ResponseEntity.ok(ingressMapper.toResponse(event));
     }
 
     /**
-     * Detail view for a specific outbound dispatch under this ticket's context.
+     * Detail view for a specific outbound dispatch.
+     * Verifies the dispatch belongs to the path ticketId.
      */
     @GetMapping("/outbound/{dispatchId}")
     @PreAuthorize("@ticketAuth.canViewTicketEmail(authentication, #ticketId)")
     public ResponseEntity<DispatchResponse> getOutboundDispatch(@PathVariable Long ticketId,
                                                                  @PathVariable Long dispatchId) {
         log.info("GET /tickets/{}/email/outbound/{}", ticketId, dispatchId);
-        return ResponseEntity.ok(dispatchMapper.toResponse(
-                dispatchService.getById(dispatchId)));
+        OutboundEmailDispatch dispatch = dispatchService.getById(dispatchId);
+        if (!ticketId.equals(dispatch.getTicketId())) {
+            log.warn("Ownership mismatch — dispatchId: {} belongs to ticketId: {}, requested under ticketId: {}",
+                    dispatchId, dispatch.getTicketId(), ticketId);
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND,
+                    "Outbound dispatch " + dispatchId + " not found under ticket " + ticketId);
+        }
+        return ResponseEntity.ok(dispatchMapper.toResponse(dispatch));
     }
 
     // ── Backward-compatible list endpoints ───────────────────────────────────
@@ -163,22 +194,38 @@ public class TicketEmailController {
 
     @PostMapping("/reply")
     @PreAuthorize("@ticketAuth.canSendTicketEmailReply(authentication, #ticketId)")
-    public ResponseEntity<Void> sendReply(@PathVariable Long ticketId,
-                                           @Valid @RequestBody SendReplyRequest request,
-                                           @AuthenticationPrincipal CaseFlowUserDetails principal) {
-        log.info("POST /tickets/{}/email/reply — to: '{}', mailboxId: {}",
-                ticketId, request.toAddress(), request.mailboxId());
+    public ResponseEntity<ReplyEnqueuedResponse> sendReply(
+            @PathVariable Long ticketId,
+            @Valid @RequestBody SendReplyRequest request,
+            @AuthenticationPrincipal CaseFlowUserDetails principal) {
+        log.info("POST /tickets/{}/email/reply — mailboxId: {}, sourceEventId: {}, toAddress: '{}'",
+                ticketId, request.mailboxId(), request.sourceEventId(), request.toAddress());
+
+        if (request.sourceEventId() == null && (request.toAddress() == null || request.toAddress().isBlank())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Provide either sourceEventId (preferred) or toAddress");
+        }
+
         String fromAddress = mailboxService.getById(request.mailboxId()).getAddress();
-        replyService.sendReply(
+
+        OutboundEmailDispatch dispatch = replyService.sendReply(
                 ticketId,
-                fromAddress,
+                request.mailboxId(),
+                request.sourceEventId(),
                 request.toAddress(),
+                fromAddress,
                 request.subject(),
                 request.textBody(),
                 request.htmlBody(),
                 request.inReplyToMessageId(),
                 principal.getUserId()
         );
-        return ResponseEntity.status(HttpStatus.ACCEPTED).build();
+
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(new ReplyEnqueuedResponse(
+                dispatch.getId(),
+                dispatch.getResolvedToAddress(),
+                dispatch.getMailboxId(),
+                Instant.now()
+        ));
     }
 }

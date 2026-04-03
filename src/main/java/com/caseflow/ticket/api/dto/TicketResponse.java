@@ -4,9 +4,11 @@ import com.caseflow.ticket.domain.TicketPriority;
 import com.caseflow.ticket.domain.TicketStatus;
 
 import java.time.Instant;
+import java.util.UUID;
 
 public record TicketResponse(
         Long id,
+        UUID publicId,
         String ticketNo,
         String subject,
         String description,

@@ -114,6 +114,7 @@ public class TicketReadService {
 
         return new TicketDetailResponse(
                 ticket.getId(),
+                ticket.getPublicId(),
                 ticket.getTicketNo(),
                 ticket.getSubject(),
                 ticket.getDescription(),
@@ -138,6 +139,7 @@ public class TicketReadService {
     private TicketResponse toResponse(Ticket t) {
         return new TicketResponse(
                 t.getId(),
+                t.getPublicId(),
                 t.getTicketNo(),
                 t.getSubject(),
                 t.getDescription(),
@@ -177,6 +179,7 @@ public class TicketReadService {
 
         return page.map(t -> new TicketSummaryResponse(
                 t.getId(),
+                t.getPublicId(),
                 t.getTicketNo(),
                 t.getSubject(),
                 t.getStatus(),

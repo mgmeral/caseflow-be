@@ -34,6 +34,7 @@ import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 
@@ -267,6 +268,21 @@ public class GlobalExceptionHandler {
                 request.getRequestURI()
         );
         return ResponseEntity.status(HttpStatus.FORBIDDEN).body(body);
+    }
+
+    // ── ResponseStatusException (used for ownership checks etc.) ─────────────
+
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<ErrorResponse> handleResponseStatus(ResponseStatusException ex,
+                                                               HttpServletRequest request) {
+        ErrorResponse body = ErrorResponse.of(
+                ex.getStatusCode().value(),
+                ex.getStatusCode().toString(),
+                "REQUEST_ERROR",
+                ex.getReason() != null ? ex.getReason() : ex.getMessage(),
+                request.getRequestURI()
+        );
+        return ResponseEntity.status(ex.getStatusCode()).body(body);
     }
 
     // ── 500 Unexpected ────────────────────────────────────────────────────────

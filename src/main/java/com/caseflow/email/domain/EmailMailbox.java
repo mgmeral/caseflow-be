@@ -1,5 +1,6 @@
 package com.caseflow.email.domain;
 
+import com.caseflow.common.domain.UnknownSenderPolicy;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -101,7 +102,7 @@ public class EmailMailbox {
      */
     @Enumerated(EnumType.STRING)
     @Column(name = "initial_sync_strategy", nullable = false, length = 50)
-    private InitialSyncStrategy initialSyncStrategy = InitialSyncStrategy.START_FROM_LATEST;
+    private InitialSyncStrategy initialSyncStrategy = InitialSyncStrategy.NEW_MESSAGES_ONLY;
 
     /** Last IMAP UID successfully seen, used to avoid reprocessing old messages. */
     @Column(name = "last_seen_uid")
@@ -130,6 +131,15 @@ public class EmailMailbox {
     private Instant pollLeasedUntil;
 
     // ── Operational metadata ──────────────────────────────────────────────────
+
+    /**
+     * Mailbox-level fallback policy for unroutable inbound emails.
+     * When set, takes precedence over the global {@code CustomerEmailSettings.unknownSenderPolicy}.
+     * When null, falls back to the first active global setting.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "unknown_sender_policy", length = 50)
+    private UnknownSenderPolicy unknownSenderPolicy;
 
     @Column(name = "last_successful_inbound_at")
     private Instant lastSuccessfulInboundAt;
@@ -241,6 +251,11 @@ public class EmailMailbox {
 
     public Instant getPollLeasedUntil() { return pollLeasedUntil; }
     public void setPollLeasedUntil(Instant pollLeasedUntil) { this.pollLeasedUntil = pollLeasedUntil; }
+
+    public UnknownSenderPolicy getUnknownSenderPolicy() { return unknownSenderPolicy; }
+    public void setUnknownSenderPolicy(UnknownSenderPolicy unknownSenderPolicy) {
+        this.unknownSenderPolicy = unknownSenderPolicy;
+    }
 
     public Instant getLastSuccessfulInboundAt() { return lastSuccessfulInboundAt; }
     public void setLastSuccessfulInboundAt(Instant lastSuccessfulInboundAt) {

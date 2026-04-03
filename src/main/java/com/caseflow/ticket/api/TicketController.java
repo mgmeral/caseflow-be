@@ -4,6 +4,8 @@ import com.caseflow.auth.CaseFlowUserDetails;
 import com.caseflow.common.api.PagedResponse;
 import com.caseflow.common.security.SecurityContextHelper;
 import com.caseflow.identity.domain.TicketScope;
+import com.caseflow.notification.service.NotificationService;
+import com.caseflow.ticket.api.dto.AllowedTransitionsResponse;
 import com.caseflow.ticket.api.dto.ChangeTicketStatusRequest;
 import com.caseflow.ticket.api.dto.CloseTicketRequest;
 import com.caseflow.ticket.api.dto.CreateTicketRequest;
@@ -16,8 +18,10 @@ import com.caseflow.ticket.domain.Ticket;
 import com.caseflow.ticket.domain.TicketPriority;
 import com.caseflow.ticket.domain.TicketStatus;
 import com.caseflow.ticket.repository.TicketScopeSpecification;
+import com.caseflow.ticket.service.TicketQueryService;
 import com.caseflow.ticket.service.TicketReadService;
 import com.caseflow.ticket.service.TicketService;
+import com.caseflow.workflow.state.TicketStateMachineService;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -52,10 +56,18 @@ public class TicketController {
 
     private final TicketService ticketService;
     private final TicketReadService ticketReadService;
+    private final TicketQueryService ticketQueryService;
+    private final TicketStateMachineService stateMachine;
+    private final NotificationService notificationService;
 
-    public TicketController(TicketService ticketService, TicketReadService ticketReadService) {
+    public TicketController(TicketService ticketService, TicketReadService ticketReadService,
+                            TicketQueryService ticketQueryService, TicketStateMachineService stateMachine,
+                            NotificationService notificationService) {
         this.ticketService = ticketService;
         this.ticketReadService = ticketReadService;
+        this.ticketQueryService = ticketQueryService;
+        this.stateMachine = stateMachine;
+        this.notificationService = notificationService;
     }
 
     @PostMapping
@@ -79,9 +91,26 @@ public class TicketController {
 
     @GetMapping("/{id}/detail")
     @PreAuthorize("@ticketAuth.canReadTicket(authentication, #id)")
-    public ResponseEntity<TicketDetailResponse> getDetail(@PathVariable Long id) {
-        log.info("GET /tickets/{}/detail", id);
+    public ResponseEntity<TicketDetailResponse> getDetail(@PathVariable Long id,
+                                                           @AuthenticationPrincipal CaseFlowUserDetails user) {
+        log.info("GET /tickets/{}/detail — userId: {}", id, user != null ? user.getUserId() : null);
+        if (user != null) {
+            notificationService.markReadByTicket(user.getUserId(), id);
+        }
         return ResponseEntity.ok(ticketReadService.getDetail(id));
+    }
+
+    /**
+     * Explicitly marks all unread notifications for this ticket as read for the current user.
+     * Callers who prefer explicit read-marking over the auto-clear on GET /detail can use this.
+     */
+    @PostMapping("/{id}/notifications/read")
+    @PreAuthorize("@ticketAuth.canReadTicket(authentication, #id)")
+    public ResponseEntity<Void> markNotificationsRead(@PathVariable Long id,
+                                                       @AuthenticationPrincipal CaseFlowUserDetails user) {
+        log.info("POST /tickets/{}/notifications/read — userId: {}", id, user.getUserId());
+        notificationService.markReadByTicket(user.getUserId(), id);
+        return ResponseEntity.ok().build();
     }
 
     @GetMapping("/by-ticket-no/{ticketNo}")
@@ -179,6 +208,22 @@ public class TicketController {
         ticketService.reopenTicket(id, userId);
         log.info("POST /tickets/{}/reopen succeeded", id);
         return ResponseEntity.ok(ticketReadService.getResponse(id));
+    }
+
+    /**
+     * Returns the allowed manual status transitions for the given ticket.
+     * FE uses this to render only valid status change options.
+     */
+    @GetMapping("/{id}/transitions")
+    @PreAuthorize("@ticketAuth.canReadTicket(authentication, #id)")
+    public ResponseEntity<AllowedTransitionsResponse> getAllowedTransitions(@PathVariable Long id) {
+        log.info("GET /tickets/{}/transitions", id);
+        Ticket ticket = ticketQueryService.getById(id);
+        return ResponseEntity.ok(new AllowedTransitionsResponse(
+                ticket.getId(),
+                ticket.getStatus(),
+                stateMachine.allowedTransitions(ticket.getStatus())
+        ));
     }
 
     /**

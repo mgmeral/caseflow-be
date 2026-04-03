@@ -3,6 +3,7 @@ package com.caseflow.email.api;
 import com.caseflow.email.api.dto.MailboxConnectionTestResponse;
 import com.caseflow.email.api.dto.MailboxRequest;
 import com.caseflow.email.api.dto.MailboxResponse;
+import com.caseflow.email.api.dto.SmtpConnectionTestResponse;
 import com.caseflow.email.api.mapper.EmailMailboxMapper;
 import com.caseflow.email.domain.EmailMailbox;
 import com.caseflow.email.service.EmailMailboxService;
@@ -97,14 +98,28 @@ public class MailboxController {
     }
 
     /**
-     * Tests IMAP connectivity for the given mailbox.
+     * Tests IMAP connectivity and folder access for the given mailbox.
      * Always returns 200 OK; the {@code success} field in the body indicates the outcome.
      * Passwords are never exposed in the response.
      */
     @PostMapping("/{id}/test-connection")
     @PreAuthorize("hasAuthority('PERM_EMAIL_CONFIG_MANAGE')")
     public ResponseEntity<MailboxConnectionTestResponse> testConnection(@PathVariable Long id) {
-        log.info("POST /admin/mailboxes/{}/test-connection", id);
+        log.info("IMAP_TEST_CONNECTION POST /admin/mailboxes/{}/test-connection", id);
         return ResponseEntity.ok(mailboxService.testConnection(id));
+    }
+
+    /**
+     * Tests SMTP connectivity for the given mailbox.
+     * Validates SMTP config, detects common misconfigurations (e.g. IMAP port reused as SMTP),
+     * and attempts a TCP connection to the configured SMTP host:port.
+     * Always returns 200 OK; the {@code success} field indicates the outcome.
+     * Passwords are never submitted or exposed.
+     */
+    @PostMapping("/{id}/test-smtp-connection")
+    @PreAuthorize("hasAuthority('PERM_EMAIL_CONFIG_MANAGE')")
+    public ResponseEntity<SmtpConnectionTestResponse> testSmtpConnection(@PathVariable Long id) {
+        log.info("SMTP_TEST_CONNECTION POST /admin/mailboxes/{}/test-smtp-connection", id);
+        return ResponseEntity.ok(mailboxService.testSmtpConnection(id));
     }
 }

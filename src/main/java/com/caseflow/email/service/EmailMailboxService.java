@@ -3,6 +3,7 @@ package com.caseflow.email.service;
 import com.caseflow.common.exception.InvalidMailboxConfigException;
 import com.caseflow.common.exception.MailboxNotFoundException;
 import com.caseflow.email.api.dto.MailboxConnectionTestResponse;
+import com.caseflow.email.api.dto.SmtpConnectionTestResponse;
 import com.caseflow.email.domain.EmailMailbox;
 import com.caseflow.email.domain.ProviderType;
 import com.caseflow.email.repository.EmailMailboxRepository;
@@ -23,13 +24,16 @@ public class EmailMailboxService {
     private final EmailMailboxRepository mailboxRepository;
     private final MailboxValidationService validationService;
     private final ImapMailboxPoller imapPoller;
+    private final SmtpEmailSender smtpSender;
 
     public EmailMailboxService(EmailMailboxRepository mailboxRepository,
                                 MailboxValidationService validationService,
-                                @Lazy ImapMailboxPoller imapPoller) {
+                                @Lazy ImapMailboxPoller imapPoller,
+                                SmtpEmailSender smtpSender) {
         this.mailboxRepository = mailboxRepository;
         this.validationService = validationService;
         this.imapPoller = imapPoller;
+        this.smtpSender = smtpSender;
     }
 
     @Transactional
@@ -163,6 +167,18 @@ public class EmailMailboxService {
         }
 
         return imapPoller.testImapConnection(mailbox);
+    }
+
+    /**
+     * Tests SMTP connectivity for the given mailbox.
+     * Validates config and attempts a TCP connect to the SMTP host:port.
+     * Returns 200 OK always; success/failure is in the response body.
+     */
+    @Transactional(readOnly = true)
+    public SmtpConnectionTestResponse testSmtpConnection(Long id) {
+        EmailMailbox mailbox = findOrThrow(id);
+        log.info("SMTP_TEST_CONNECTION requested — mailboxId: {}", id);
+        return smtpSender.testSmtpConnection(mailbox);
     }
 
     private EmailMailbox findOrThrow(Long id) {

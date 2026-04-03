@@ -2,6 +2,7 @@ package com.caseflow.workflow.assignment;
 
 import com.caseflow.common.exception.ActiveAssignmentAlreadyExistsException;
 import com.caseflow.common.exception.TicketNotFoundException;
+import com.caseflow.notification.service.NotificationService;
 import com.caseflow.ticket.domain.Ticket;
 import com.caseflow.ticket.domain.TicketPriority;
 import com.caseflow.ticket.domain.TicketStatus;
@@ -38,6 +39,9 @@ class AssignmentServiceTest {
 
     @Mock
     private TicketHistoryService ticketHistoryService;
+
+    @Mock
+    private NotificationService notificationService;
 
     @InjectMocks
     private AssignmentService assignmentService;

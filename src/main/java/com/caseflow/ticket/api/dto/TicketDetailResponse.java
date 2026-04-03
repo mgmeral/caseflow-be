@@ -5,9 +5,11 @@ import com.caseflow.ticket.domain.TicketStatus;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.UUID;
 
 public record TicketDetailResponse(
         Long id,
+        UUID publicId,
         String ticketNo,
         String subject,
         String description,

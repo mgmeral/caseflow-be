@@ -48,4 +48,11 @@ public interface UserRepository extends JpaRepository<User, Long> {
      */
     @Query("SELECT u FROM User u JOIN FETCH u.role LEFT JOIN FETCH u.groups WHERE u.username = :username")
     Optional<User> findByUsernameWithRoleAndGroups(@Param("username") String username);
+
+    /**
+     * Returns IDs of all active users who are members of the given group.
+     * Used by the notification subsystem to fan out group notifications.
+     */
+    @Query("SELECT u.id FROM User u JOIN u.groups g WHERE g.id = :groupId AND u.isActive = true")
+    List<Long> findActiveUserIdsByGroupId(@Param("groupId") Long groupId);
 }

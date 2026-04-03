@@ -234,7 +234,7 @@ class MailboxControllerTest {
                 null, null, null, null, null,
                 // IMAP
                 null, null, null, null, null, null, false, null,
-                InitialSyncStrategy.START_FROM_LATEST);
+                InitialSyncStrategy.NEW_MESSAGES_ONLY);
     }
 
     private MailboxResponse makeResponse(Long id, String address) {
@@ -245,7 +245,7 @@ class MailboxControllerTest {
                 null, null, null, null,
                 // IMAP (no password)
                 null, null, null, null, null, false, null,
-                InitialSyncStrategy.START_FROM_LATEST,
+                InitialSyncStrategy.NEW_MESSAGES_ONLY,
                 null, null, null,
                 // timestamps
                 null, null, Instant.now(), Instant.now());

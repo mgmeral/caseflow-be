@@ -37,6 +37,14 @@ public class CustomerEmailRoutingRule {
     @Column(name = "is_active", nullable = false)
     private Boolean isActive = Boolean.TRUE;
 
+    /**
+     * When {@code true} and {@code senderMatchType == DOMAIN}, the rule also matches
+     * sub-domains of {@code matchValue} (e.g. rule {@code bigcorp.com} also matches
+     * {@code mail.bigcorp.com}). Ignored for EXACT_EMAIL rules.
+     */
+    @Column(name = "allow_subdomains", nullable = false)
+    private Boolean allowSubdomains = Boolean.FALSE;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -71,6 +79,9 @@ public class CustomerEmailRoutingRule {
 
     public Boolean getIsActive() { return isActive; }
     public void setIsActive(Boolean isActive) { this.isActive = isActive; }
+
+    public Boolean getAllowSubdomains() { return allowSubdomains; }
+    public void setAllowSubdomains(Boolean allowSubdomains) { this.allowSubdomains = allowSubdomains; }
 
     public Instant getCreatedAt() { return createdAt; }
 

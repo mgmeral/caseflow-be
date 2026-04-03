@@ -10,8 +10,11 @@ import com.caseflow.ticket.api.dto.TicketSummaryResponse;
 import com.caseflow.ticket.domain.TicketPriority;
 import com.caseflow.ticket.domain.TicketStatus;
 import com.caseflow.ticket.security.TicketAuthorizationService;
+import com.caseflow.ticket.service.TicketQueryService;
 import com.caseflow.ticket.service.TicketReadService;
 import com.caseflow.ticket.service.TicketService;
+import com.caseflow.notification.service.NotificationService;
+import com.caseflow.workflow.state.TicketStateMachineService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -70,8 +73,17 @@ class TicketControllerAuthTest {
     @MockBean
     private TicketReadService ticketReadService;
 
+    @MockBean
+    private TicketQueryService ticketQueryService;
+
+    @MockBean
+    private TicketStateMachineService stateMachine;
+
     @MockBean(name = "ticketAuth")
     private TicketAuthorizationService ticketAuth;
+
+    @MockBean
+    private NotificationService notificationService;
 
     // ── 401 when unauthenticated ──────────────────────────────────────────────
 
@@ -216,14 +228,14 @@ class TicketControllerAuthTest {
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private TicketResponse makeTicketResponse(Long id, String ticketNo) {
-        return new TicketResponse(id, ticketNo, "Test", null,
+        return new TicketResponse(id, null, ticketNo, "Test", null,
                 TicketStatus.NEW, TicketPriority.MEDIUM,
                 null, null, null, null, null, null,
                 Instant.now(), Instant.now(), null);
     }
 
     private TicketSummaryResponse makeTicketSummary(Long id, String ticketNo) {
-        return new TicketSummaryResponse(id, ticketNo, "Test",
+        return new TicketSummaryResponse(id, null, ticketNo, "Test",
                 TicketStatus.NEW, TicketPriority.MEDIUM,
                 null, null, null, null, null, null,
                 Instant.now(), Instant.now());
