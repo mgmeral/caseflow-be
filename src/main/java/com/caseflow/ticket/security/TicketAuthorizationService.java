@@ -114,6 +114,20 @@ public class TicketAuthorizationService {
         return inScope(auth, ticketQueryService.getById(ticketId));
     }
 
+    public boolean canSendTicketEmailReplyByPublicId(Authentication auth, UUID ticketPublicId) {
+        if (!hasPermission(auth, Permission.TICKET_EMAIL_REPLY_SEND)) return false;
+        return inScope(auth, ticketQueryService.getByPublicId(ticketPublicId));
+    }
+
+    public boolean canTagTicket(Authentication auth, Long ticketId) {
+        if (!hasPermission(auth, Permission.TICKET_TAG)) return false;
+        return inScope(auth, ticketQueryService.getById(ticketId));
+    }
+
+    public boolean canManageTags(Authentication auth) {
+        return hasPermission(auth, Permission.ADMIN_CONFIG);
+    }
+
     // ── Indirect checks (via note or attachment → parent ticket) ─────────────
 
     public boolean canReadNoteById(Authentication auth, Long noteId) {

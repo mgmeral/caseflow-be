@@ -26,5 +26,7 @@ public enum Permission {
     EMAIL_OPERATIONS_VIEW,
     EMAIL_OPERATIONS_MANAGE,
     TICKET_EMAIL_VIEW,
-    TICKET_EMAIL_REPLY_SEND
+    TICKET_EMAIL_REPLY_SEND,
+    // Ticket tagging — separate from status change (P1 closure)
+    TICKET_TAG
 }

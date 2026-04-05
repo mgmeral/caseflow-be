@@ -31,6 +31,7 @@ import java.util.Optional;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -80,12 +81,13 @@ class EmailDocumentControllerTest {
     // ── GET /api/emails/{id} ──────────────────────────────────────────────────
 
     @Test
-    @WithMockUser(authorities = "PERM_TICKET_READ")
+    @WithMockUser(authorities = "PERM_TICKET_EMAIL_VIEW")
     void getById_returns200_withFullDetail() throws Exception {
         // base response returned by mapper — attachments is null, filled in by controller
         EmailDocumentResponse base = makeDetailResponse("doc-1", 42L, "Hello, world", "<p>Hello</p>");
         AttachmentMetadataResponse attachment = makeAttachmentMetadataResponse("report.pdf", "application/pdf");
 
+        // ticketId is null on this doc — ownership check is skipped (unlinked/pre-route doc)
         com.caseflow.email.document.EmailDocument doc = new com.caseflow.email.document.EmailDocument();
         when(emailDocumentQueryService.findById("doc-1")).thenReturn(Optional.of(doc));
         when(emailDocumentMapper.toResponse(doc)).thenReturn(base);
@@ -103,12 +105,26 @@ class EmailDocumentControllerTest {
     }
 
     @Test
-    @WithMockUser(authorities = "PERM_TICKET_READ")
+    @WithMockUser(authorities = "PERM_TICKET_EMAIL_VIEW")
     void getById_returns404_whenNotFound() throws Exception {
         when(emailDocumentQueryService.findById("missing")).thenReturn(Optional.empty());
 
         mockMvc.perform(get("/api/emails/missing"))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @WithMockUser(authorities = "PERM_TICKET_EMAIL_VIEW")
+    void getById_returns403_whenCallerOutOfScopeForOwningTicket() throws Exception {
+        // doc has a non-null ticketId — ownership check fires and denies access
+        com.caseflow.email.document.EmailDocument doc =
+                mock(com.caseflow.email.document.EmailDocument.class);
+        when(doc.getTicketId()).thenReturn(99L);
+        when(emailDocumentQueryService.findById("doc-scoped")).thenReturn(Optional.of(doc));
+        when(ticketAuth.canViewTicketEmail(any(), anyLong())).thenReturn(false);
+
+        mockMvc.perform(get("/api/emails/doc-scoped"))
+                .andExpect(status().isForbidden());
     }
 
     @Test
@@ -143,21 +159,6 @@ class EmailDocumentControllerTest {
         mockMvc.perform(get("/api/emails/by-ticket/99"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$").isEmpty());
-    }
-
-    // ── GET /api/emails/by-thread/{threadKey} ─────────────────────────────────
-
-    @Test
-    @WithMockUser(authorities = "PERM_TICKET_READ")
-    void getByThread_returns200_withSummaryList() throws Exception {
-        EmailDocumentSummaryResponse summary = makeSummaryResponse("doc-2", "thread-B", 5L);
-
-        when(emailDocumentQueryService.findByThreadKey("thread-B")).thenReturn(List.of(new com.caseflow.email.document.EmailDocument()));
-        when(emailDocumentMapper.toSummaryResponseList(any())).thenReturn(List.of(summary));
-
-        mockMvc.perform(get("/api/emails/by-thread/thread-B"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].threadKey").value("thread-B"));
     }
 
     // ── POST /api/emails/ingest ───────────────────────────────────────────────

@@ -223,6 +223,28 @@ public class TicketHistoryService {
         historyRepository.save(h);
     }
 
+    // ── Tag events ────────────────────────────────────────────────────────────
+
+    @Transactional
+    public void recordTagAdded(Long ticketId, UUID ticketPublicId,
+                               Long tagId, String tagCode, Long performedBy) {
+        History h = build(ticketId, ticketPublicId, TicketEventType.TAG_ADDED, performedBy, null);
+        h.setSummary("Tag added: " + tagCode);
+        h.setMetadataJson("{\"tagId\":" + tagId
+                + ",\"tagCode\":\"" + escapeJson(tagCode) + "\"}");
+        historyRepository.save(h);
+    }
+
+    @Transactional
+    public void recordTagRemoved(Long ticketId, UUID ticketPublicId,
+                                 Long tagId, String tagCode, Long performedBy) {
+        History h = build(ticketId, ticketPublicId, TicketEventType.TAG_REMOVED, performedBy, null);
+        h.setSummary("Tag removed: " + tagCode);
+        h.setMetadataJson("{\"tagId\":" + tagId
+                + ",\"tagCode\":\"" + escapeJson(tagCode) + "\"}");
+        historyRepository.save(h);
+    }
+
     // ── Query ─────────────────────────────────────────────────────────────────
 
     @Transactional(readOnly = true)

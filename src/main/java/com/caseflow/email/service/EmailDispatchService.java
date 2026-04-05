@@ -51,6 +51,26 @@ public class EmailDispatchService {
                                          String resolvedToAddress, String subject,
                                          String textBody, String htmlBody, String inReplyToMessageId,
                                          String referencesHeader) {
+        return enqueue(ticketId, mailboxId, sourceIngressEventId, sentByUserId, fromAddress,
+                toAddress, resolvedToAddress, subject, textBody, htmlBody,
+                inReplyToMessageId, referencesHeader, null, null, false);
+    }
+
+    /**
+     * Enqueues an outbound email with template audit metadata.
+     *
+     * @param appliedTemplateId   the mail_templates PK if a DB template was applied; null otherwise
+     * @param appliedTemplateCode denormalised code for audit; null if no template
+     * @param contentWasEdited    true when the agent modified the rendered output before send
+     */
+    @Transactional
+    public OutboundEmailDispatch enqueue(Long ticketId, Long mailboxId, Long sourceIngressEventId,
+                                         Long sentByUserId, String fromAddress, String toAddress,
+                                         String resolvedToAddress, String subject,
+                                         String textBody, String htmlBody, String inReplyToMessageId,
+                                         String referencesHeader,
+                                         Long appliedTemplateId, String appliedTemplateCode,
+                                         boolean contentWasEdited) {
         OutboundEmailDispatch dispatch = new OutboundEmailDispatch();
         dispatch.setTicketId(ticketId);
         dispatch.setMailboxId(mailboxId);
@@ -65,10 +85,13 @@ public class EmailDispatchService {
         dispatch.setHtmlBody(htmlBody);
         dispatch.setInReplyToMessageId(inReplyToMessageId);
         dispatch.setReferencesHeader(referencesHeader);
+        dispatch.setAppliedTemplateId(appliedTemplateId);
+        dispatch.setAppliedTemplateCode(appliedTemplateCode);
+        dispatch.setContentWasEdited(contentWasEdited);
         dispatch.setStatus(DispatchStatus.PENDING);
         OutboundEmailDispatch saved = dispatchRepository.save(dispatch);
-        log.info("SMTP_SEND dispatch enqueued — dispatchId: {}, to: '{}', resolvedTo: '{}', mailboxId: {}, ticketId: {}",
-                saved.getId(), toAddress, resolvedToAddress, mailboxId, ticketId);
+        log.info("SMTP_SEND dispatch enqueued — dispatchId: {}, to: '{}', resolvedTo: '{}', mailboxId: {}, ticketId: {}, template: {}",
+                saved.getId(), toAddress, resolvedToAddress, mailboxId, ticketId, appliedTemplateCode);
         return saved;
     }
 

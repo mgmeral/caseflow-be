@@ -22,6 +22,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -77,7 +78,8 @@ class EmailReplyServiceTest {
         lenient().when(mockDispatch.getResolvedToAddress()).thenReturn("customer@example.com");
         lenient().when(mockDispatch.getMailboxId()).thenReturn(2L);
         lenient().when(dispatchService.enqueue(anyLong(), anyLong(), any(), any(), anyString(), anyString(),
-                anyString(), anyString(), any(), any(), any(), any())).thenReturn(mockDispatch);
+                anyString(), anyString(), any(), any(), any(), any(), any(), any(), anyBoolean()))
+                .thenReturn(mockDispatch);
 
         lenient().when(mailTemplateService.findActiveByCode(anyString())).thenReturn(Optional.empty());
     }
@@ -96,7 +98,7 @@ class EmailReplyServiceTest {
                 eq("support@caseflow.dev"),
                 eq("customer@example.com"),
                 eq("customer@example.com"),
-                anyString(), any(), any(), any(), any());
+                anyString(), any(), any(), any(), any(), any(), any(), anyBoolean());
     }
 
     @Test
@@ -111,7 +113,7 @@ class EmailReplyServiceTest {
                 eq("support@caseflow.dev"),
                 eq("reply-target@example.com"),
                 eq("reply-target@example.com"),
-                anyString(), any(), any(), any(), any());
+                anyString(), any(), any(), any(), any(), any(), any(), anyBoolean());
     }
 
     @Test
@@ -126,7 +128,7 @@ class EmailReplyServiceTest {
                 eq("support@caseflow.dev"),
                 eq("john@bigcorp.com"),
                 eq("john@bigcorp.com"),
-                anyString(), any(), any(), any(), any());
+                anyString(), any(), any(), any(), any(), any(), any(), anyBoolean());
     }
 
     @Test
@@ -139,7 +141,7 @@ class EmailReplyServiceTest {
                 eq("support@caseflow.dev"),
                 eq("manual@example.com"),
                 eq("manual@example.com"),
-                anyString(), any(), any(), any(), any());
+                anyString(), any(), any(), any(), any(), any(), any(), anyBoolean());
     }
 
     @Test
@@ -216,7 +218,8 @@ class EmailReplyServiceTest {
                 eq("customer@example.com"),
                 anyString(), any(), any(),
                 eq("<msg123@example.com>"),  // derived inReplyTo
-                eq("<msg123@example.com>")); // references = just the parent when no prior chain
+                eq("<msg123@example.com>"),  // references = just the parent when no prior chain
+                any(), any(), anyBoolean());
     }
 
     @Test
@@ -235,7 +238,8 @@ class EmailReplyServiceTest {
                 eq("customer@example.com"),
                 anyString(), any(), any(),
                 eq("<msg123@example.com>"),
-                eq(expectedRefs));
+                eq(expectedRefs),
+                any(), any(), anyBoolean());
     }
 
     @Test
@@ -250,7 +254,8 @@ class EmailReplyServiceTest {
                 eq("manual@example.com"),
                 anyString(), any(), any(),
                 isNull(),
-                isNull());
+                isNull(),
+                any(), any(), anyBoolean());
     }
 
     // ── Template rendering — HTML body handling ───────────────────────────────

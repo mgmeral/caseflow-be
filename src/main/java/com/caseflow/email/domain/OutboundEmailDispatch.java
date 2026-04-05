@@ -94,6 +94,20 @@ public class OutboundEmailDispatch {
     @Column(name = "scheduled_at", nullable = false)
     private Instant scheduledAt;
 
+    // ── Template audit metadata ───────────────────────────────────────────────
+
+    /** The mail template id applied when rendering this dispatch. Null if no DB template was used. */
+    @Column(name = "applied_template_id")
+    private Long appliedTemplateId;
+
+    /** Denormalised template code at send time — stable if template is later deleted. */
+    @Column(name = "applied_template_code", length = 100)
+    private String appliedTemplateCode;
+
+    /** True when the agent modified the template-rendered content before enqueueing. */
+    @Column(name = "content_was_edited", nullable = false)
+    private Boolean contentWasEdited = Boolean.FALSE;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -172,6 +186,17 @@ public class OutboundEmailDispatch {
 
     public Instant getScheduledAt() { return scheduledAt; }
     public void setScheduledAt(Instant scheduledAt) { this.scheduledAt = scheduledAt; }
+
+    public Long getAppliedTemplateId() { return appliedTemplateId; }
+    public void setAppliedTemplateId(Long appliedTemplateId) { this.appliedTemplateId = appliedTemplateId; }
+
+    public String getAppliedTemplateCode() { return appliedTemplateCode; }
+    public void setAppliedTemplateCode(String appliedTemplateCode) {
+        this.appliedTemplateCode = appliedTemplateCode;
+    }
+
+    public Boolean getContentWasEdited() { return contentWasEdited; }
+    public void setContentWasEdited(Boolean contentWasEdited) { this.contentWasEdited = contentWasEdited; }
 
     public Instant getCreatedAt() { return createdAt; }
 }

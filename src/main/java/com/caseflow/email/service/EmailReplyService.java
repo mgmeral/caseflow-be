@@ -78,8 +78,9 @@ public class EmailReplyService {
     /**
      * Enqueues an outbound customer reply for ticket {@code ticketId}.
      *
-     * @param templateId   optional — if set, overrides templateCode and the default
-     * @param templateCode optional — if set, used to look up active template; ignored when templateId set
+     * @param templateId       optional — if set, overrides templateCode and the default
+     * @param templateCode     optional — if set, used to look up active template; ignored when templateId set
+     * @param contentWasEdited true when the agent modified the preview-rendered content before sending
      * @return the created {@link OutboundEmailDispatch}
      */
     @Transactional
@@ -87,7 +88,8 @@ public class EmailReplyService {
                                            String toAddressOverride, String fromAddress,
                                            String subject, String textBody, String htmlBody,
                                            String inReplyToMessageId, Long sentByUserId,
-                                           Long templateId, String templateCode) {
+                                           Long templateId, String templateCode,
+                                           boolean contentWasEdited) {
 
         Ticket ticket = ticketRepository.findById(ticketId)
                 .orElseThrow(() -> new TicketNotFoundException(ticketId));
@@ -147,10 +149,14 @@ public class EmailReplyService {
             renderedHtml = (htmlBody != null && !htmlBody.isBlank()) ? htmlBody : null;
         }
 
+        Long resolvedTemplateId = resolvedTemplate != null ? resolvedTemplate.getId() : null;
+        String resolvedTemplateCode = resolvedTemplate != null ? resolvedTemplate.getCode() : null;
+
         OutboundEmailDispatch dispatch = dispatchService.enqueue(
                 ticketId, mailboxId, sourceEventId, sentByUserId,
                 fromAddress, resolvedToAddress, resolvedToAddress,
-                subject, renderedText, renderedHtml, resolvedInReplyTo, referencesHeader);
+                subject, renderedText, renderedHtml, resolvedInReplyTo, referencesHeader,
+                resolvedTemplateId, resolvedTemplateCode, contentWasEdited);
 
         // Structured history event — replaces the old free-form CUSTOMER_REPLY_QUEUED
         historyService.recordOutboundReplyQueued(ticketId, ticket.getPublicId(),
@@ -170,6 +176,18 @@ public class EmailReplyService {
         log.info("SMTP_SEND dispatch enqueued — ticketId: {}, dispatchId: {}, resolvedTo: '{}'",
                 ticketId, dispatch.getId(), resolvedToAddress);
         return dispatch;
+    }
+
+    /** Backward-compatible overload — assumes content was not edited after preview. */
+    @Transactional
+    public OutboundEmailDispatch sendReply(Long ticketId, Long mailboxId, Long sourceEventId,
+                                           String toAddressOverride, String fromAddress,
+                                           String subject, String textBody, String htmlBody,
+                                           String inReplyToMessageId, Long sentByUserId,
+                                           Long templateId, String templateCode) {
+        return sendReply(ticketId, mailboxId, sourceEventId, toAddressOverride, fromAddress,
+                subject, textBody, htmlBody, inReplyToMessageId, sentByUserId,
+                templateId, templateCode, false);
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────

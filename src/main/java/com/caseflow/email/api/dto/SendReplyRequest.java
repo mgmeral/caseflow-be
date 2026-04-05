@@ -68,5 +68,12 @@ public record SendReplyRequest(
          * If null and {@code templateId} is also null, the active {@code CUSTOMER_REPLY}
          * template is used.
          */
-        String templateCode
+        String templateCode,
+
+        /**
+         * True when the agent modified the template-rendered content in the preview
+         * before clicking send. The backend stores this for auditability.
+         * Defaults to false when null.
+         */
+        Boolean contentWasEdited
 ) {}

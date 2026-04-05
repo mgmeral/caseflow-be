@@ -33,7 +33,9 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @Tag(name = "Ticket Email", description = "Email thread and outbound replies for tickets")
 @SecurityRequirement(name = "bearerAuth")
@@ -76,27 +78,43 @@ public class TicketEmailController {
         log.info("GET /tickets/{}/email/thread", ticketId);
         List<EmailThreadItem> items = new ArrayList<>();
 
+        // Prefetch mailbox names once to avoid N+1 lookups
+        java.util.Map<Long, String> mailboxNameCache = new java.util.HashMap<>();
+
         ingressEventRepository.findByTicketId(ticketId).forEach(event -> {
-            String preview = event.getDocumentId() != null
-                    ? docQueryService.findById(event.getDocumentId())
-                            .map(doc -> doc.getBodyPreview()).orElse(null)
-                    : null;
-            int attachmentCount = event.getDocumentId() != null
-                    ? docQueryService.findById(event.getDocumentId())
-                            .map(doc -> doc.getAttachments() != null ? doc.getAttachments().size() : 0)
-                            .orElse(0)
-                    : 0;
+            String docId = event.getDocumentId();
+            String preview = null;
+            int attachmentCount = 0;
+            if (docId != null) {
+                java.util.Optional<com.caseflow.email.document.EmailDocument> docOpt =
+                        docQueryService.findById(docId);
+                preview = docOpt.map(com.caseflow.email.document.EmailDocument::getBodyPreview).orElse(null);
+                attachmentCount = docOpt.map(doc -> doc.getAttachments() != null
+                        ? doc.getAttachments().size() : 0).orElse(0);
+            }
+            String mailboxName = resolveMailboxName(event.getMailboxId(), mailboxNameCache);
             items.add(new EmailThreadItem(
                     "INBOUND",
                     event.getId(),
                     event.getMessageId(),
                     event.getRawFrom(),
-                    null,
+                    event.getRawTo(),
                     event.getRawSubject(),
                     event.getStatus().name(),
                     event.getReceivedAt(),
                     preview,
-                    attachmentCount
+                    attachmentCount,
+                    // Phase 1 fields
+                    docId,
+                    event.getId(),
+                    event.getMailboxId(),
+                    mailboxName,
+                    event.getFailureReason(),
+                    null,
+                    "EMAIL_DOCUMENT",
+                    docId != null ? docId : String.valueOf(event.getId()),
+                    attachmentCount > 0,
+                    preview != null && !preview.isBlank()
             ));
         });
 
@@ -105,6 +123,7 @@ public class TicketEmailController {
             String preview = rawBody != null
                     ? rawBody.substring(0, Math.min(BODY_PREVIEW_MAX, rawBody.length()))
                     : null;
+            String mailboxName = resolveMailboxName(dispatch.getMailboxId(), mailboxNameCache);
             items.add(new EmailThreadItem(
                     "OUTBOUND",
                     dispatch.getId(),
@@ -115,7 +134,18 @@ public class TicketEmailController {
                     dispatch.getStatus().name(),
                     dispatch.getSentAt() != null ? dispatch.getSentAt() : dispatch.getCreatedAt(),
                     preview,
-                    0
+                    0,
+                    // Phase 1 fields
+                    null,
+                    dispatch.getSourceIngressEventId(),
+                    dispatch.getMailboxId(),
+                    mailboxName,
+                    dispatch.getFailureReason(),
+                    dispatch.getResolvedToAddress(),
+                    "OUTBOUND_DISPATCH",
+                    String.valueOf(dispatch.getId()),
+                    false,
+                    preview != null && !preview.isBlank()
             ));
         });
 
@@ -128,6 +158,20 @@ public class TicketEmailController {
      * Detail view for a specific outbound dispatch.
      * Verifies the dispatch belongs to the path ticketId.
      */
+    /** Resolves mailbox display name, caching results to avoid repeated DB lookups. */
+    private String resolveMailboxName(Long mailboxId, Map<Long, String> cache) {
+        if (mailboxId == null) return null;
+        return cache.computeIfAbsent(mailboxId, id -> {
+            try {
+                com.caseflow.email.domain.EmailMailbox mb = mailboxService.getById(id);
+                return mb.getDisplayName() != null ? mb.getDisplayName() : mb.getName();
+            } catch (Exception e) {
+                log.warn("Mailbox {} not found while building thread item", id);
+                return null;
+            }
+        });
+    }
+
     @GetMapping("/outbound/{dispatchId}")
     @PreAuthorize("@ticketAuth.canViewTicketEmail(authentication, #ticketId)")
     public ResponseEntity<DispatchResponse> getOutboundDispatch(@PathVariable Long ticketId,
@@ -179,7 +223,8 @@ public class TicketEmailController {
                 request.inReplyToMessageId(),
                 principal.getUserId(),
                 request.templateId(),
-                request.templateCode()
+                request.templateCode(),
+                Boolean.TRUE.equals(request.contentWasEdited())
         );
 
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(new ReplyEnqueuedResponse(

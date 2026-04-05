@@ -27,5 +27,9 @@ public final class TicketEventType {
     public static final String ATTACHMENT_ADDED    = "ATTACHMENT_ADDED";
     public static final String TEMPLATE_USED       = "TEMPLATE_USED";
 
+    // ── Tag events ────────────────────────────────────────────────────────────
+    public static final String TAG_ADDED   = "TAG_ADDED";
+    public static final String TAG_REMOVED = "TAG_REMOVED";
+
     private TicketEventType() {}
 }

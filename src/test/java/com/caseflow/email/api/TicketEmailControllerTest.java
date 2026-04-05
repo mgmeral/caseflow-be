@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
@@ -82,8 +83,14 @@ class TicketEmailControllerTest {
                 .andExpect(jsonPath("$[0].direction").value("INBOUND"))
                 .andExpect(jsonPath("$[0].messageId").value("<msg-10@test.com>"))
                 .andExpect(jsonPath("$[0].attachmentCount").value(0))
+                // Phase 1 fields present for INBOUND
+                .andExpect(jsonPath("$[0].detailType").value("EMAIL_DOCUMENT"))
+                .andExpect(jsonPath("$[0].hasAttachments").value(false))
+                .andExpect(jsonPath("$[0].isPreviewAvailable").value(false))
                 .andExpect(jsonPath("$[1].direction").value("OUTBOUND"))
-                .andExpect(jsonPath("$[1].messageId").value("<dispatch-20@caseflow>"));
+                .andExpect(jsonPath("$[1].messageId").value("<dispatch-20@caseflow>"))
+                // Phase 1 fields present for OUTBOUND
+                .andExpect(jsonPath("$[1].detailType").value("OUTBOUND_DISPATCH"));
     }
 
     @Test
@@ -139,10 +146,11 @@ class TicketEmailControllerTest {
         when(mailboxService.getById(1L)).thenReturn(mailboxWithAddress("support@caseflow.dev"));
         OutboundEmailDispatch dispatch = mockDispatch(99L, "customer@example.com", 1L);
         when(replyService.sendReply(anyLong(), anyLong(), any(), any(), anyString(),
-                anyString(), anyString(), any(), any(), anyLong(), any(), any())).thenReturn(dispatch);
+                anyString(), any(), any(), any(), anyLong(), any(), any(), anyBoolean()))
+                .thenReturn(dispatch);
 
         SendReplyRequest request = new SendReplyRequest(
-                1L, 10L, null, "Re: issue", "Thank you", null, null, null, null);
+                1L, 10L, null, "Re: issue", "Thank you", null, null, null, null, null);
 
         mockMvc.perform(post("/api/tickets/1/email/reply")
                         .with(csrf())
@@ -161,10 +169,10 @@ class TicketEmailControllerTest {
         when(mailboxService.getById(1L)).thenReturn(mailboxWithAddress("support@caseflow.dev"));
         OutboundEmailDispatch dispatch = mockDispatch(100L, "customer@example.com", 1L);
         when(replyService.sendReply(anyLong(), anyLong(), any(), any(), anyString(),
-                anyString(), anyString(), any(), any(), anyLong(), any(), any())).thenReturn(dispatch);
+                anyString(), anyString(), any(), any(), anyLong(), any(), any(), anyBoolean())).thenReturn(dispatch);
 
         SendReplyRequest request = new SendReplyRequest(
-                1L, null, "customer@example.com", "Re: issue", "Thank you", null, null, null, null);
+                1L, null, "customer@example.com", "Re: issue", "Thank you", null, null, null, null, null);
 
         mockMvc.perform(post("/api/tickets/1/email/reply")
                         .with(csrf())
@@ -181,7 +189,7 @@ class TicketEmailControllerTest {
         when(ticketAuth.canSendTicketEmailReply(any(), anyLong())).thenReturn(true);
 
         SendReplyRequest request = new SendReplyRequest(
-                1L, null, null, "Re: issue", "Thank you", null, null, null, null);
+                1L, null, null, "Re: issue", "Thank you", null, null, null, null, null);
 
         mockMvc.perform(post("/api/tickets/1/email/reply")
                         .with(csrf())
@@ -197,7 +205,7 @@ class TicketEmailControllerTest {
         when(ticketAuth.canSendTicketEmailReply(any(), anyLong())).thenReturn(false);
 
         SendReplyRequest request = new SendReplyRequest(
-                1L, 10L, null, "Re: issue", "Thank you", null, null, null, null);
+                1L, 10L, null, "Re: issue", "Thank you", null, null, null, null, null);
 
         mockMvc.perform(post("/api/tickets/1/email/reply")
                         .with(csrf())

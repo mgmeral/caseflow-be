@@ -12,6 +12,8 @@ import com.caseflow.email.service.IngressEmailData;
 import com.caseflow.storage.service.AttachmentService;
 import com.caseflow.ticket.api.dto.AttachmentMetadataResponse;
 import com.caseflow.ticket.api.mapper.AttachmentMetadataMapper;
+import com.caseflow.ticket.security.TicketAuthorizationService;
+import org.springframework.security.core.Authentication;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -42,17 +44,20 @@ public class EmailDocumentController {
     private final EmailIngressService emailIngressService;
     private final AttachmentService attachmentService;
     private final AttachmentMetadataMapper attachmentMetadataMapper;
+    private final TicketAuthorizationService ticketAuth;
 
     public EmailDocumentController(EmailDocumentQueryService emailDocumentQueryService,
                                    EmailDocumentMapper emailDocumentMapper,
                                    EmailIngressService emailIngressService,
                                    AttachmentService attachmentService,
-                                   AttachmentMetadataMapper attachmentMetadataMapper) {
+                                   AttachmentMetadataMapper attachmentMetadataMapper,
+                                   TicketAuthorizationService ticketAuth) {
         this.emailDocumentQueryService = emailDocumentQueryService;
         this.emailDocumentMapper = emailDocumentMapper;
         this.emailIngressService = emailIngressService;
         this.attachmentService = attachmentService;
         this.attachmentMetadataMapper = attachmentMetadataMapper;
+        this.ticketAuth = ticketAuth;
     }
 
     /**
@@ -93,13 +98,36 @@ public class EmailDocumentController {
         return ResponseEntity.status(HttpStatus.ACCEPTED).build();
     }
 
+    /**
+     * Returns the full email document detail.
+     *
+     * <p>Authorization: the caller must have TICKET_EMAIL_VIEW permission AND be in scope
+     * for the owning ticket. This prevents agents from reading arbitrary email documents
+     * outside their ticket scope via the direct document id.
+     *
+     * <p>Note: prefer the ticket-scoped unified detail endpoint
+     * (GET /api/tickets/{ticketPublicId}/email/detail/EMAIL_DOCUMENT/{id}) for FE usage,
+     * as it provides a richer response contract.
+     */
     @GetMapping("/{id}")
-    @PreAuthorize("hasAuthority('PERM_TICKET_READ')")
-    public ResponseEntity<EmailDocumentResponse> getById(@PathVariable String id) {
+    @PreAuthorize("hasAuthority('PERM_TICKET_EMAIL_VIEW')")
+    public ResponseEntity<EmailDocumentResponse> getById(@PathVariable String id,
+                                                          Authentication authentication) {
         log.info("GET /emails/{}", id);
-        return emailDocumentQueryService.findById(id)
-                .map(doc -> ResponseEntity.ok(buildDetailResponse(doc)))
-                .orElse(ResponseEntity.notFound().build());
+        var docOpt = emailDocumentQueryService.findById(id);
+        if (docOpt.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        var doc = docOpt.get();
+        // Enforce ticket-scope ownership: the document must belong to a ticket
+        // that the caller is authorized to view.
+        if (doc.getTicketId() != null
+                && !ticketAuth.canViewTicketEmail(authentication, doc.getTicketId())) {
+            log.warn("Authorization denied — userId attempted to read emailDoc: {} "
+                    + "belonging to ticketId: {} outside scope", id, doc.getTicketId());
+            return ResponseEntity.status(org.springframework.http.HttpStatus.FORBIDDEN).build();
+        }
+        return ResponseEntity.ok(buildDetailResponse(doc));
     }
 
     private EmailDocumentResponse buildDetailResponse(EmailDocument doc) {
@@ -136,12 +164,4 @@ public class EmailDocumentController {
                         emailDocumentQueryService.findByTicketId(ticketId)));
     }
 
-    @GetMapping("/by-thread/{threadKey}")
-    @PreAuthorize("hasAuthority('PERM_TICKET_READ')")
-    public ResponseEntity<List<EmailDocumentSummaryResponse>> getByThread(@PathVariable String threadKey) {
-        log.info("GET /emails/by-thread/{}", threadKey);
-        return ResponseEntity.ok(
-                emailDocumentMapper.toSummaryResponseList(
-                        emailDocumentQueryService.findByThreadKey(threadKey)));
-    }
 }
