@@ -65,6 +65,7 @@ public class EmailMailboxService {
             existing.setSmtpPassword(updates.getSmtpPassword());
         }
         existing.setSmtpUseSsl(updates.getSmtpUseSsl());
+        existing.setSmtpStarttls(updates.getSmtpStarttls());
 
         // IMAP — only update password if a new one is provided
         existing.setImapHost(updates.getImapHost());

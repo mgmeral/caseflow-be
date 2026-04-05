@@ -196,6 +196,56 @@ class MailboxValidationServiceTest {
         assertThatCode(() -> validator.validate(mailbox)).doesNotThrowAnyException();
     }
 
+    // ── Rule 5: SMTP transport mode contradiction ─────────────────────────────
+
+    @Test
+    void validate_rejects_smtpUseSslAndStarttlsBothTrue() {
+        EmailMailbox mailbox = new EmailMailbox();
+        mailbox.setProviderType(ProviderType.SMTP_RELAY);
+        mailbox.setPollingEnabled(false);
+        mailbox.setSmtpUseSsl(true);
+        mailbox.setSmtpStarttls(true);  // contradictory — cannot have both
+
+        assertThatThrownBy(() -> validator.validate(mailbox))
+                .isInstanceOf(InvalidMailboxConfigException.class)
+                .hasMessageContaining("mutually exclusive")
+                .hasMessageContaining("smtpUseSsl")
+                .hasMessageContaining("smtpStarttls");
+    }
+
+    @Test
+    void validate_passes_smtpImplicitSsl_port465() {
+        EmailMailbox mailbox = new EmailMailbox();
+        mailbox.setProviderType(ProviderType.SMTP_RELAY);
+        mailbox.setPollingEnabled(false);
+        mailbox.setSmtpUseSsl(true);
+        mailbox.setSmtpStarttls(false);  // correct for port 465
+
+        assertThatCode(() -> validator.validate(mailbox)).doesNotThrowAnyException();
+    }
+
+    @Test
+    void validate_passes_smtpStarttls_port587() {
+        EmailMailbox mailbox = new EmailMailbox();
+        mailbox.setProviderType(ProviderType.SMTP_RELAY);
+        mailbox.setPollingEnabled(false);
+        mailbox.setSmtpUseSsl(false);
+        mailbox.setSmtpStarttls(true);  // correct for port 587
+
+        assertThatCode(() -> validator.validate(mailbox)).doesNotThrowAnyException();
+    }
+
+    @Test
+    void validate_passes_smtpNoTls_plainSmtp() {
+        EmailMailbox mailbox = new EmailMailbox();
+        mailbox.setProviderType(ProviderType.SMTP_RELAY);
+        mailbox.setPollingEnabled(false);
+        mailbox.setSmtpUseSsl(false);
+        mailbox.setSmtpStarttls(false);  // plain SMTP — allowed (not recommended but valid)
+
+        assertThatCode(() -> validator.validate(mailbox)).doesNotThrowAnyException();
+    }
+
     // ── Helper ────────────────────────────────────────────────────────────────
 
     private EmailMailbox imapPollingMailbox() {

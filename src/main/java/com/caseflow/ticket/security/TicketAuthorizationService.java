@@ -11,6 +11,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.UUID;
 
 /**
  * Central authorization service for ticket-related access decisions.
@@ -47,6 +48,16 @@ public class TicketAuthorizationService {
     public boolean canReadTicket(Authentication auth, Long ticketId) {
         if (!hasPermission(auth, Permission.TICKET_READ)) return false;
         return inScope(auth, ticketQueryService.getById(ticketId));
+    }
+
+    public boolean canReadTicketByPublicId(Authentication auth, UUID ticketPublicId) {
+        if (!hasPermission(auth, Permission.TICKET_READ)) return false;
+        return inScope(auth, ticketQueryService.getByPublicId(ticketPublicId));
+    }
+
+    public boolean canViewTicketEmailByPublicId(Authentication auth, UUID ticketPublicId) {
+        if (!hasPermission(auth, Permission.TICKET_EMAIL_VIEW)) return false;
+        return inScope(auth, ticketQueryService.getByPublicId(ticketPublicId));
     }
 
     public boolean canReadTicketByNo(Authentication auth, String ticketNo) {

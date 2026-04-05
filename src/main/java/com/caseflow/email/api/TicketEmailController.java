@@ -17,7 +17,8 @@ import com.caseflow.email.service.EmailIngressEventQueryService;
 import com.caseflow.email.service.EmailMailboxService;
 import com.caseflow.email.service.EmailReplyService;
 import com.caseflow.storage.service.AttachmentService;
-import com.caseflow.ticket.repository.AttachmentMetadataRepository;
+import com.caseflow.ticket.api.dto.AttachmentMetadataResponse;
+import com.caseflow.ticket.api.mapper.AttachmentMetadataMapper;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -54,7 +55,8 @@ public class TicketEmailController {
     private final EmailDocumentQueryService docQueryService;
     private final EmailReplyService replyService;
     private final EmailMailboxService mailboxService;
-    private final AttachmentMetadataRepository attachmentMetadataRepository;
+    private final AttachmentService attachmentService;
+    private final AttachmentMetadataMapper attachmentMetadataMapper;
     private final IngressEventMapper ingressMapper;
     private final DispatchMapper dispatchMapper;
 
@@ -63,7 +65,8 @@ public class TicketEmailController {
                                   EmailDocumentQueryService docQueryService,
                                   EmailReplyService replyService,
                                   EmailMailboxService mailboxService,
-                                  AttachmentMetadataRepository attachmentMetadataRepository,
+                                  AttachmentService attachmentService,
+                                  AttachmentMetadataMapper attachmentMetadataMapper,
                                   IngressEventMapper ingressMapper,
                                   DispatchMapper dispatchMapper) {
         this.ingressQueryService = ingressQueryService;
@@ -71,7 +74,8 @@ public class TicketEmailController {
         this.docQueryService = docQueryService;
         this.replyService = replyService;
         this.mailboxService = mailboxService;
-        this.attachmentMetadataRepository = attachmentMetadataRepository;
+        this.attachmentService = attachmentService;
+        this.attachmentMetadataMapper = attachmentMetadataMapper;
         this.ingressMapper = ingressMapper;
         this.dispatchMapper = dispatchMapper;
     }
@@ -150,7 +154,13 @@ public class TicketEmailController {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND,
                     "Inbound event " + eventId + " not found under ticket " + ticketId);
         }
-        return ResponseEntity.ok(ingressMapper.toResponse(event));
+        // Populate attachment metadata from Postgres for the detail view.
+        // Uses the MongoDB document ID (documentId) as emailId to look up Postgres attachment records.
+        List<AttachmentMetadataResponse> attachments = event.getDocumentId() != null
+                ? attachmentMetadataMapper.toResponseList(
+                        attachmentService.findByEmailId(event.getDocumentId()))
+                : java.util.List.of();
+        return ResponseEntity.ok(ingressMapper.toResponseWithAttachments(event, attachments));
     }
 
     /**
@@ -218,7 +228,9 @@ public class TicketEmailController {
                 request.textBody(),
                 request.htmlBody(),
                 request.inReplyToMessageId(),
-                principal.getUserId()
+                principal.getUserId(),
+                request.templateId(),
+                request.templateCode()
         );
 
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(new ReplyEnqueuedResponse(

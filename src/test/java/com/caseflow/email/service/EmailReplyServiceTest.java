@@ -2,6 +2,7 @@ package com.caseflow.email.service;
 
 import com.caseflow.common.exception.IngressEventNotFoundException;
 import com.caseflow.email.domain.EmailIngressEvent;
+import com.caseflow.email.domain.MailTemplate;
 import com.caseflow.email.domain.OutboundEmailDispatch;
 import com.caseflow.email.repository.EmailIngressEventRepository;
 import com.caseflow.ticket.domain.Ticket;
@@ -17,6 +18,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
 import java.util.Optional;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -27,6 +29,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -45,11 +48,23 @@ class EmailReplyServiceTest {
 
     private Ticket ticket;
     private EmailIngressEvent sourceEvent;
+    private OutboundEmailDispatch mockDispatch;
 
     @BeforeEach
     void setUp() {
         ticket = new Ticket();
         ticket.setStatus(TicketStatus.ASSIGNED);
+        try {
+            // Set ticketNo so template substitution doesn't NPE
+            var no = Ticket.class.getDeclaredField("ticketNo");
+            no.setAccessible(true);
+            no.set(ticket, "TKT-0000001");
+            var pid = Ticket.class.getDeclaredField("publicId");
+            pid.setAccessible(true);
+            pid.set(ticket, UUID.randomUUID());
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
         lenient().when(ticketRepository.findById(1L)).thenReturn(Optional.of(ticket));
 
         sourceEvent = new EmailIngressEvent();
@@ -58,14 +73,14 @@ class EmailReplyServiceTest {
         sourceEvent.setReceivedAt(Instant.now());
         sourceEvent.setRawReferences(null);
 
-        var dispatch = mock(OutboundEmailDispatch.class);
-        lenient().when(dispatch.getId()).thenReturn(99L);
-        lenient().when(dispatch.getResolvedToAddress()).thenReturn("customer@example.com");
-        lenient().when(dispatch.getMailboxId()).thenReturn(2L);
+        mockDispatch = mock(OutboundEmailDispatch.class);
+        lenient().when(mockDispatch.getId()).thenReturn(99L);
+        lenient().when(mockDispatch.getResolvedToAddress()).thenReturn("customer@example.com");
+        lenient().when(mockDispatch.getMailboxId()).thenReturn(2L);
         lenient().when(dispatchService.enqueue(anyLong(), anyLong(), any(), any(), anyString(), anyString(),
-                anyString(), anyString(), any(), any(), any(), any())).thenReturn(dispatch);
+                anyString(), anyString(), any(), any(), any(), any())).thenReturn(mockDispatch);
 
-        lenient().when(mailTemplateService.findActiveByCode(anyString())).thenReturn(java.util.Optional.empty());
+        lenient().when(mailTemplateService.findActiveByCode(anyString())).thenReturn(Optional.empty());
     }
 
     // ── Reply target derivation from source event ─────────────────────────────
@@ -75,8 +90,7 @@ class EmailReplyServiceTest {
         sourceEvent.setRawReplyTo(null);
         when(ingressEventRepository.findById(10L)).thenReturn(Optional.of(sourceEvent));
 
-        sut.sendReply(1L, 2L, 10L, null, "support@caseflow.dev",
-                "Re: Issue", "body", null, null, 42L);
+        sendReply(1L, 2L, 10L, null, "support@caseflow.dev", "Re: Issue", "body", null, null, 42L, null, null);
 
         verify(dispatchService).enqueue(
                 eq(1L), eq(2L), eq(10L), eq(42L),
@@ -91,8 +105,7 @@ class EmailReplyServiceTest {
         sourceEvent.setRawReplyTo("reply-target@example.com");
         when(ingressEventRepository.findById(10L)).thenReturn(Optional.of(sourceEvent));
 
-        sut.sendReply(1L, 2L, 10L, null, "support@caseflow.dev",
-                "Re: Issue", "body", null, null, 42L);
+        sendReply(1L, 2L, 10L, null, "support@caseflow.dev", "Re: Issue", "body", null, null, 42L, null, null);
 
         verify(dispatchService).enqueue(
                 eq(1L), eq(2L), eq(10L), eq(42L),
@@ -107,8 +120,7 @@ class EmailReplyServiceTest {
         sourceEvent.setRawReplyTo("John Customer <john@bigcorp.com>");
         when(ingressEventRepository.findById(10L)).thenReturn(Optional.of(sourceEvent));
 
-        sut.sendReply(1L, 2L, 10L, null, "support@caseflow.dev",
-                "Re: Issue", "body", null, null, 42L);
+        sendReply(1L, 2L, 10L, null, "support@caseflow.dev", "Re: Issue", "body", null, null, 42L, null, null);
 
         verify(dispatchService).enqueue(
                 eq(1L), eq(2L), eq(10L), eq(42L),
@@ -120,8 +132,8 @@ class EmailReplyServiceTest {
 
     @Test
     void sendReply_usesToAddressOverride_whenNoSourceEventId() {
-        sut.sendReply(1L, 2L, null, "manual@example.com", "support@caseflow.dev",
-                "Re: Issue", "body", null, null, 42L);
+        sendReply(1L, 2L, null, "manual@example.com", "support@caseflow.dev",
+                "Re: Issue", "body", null, null, 42L, null, null);
 
         verify(dispatchService).enqueue(
                 eq(1L), eq(2L), isNull(), eq(42L),
@@ -134,8 +146,8 @@ class EmailReplyServiceTest {
     @Test
     void sendReply_throws_whenNeitherSourceEventNorToAddress() {
         assertThatThrownBy(() ->
-                sut.sendReply(1L, 2L, null, null, "support@caseflow.dev",
-                        "Re: Issue", "body", null, null, 42L))
+                sendReply(1L, 2L, null, null, "support@caseflow.dev",
+                        "Re: Issue", "body", null, null, 42L, null, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("sourceEventId or toAddress");
     }
@@ -145,8 +157,8 @@ class EmailReplyServiceTest {
         when(ingressEventRepository.findById(999L)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() ->
-                sut.sendReply(1L, 2L, 999L, null, "support@caseflow.dev",
-                        "Re: Issue", "body", null, null, 42L))
+                sendReply(1L, 2L, 999L, null, "support@caseflow.dev",
+                        "Re: Issue", "body", null, null, 42L, null, null))
                 .isInstanceOf(IngressEventNotFoundException.class);
     }
 
@@ -154,15 +166,11 @@ class EmailReplyServiceTest {
 
     @Test
     void sendReply_doesNotApplySystemTransition_atEnqueueTime() {
-        // The WAITING_CUSTOMER transition is applied by OutboundDispatchScheduler
-        // after SMTP send succeeds — NOT here at enqueue time.
         sourceEvent.setRawReplyTo(null);
         when(ingressEventRepository.findById(10L)).thenReturn(Optional.of(sourceEvent));
 
-        // sendReply must complete without injecting TicketSystemTransitionService
-        // (it's not in the constructor — if it were called, a NullPointerException would fail this test)
-        sut.sendReply(1L, 2L, 10L, null, "support@caseflow.dev",
-                "Re: Issue", "body", null, null, 42L);
+        // Must complete without TicketSystemTransitionService (not in constructor)
+        sendReply(1L, 2L, 10L, null, "support@caseflow.dev", "Re: Issue", "body", null, null, 42L, null, null);
     }
 
     // ── Returns dispatch info ─────────────────────────────────────────────────
@@ -172,8 +180,8 @@ class EmailReplyServiceTest {
         sourceEvent.setRawReplyTo(null);
         when(ingressEventRepository.findById(10L)).thenReturn(Optional.of(sourceEvent));
 
-        OutboundEmailDispatch result = sut.sendReply(1L, 2L, 10L, null, "support@caseflow.dev",
-                "Re: Issue", "body", null, null, 42L);
+        OutboundEmailDispatch result = sendReply(1L, 2L, 10L, null, "support@caseflow.dev",
+                "Re: Issue", "body", null, null, 42L, null, null);
 
         assertThat(result).isNotNull();
         assertThat(result.getId()).isEqualTo(99L);
@@ -182,14 +190,14 @@ class EmailReplyServiceTest {
     // ── History recording ─────────────────────────────────────────────────────
 
     @Test
-    void sendReply_recordsHistoryEvent() {
+    void sendReply_recordsOutboundReplyQueuedEvent() {
         sourceEvent.setRawReplyTo(null);
         when(ingressEventRepository.findById(10L)).thenReturn(Optional.of(sourceEvent));
 
-        sut.sendReply(1L, 2L, 10L, null, "support@caseflow.dev",
-                "Re: Issue", "body", null, null, 42L);
+        sendReply(1L, 2L, 10L, null, "support@caseflow.dev", "Re: Issue", "body", null, null, 42L, null, null);
 
-        verify(historyService).record(eq(1L), eq("CUSTOMER_REPLY_QUEUED"), eq(42L), anyString());
+        verify(historyService).recordOutboundReplyQueued(
+                eq(1L), any(), eq(99L), eq("customer@example.com"), eq(42L));
     }
 
     // ── RFC 2822 threading header derivation ──────────────────────────────────
@@ -199,10 +207,8 @@ class EmailReplyServiceTest {
         sourceEvent.setRawReplyTo(null);
         when(ingressEventRepository.findById(10L)).thenReturn(Optional.of(sourceEvent));
 
-        sut.sendReply(1L, 2L, 10L, null, "support@caseflow.dev",
-                "Re: Issue", "body", null, null, 42L);
+        sendReply(1L, 2L, 10L, null, "support@caseflow.dev", "Re: Issue", "body", null, null, 42L, null, null);
 
-        // inReplyToMessageId should be "<msg123@example.com>" from source event
         verify(dispatchService).enqueue(
                 eq(1L), eq(2L), eq(10L), eq(42L),
                 eq("support@caseflow.dev"),
@@ -219,10 +225,8 @@ class EmailReplyServiceTest {
         sourceEvent.setRawReferences("<thread-start@example.com>|<thread-mid@example.com>");
         when(ingressEventRepository.findById(10L)).thenReturn(Optional.of(sourceEvent));
 
-        sut.sendReply(1L, 2L, 10L, null, "support@caseflow.dev",
-                "Re: Issue", "body", null, null, 42L);
+        sendReply(1L, 2L, 10L, null, "support@caseflow.dev", "Re: Issue", "body", null, null, 42L, null, null);
 
-        // References chain: prior refs (pipe → space) + source messageId
         String expectedRefs = "<thread-start@example.com> <thread-mid@example.com> <msg123@example.com>";
         verify(dispatchService).enqueue(
                 eq(1L), eq(2L), eq(10L), eq(42L),
@@ -236,8 +240,8 @@ class EmailReplyServiceTest {
 
     @Test
     void sendReply_passesNullReferences_whenNoSourceEvent() {
-        sut.sendReply(1L, 2L, null, "manual@example.com", "support@caseflow.dev",
-                "Re: Issue", "body", null, null, 42L);
+        sendReply(1L, 2L, null, "manual@example.com", "support@caseflow.dev",
+                "Re: Issue", "body", null, null, 42L, null, null);
 
         verify(dispatchService).enqueue(
                 eq(1L), eq(2L), isNull(), eq(42L),
@@ -245,55 +249,119 @@ class EmailReplyServiceTest {
                 eq("manual@example.com"),
                 eq("manual@example.com"),
                 anyString(), any(), any(),
-                isNull(),   // no inReplyTo when no source event
-                isNull());  // no references when no source event
+                isNull(),
+                isNull());
     }
 
     // ── Template rendering — HTML body handling ───────────────────────────────
 
     @Test
     void sendReply_usesHtmlBody_forHtmlTemplate_whenHtmlBodyProvided() {
-        // Arrange: DB template is present
-        com.caseflow.email.domain.MailTemplate tpl = new com.caseflow.email.domain.MailTemplate();
-        tpl.setCode("CUSTOMER_REPLY");
-        tpl.setHtmlTemplate("<html>{replyBody}</html>");
-        tpl.setPlainTextTemplate("{replyBody}");
-        when(mailTemplateService.findActiveByCode("CUSTOMER_REPLY")).thenReturn(java.util.Optional.of(tpl));
+        MailTemplate tpl = makeTemplate("CUSTOMER_REPLY", "<html>{replyBody}</html>", "{replyBody}");
+        when(mailTemplateService.findActiveByCode("CUSTOMER_REPLY")).thenReturn(Optional.of(tpl));
         when(mailTemplateService.substitute(eq("<html>{replyBody}</html>"), anyString(), any(), any(), any(), any()))
                 .thenReturn("<html>rendered html</html>");
         when(mailTemplateService.substitute(eq("{replyBody}"), anyString(), any(), any(), any(), any()))
                 .thenReturn("rendered text");
-        when(dispatchService.enqueue(anyLong(), anyLong(), any(), any(), anyString(), anyString(),
-                anyString(), anyString(), any(), any(), any(), any()))
-                .thenReturn(mock(OutboundEmailDispatch.class));
 
-        sut.sendReply(1L, 2L, null, "to@example.com", "from@example.com",
-                "Subject", "plain text", "<b>html content</b>", null, 1L);
+        sendReply(1L, 2L, null, "to@example.com", "from@example.com",
+                "Subject", "plain text", "<b>html content</b>", null, 1L, null, null);
 
-        // escapeHtml must NOT be called when htmlBody is provided
-        verify(mailTemplateService, org.mockito.Mockito.never())
-                .escapeHtml(anyString());
+        verify(mailTemplateService, never()).escapeHtml(anyString());
     }
 
     @Test
     void sendReply_escapesTextBody_forHtmlTemplate_whenHtmlBodyAbsent() {
-        // Arrange: DB template present, no htmlBody provided
-        com.caseflow.email.domain.MailTemplate tpl = new com.caseflow.email.domain.MailTemplate();
-        tpl.setCode("CUSTOMER_REPLY");
-        tpl.setHtmlTemplate("<html>{replyBody}</html>");
-        tpl.setPlainTextTemplate("{replyBody}");
-        when(mailTemplateService.findActiveByCode("CUSTOMER_REPLY")).thenReturn(java.util.Optional.of(tpl));
+        MailTemplate tpl = makeTemplate("CUSTOMER_REPLY", "<html>{replyBody}</html>", "{replyBody}");
+        when(mailTemplateService.findActiveByCode("CUSTOMER_REPLY")).thenReturn(Optional.of(tpl));
         when(mailTemplateService.escapeHtml("plain text with <tags>")).thenReturn("plain text with &lt;tags&gt;");
         when(mailTemplateService.substitute(anyString(), anyString(), any(), any(), any(), any()))
                 .thenReturn("rendered");
-        when(dispatchService.enqueue(anyLong(), anyLong(), any(), any(), anyString(), anyString(),
-                anyString(), anyString(), any(), any(), any(), any()))
-                .thenReturn(mock(OutboundEmailDispatch.class));
 
-        sut.sendReply(1L, 2L, null, "to@example.com", "from@example.com",
-                "Subject", "plain text with <tags>", null, null, 1L);
+        sendReply(1L, 2L, null, "to@example.com", "from@example.com",
+                "Subject", "plain text with <tags>", null, null, 1L, null, null);
 
-        // escapeHtml MUST be called with the textBody
         verify(mailTemplateService).escapeHtml("plain text with <tags>");
+    }
+
+    // ── Template selection ────────────────────────────────────────────────────
+
+    @Test
+    void sendReply_selectsTemplateByCode_whenTemplateCodeProvided() {
+        MailTemplate tpl = makeTemplate("CUSTOM_REPLY", "<p>{replyBody}</p>", "{replyBody}");
+        when(mailTemplateService.findActiveByCode("CUSTOM_REPLY")).thenReturn(Optional.of(tpl));
+        when(mailTemplateService.substitute(anyString(), anyString(), any(), any(), any(), any()))
+                .thenReturn("rendered");
+
+        sendReply(1L, 2L, null, "to@example.com", "from@example.com",
+                "Subject", "body", null, null, 1L, null, "CUSTOM_REPLY");
+
+        verify(mailTemplateService).findActiveByCode("CUSTOM_REPLY");
+    }
+
+    @Test
+    void sendReply_selectsTemplateById_whenTemplateIdProvided() {
+        MailTemplate tpl = makeTemplate("SPECIAL", "<p>{replyBody}</p>", "{replyBody}");
+        tpl.setIsActive(true);
+        when(mailTemplateService.findById(7L)).thenReturn(tpl);
+        when(mailTemplateService.substitute(anyString(), anyString(), any(), any(), any(), any()))
+                .thenReturn("rendered");
+
+        sendReply(1L, 2L, null, "to@example.com", "from@example.com",
+                "Subject", "body", null, null, 1L, 7L, null);
+
+        verify(mailTemplateService).findById(7L);
+        // Should NOT fall back to findActiveByCode if templateId lookup succeeded
+        verify(mailTemplateService, never()).findActiveByCode("CUSTOMER_REPLY");
+    }
+
+    @Test
+    void sendReply_recordsTemplateUsed_whenTemplateApplied() {
+        MailTemplate tpl = makeTemplate("CUSTOMER_REPLY", "<p>{replyBody}</p>", "{replyBody}");
+        tpl.setIsActive(true);
+        try {
+            var f = MailTemplate.class.getDeclaredField("id");
+            f.setAccessible(true);
+            f.set(tpl, 3L);
+        } catch (Exception e) { throw new RuntimeException(e); }
+        when(mailTemplateService.findById(3L)).thenReturn(tpl);
+        when(mailTemplateService.substitute(anyString(), anyString(), any(), any(), any(), any()))
+                .thenReturn("rendered");
+
+        sendReply(1L, 2L, null, "to@example.com", "from@example.com",
+                "Subject", "body", null, null, 1L, 3L, null);
+
+        verify(historyService).recordTemplateUsed(eq(1L), eq(3L), eq("CUSTOMER_REPLY"), eq(1L));
+    }
+
+    @Test
+    void sendReply_doesNotRecordTemplateUsed_whenNoTemplateFound() {
+        when(mailTemplateService.findActiveByCode(anyString())).thenReturn(Optional.empty());
+
+        sendReply(1L, 2L, null, "to@example.com", "from@example.com",
+                "Subject", "body", null, null, 1L, null, null);
+
+        verify(historyService, never()).recordTemplateUsed(anyLong(), anyLong(), anyString(), anyLong());
+    }
+
+    // ── Helper ────────────────────────────────────────────────────────────────
+
+    private OutboundEmailDispatch sendReply(Long ticketId, Long mailboxId, Long sourceEventId,
+                                             String toAddress, String fromAddress,
+                                             String subject, String textBody, String htmlBody,
+                                             String inReplyToMessageId, Long sentByUserId,
+                                             Long templateId, String templateCode) {
+        return sut.sendReply(ticketId, mailboxId, sourceEventId, toAddress, fromAddress,
+                subject, textBody, htmlBody, inReplyToMessageId, sentByUserId,
+                templateId, templateCode);
+    }
+
+    private static MailTemplate makeTemplate(String code, String html, String text) {
+        MailTemplate tpl = new MailTemplate();
+        tpl.setCode(code);
+        tpl.setHtmlTemplate(html);
+        tpl.setPlainTextTemplate(text);
+        tpl.setIsActive(true);
+        return tpl;
     }
 }

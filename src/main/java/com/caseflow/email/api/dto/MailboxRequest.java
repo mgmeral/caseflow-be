@@ -40,6 +40,12 @@ public record MailboxRequest(
         String smtpPassword,
         Boolean smtpUseSsl,
 
+        /**
+         * When true, use STARTTLS (explicit TLS upgrade) for outbound SMTP — correct for port 587.
+         * Mutually exclusive with {@code smtpUseSsl}. Set smtpUseSsl=true for port 465 (implicit SSL).
+         */
+        Boolean smtpStarttls,
+
         // IMAP inbound polling
         String imapHost,
         Integer imapPort,

@@ -29,6 +29,7 @@ public class EmailMailboxMapper {
         mailbox.setSmtpUsername(request.smtpUsername());
         mailbox.setSmtpPassword(request.smtpPassword());
         mailbox.setSmtpUseSsl(request.smtpUseSsl() != null ? request.smtpUseSsl() : Boolean.FALSE);
+        mailbox.setSmtpStarttls(request.smtpStarttls() != null ? request.smtpStarttls() : Boolean.FALSE);
 
         // IMAP
         mailbox.setImapHost(request.imapHost());
@@ -64,6 +65,7 @@ public class EmailMailboxMapper {
                 mailbox.getSmtpPort(),
                 mailbox.getSmtpUsername(),
                 mailbox.getSmtpUseSsl(),
+                mailbox.getSmtpStarttls(),
                 mailbox.getImapHost(),
                 mailbox.getImapPort(),
                 mailbox.getImapUsername(),

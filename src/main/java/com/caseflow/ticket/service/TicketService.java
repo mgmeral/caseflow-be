@@ -52,10 +52,15 @@ public class TicketService {
     public Ticket updateTicket(Long ticketId, String subject, String description, TicketPriority priority) {
         log.info("Updating ticket {} — priority: {}", ticketId, priority);
         Ticket ticket = findOrThrow(ticketId);
+        TicketPriority oldPriority = ticket.getPriority();
         ticket.setSubject(subject);
         ticket.setDescription(description);
         ticket.setPriority(priority);
         Ticket saved = ticketRepository.save(ticket);
+        if (priority != null && !priority.equals(oldPriority)) {
+            ticketHistoryService.recordPriorityChanged(ticketId, null,
+                    oldPriority != null ? oldPriority.name() : "null", priority.name());
+        }
         log.info("Ticket {} updated", ticketId);
         return saved;
     }

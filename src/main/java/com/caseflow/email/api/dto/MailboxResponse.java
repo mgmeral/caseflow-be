@@ -27,6 +27,8 @@ public record MailboxResponse(
         Integer smtpPort,
         String smtpUsername,
         Boolean smtpUseSsl,
+        /** Whether STARTTLS is used for port-587 outbound. Mutually exclusive with smtpUseSsl. */
+        Boolean smtpStarttls,
 
         // IMAP polling (no password)
         String imapHost,

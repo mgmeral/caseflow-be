@@ -13,4 +13,6 @@ public interface CustomerEmailRoutingRuleRepository extends JpaRepository<Custom
     List<CustomerEmailRoutingRule> findByCustomerId(Long customerId);
 
     Optional<CustomerEmailRoutingRule> findByIdAndCustomerId(Long id, Long customerId);
+
+    void deleteByCustomerId(Long customerId);
 }

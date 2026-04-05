@@ -69,6 +69,13 @@ public class EmailMailbox {
     @Column(name = "smtp_use_ssl", nullable = false)
     private Boolean smtpUseSsl = Boolean.FALSE;
 
+    /**
+     * When true, use STARTTLS (explicit TLS upgrade) for outbound SMTP — correct for port 587.
+     * Mutually exclusive with {@link #smtpUseSsl}. Do not set both to true simultaneously.
+     */
+    @Column(name = "smtp_starttls", nullable = false)
+    private Boolean smtpStarttls = Boolean.FALSE;
+
     // ── IMAP inbound polling ──────────────────────────────────────────────────
 
     @Column(name = "imap_host")
@@ -207,6 +214,9 @@ public class EmailMailbox {
 
     public Boolean getSmtpUseSsl() { return smtpUseSsl; }
     public void setSmtpUseSsl(Boolean smtpUseSsl) { this.smtpUseSsl = smtpUseSsl; }
+
+    public Boolean getSmtpStarttls() { return smtpStarttls; }
+    public void setSmtpStarttls(Boolean smtpStarttls) { this.smtpStarttls = smtpStarttls; }
 
     public String getImapHost() { return imapHost; }
     public void setImapHost(String imapHost) { this.imapHost = imapHost; }

@@ -1,11 +1,11 @@
 package com.caseflow.email.api.mapper;
 
-import com.caseflow.email.api.dto.EmailAttachmentResponse;
 import com.caseflow.email.api.dto.EmailDocumentRawResponse;
 import com.caseflow.email.api.dto.EmailDocumentResponse;
 import com.caseflow.email.api.dto.EmailDocumentSummaryResponse;
 import com.caseflow.email.document.EmailDocument;
 import org.mapstruct.Mapper;
+import org.mapstruct.Mapping;
 import org.mapstruct.ReportingPolicy;
 
 import java.util.List;
@@ -19,9 +19,10 @@ public interface EmailDocumentMapper {
 
     /**
      * Operator-facing detail mapping. Exposes {@code sanitizedHtmlBody} — never raw HTML.
-     * Internal-only fields (inReplyTo, references, normalizedSubject, bcc, htmlBody)
-     * are silently dropped via unmappedSourcePolicy = IGNORE.
+     * {@code attachments} is populated by the controller after fetching JPA records, so it is
+     * ignored here to avoid mapping the MongoDB-embedded attachment list (which has no DB id).
      */
+    @Mapping(target = "attachments", ignore = true)
     EmailDocumentResponse toResponse(EmailDocument document);
 
     /**
@@ -29,8 +30,6 @@ public interface EmailDocumentMapper {
      * Restricted to admin/audit endpoints only — never used as the default view.
      */
     EmailDocumentRawResponse toRawResponse(EmailDocument document);
-
-    EmailAttachmentResponse toAttachmentResponse(EmailDocument.AttachmentMetadata metadata);
 
     /**
      * Lightweight summary — body and attachments omitted by design.

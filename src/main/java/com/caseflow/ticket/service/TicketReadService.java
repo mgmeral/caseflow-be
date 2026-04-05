@@ -107,6 +107,8 @@ public class TicketReadService {
                             base.actionType(),
                             base.performedBy(),
                             h.getPerformedBy() != null ? performerNames.get(h.getPerformedBy()) : null,
+                            base.sourceType(),
+                            base.summary(),
                             base.performedAt()
                     );
                 })

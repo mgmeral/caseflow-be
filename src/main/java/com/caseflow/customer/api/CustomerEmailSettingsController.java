@@ -8,6 +8,7 @@ import com.caseflow.customer.api.mapper.CustomerEmailSettingsMapper;
 import com.caseflow.customer.domain.CustomerEmailSettings;
 import com.caseflow.customer.service.CustomerEmailSettingsService;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import java.util.List;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
@@ -57,6 +58,19 @@ public class CustomerEmailSettingsController {
         return settingsService.findByCustomerId(customerId)
                 .map(s -> ResponseEntity.ok(mapper.toResponse(s, settingsService.findAllRules(customerId))))
                 .orElse(ResponseEntity.notFound().build());
+    }
+
+    /**
+     * Standalone routing-rules list — always returns the complete list (empty array when none exist).
+     * Safe to call even when no email-settings record has been created yet for this customer.
+     */
+    @GetMapping("/rules")
+    @PreAuthorize("hasAuthority('PERM_EMAIL_CONFIG_VIEW')")
+    public ResponseEntity<List<RoutingRuleResponse>> listRules(@PathVariable Long customerId) {
+        log.info("GET /customers/{}/email-settings/rules", customerId);
+        List<RoutingRuleResponse> rules = settingsService.findAllRules(customerId)
+                .stream().map(mapper::toRuleResponse).toList();
+        return ResponseEntity.ok(rules);
     }
 
     @PostMapping("/rules")

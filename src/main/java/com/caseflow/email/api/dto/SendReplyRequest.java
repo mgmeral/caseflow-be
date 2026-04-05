@@ -14,10 +14,15 @@ import jakarta.validation.constraints.NotNull;
  *   <li>Use {@code replyTo} header if present, otherwise {@code from} header.</li>
  * </ol>
  * Providing {@code toAddress} without {@code sourceEventId} is supported as a manual override
- * but discouraged for normal replies — the backend cannot verify the address matches the
- * actual customer without the source event context.
+ * (proactive outreach) but discouraged for normal replies — the backend cannot verify
+ * the address matches the actual customer without the source event context.
  *
  * <p>At least one of {@code sourceEventId} or {@code toAddress} must be non-null.
+ *
+ * <h2>Template selection</h2>
+ * Provide {@code templateId} or {@code templateCode} to select a specific template.
+ * If neither is set, the backend falls back to the active {@code CUSTOMER_REPLY} template
+ * (or the built-in fallback if that is inactive/missing).
  */
 public record SendReplyRequest(
 
@@ -27,7 +32,8 @@ public record SendReplyRequest(
         /**
          * ID of the {@code EmailIngressEvent} being replied to.
          * When set, the backend derives the reply-to address from the event headers
-         * (replyTo → from). Preferred over a FE-provided {@code toAddress}.
+         * (replyTo → from) and injects the correct RFC 2822 threading headers.
+         * Preferred over a caller-provided {@code toAddress}.
          */
         Long sourceEventId,
 
@@ -46,6 +52,21 @@ public record SendReplyRequest(
 
         String htmlBody,
 
-        /** messageId of the customer email being replied to — used for In-Reply-To threading. */
-        String inReplyToMessageId
+        /** messageId of the email being replied to — used for In-Reply-To threading. */
+        String inReplyToMessageId,
+
+        /**
+         * Numeric ID of the {@link com.caseflow.email.domain.MailTemplate} to use.
+         * Takes precedence over {@code templateCode} when both are provided.
+         * If null, the backend selects by code (or falls back to CUSTOMER_REPLY).
+         */
+        Long templateId,
+
+        /**
+         * Code of the template to use (e.g. {@code "CUSTOMER_REPLY"}).
+         * Ignored if {@code templateId} is set.
+         * If null and {@code templateId} is also null, the active {@code CUSTOMER_REPLY}
+         * template is used.
+         */
+        String templateCode
 ) {}

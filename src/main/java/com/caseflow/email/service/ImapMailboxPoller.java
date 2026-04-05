@@ -266,7 +266,7 @@ public class ImapMailboxPoller {
                 : Instant.now();
 
         // ── Pre-routing decision (headers only — before any body or attachment work) ──
-        RoutingResult precheck = routingService.routeHeaders(rawFrom, inReplyTo, references, mailbox.getId());
+        RoutingResult precheck = routingService.routeHeaders(rawFrom, replyTo, inReplyTo, references, mailbox.getId());
 
         switch (precheck.action()) {
             case IGNORE, REJECT -> {

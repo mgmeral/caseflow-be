@@ -5,7 +5,6 @@ import com.caseflow.auth.JwtTokenService;
 import com.caseflow.common.security.SecurityConfig;
 import com.caseflow.email.api.dto.EmailDocumentResponse;
 import com.caseflow.email.api.dto.EmailDocumentSummaryResponse;
-import com.caseflow.email.api.dto.EmailAttachmentResponse;
 import com.caseflow.email.api.dto.IngressEventResponse;
 import com.caseflow.email.api.dto.IngestEmailRequest;
 import com.caseflow.email.api.mapper.EmailDocumentMapper;
@@ -14,6 +13,9 @@ import com.caseflow.email.domain.EmailIngressEvent;
 import com.caseflow.email.domain.IngressEventStatus;
 import com.caseflow.email.service.EmailDocumentQueryService;
 import com.caseflow.email.service.EmailIngressService;
+import com.caseflow.storage.service.AttachmentService;
+import com.caseflow.ticket.api.dto.AttachmentMetadataResponse;
+import com.caseflow.ticket.api.mapper.AttachmentMetadataMapper;
 import com.caseflow.ticket.security.TicketAuthorizationService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -70,6 +72,12 @@ class EmailDocumentControllerTest {
     @MockBean
     private IngressEventMapper ingressEventMapper;
 
+    @MockBean
+    private AttachmentService attachmentService;
+
+    @MockBean
+    private AttachmentMetadataMapper attachmentMetadataMapper;
+
     @MockBean(name = "ticketAuth")
     private TicketAuthorizationService ticketAuth;
 
@@ -83,17 +91,22 @@ class EmailDocumentControllerTest {
     @Test
     @WithMockUser(authorities = "PERM_TICKET_READ")
     void getById_returns200_withFullDetail() throws Exception {
-        EmailDocumentResponse response = makeDetailResponse("doc-1", 42L, "Hello, world", "<p>Hello</p>");
+        // base response returned by mapper — attachments is null, filled in by controller
+        EmailDocumentResponse base = makeDetailResponse("doc-1", 42L, "Hello, world", "<p>Hello</p>");
+        AttachmentMetadataResponse attachment = makeAttachmentMetadataResponse("report.pdf", "application/pdf");
 
-        when(emailDocumentQueryService.findById("doc-1")).thenReturn(Optional.of(new com.caseflow.email.document.EmailDocument()));
-        when(emailDocumentMapper.toResponse(any())).thenReturn(response);
+        com.caseflow.email.document.EmailDocument doc = new com.caseflow.email.document.EmailDocument();
+        when(emailDocumentQueryService.findById("doc-1")).thenReturn(Optional.of(doc));
+        when(emailDocumentMapper.toResponse(doc)).thenReturn(base);
+        when(attachmentService.findByEmailId(any())).thenReturn(List.of());
+        when(attachmentMetadataMapper.toResponseList(any())).thenReturn(List.of(attachment));
 
         mockMvc.perform(get("/api/emails/doc-1"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value("doc-1"))
                 .andExpect(jsonPath("$.ticketId").value(42))
                 .andExpect(jsonPath("$.textBody").value("Hello, world"))
-                .andExpect(jsonPath("$.htmlBody").value("<p>Hello</p>"))
+                .andExpect(jsonPath("$.sanitizedHtmlBody").value("<p>Hello</p>"))
                 .andExpect(jsonPath("$.attachments").isArray())
                 .andExpect(jsonPath("$.attachments[0].fileName").value("report.pdf"));
     }
@@ -171,7 +184,8 @@ class EmailDocumentControllerTest {
         EmailIngressEvent event = new EmailIngressEvent();
         IngressEventResponse response = new IngressEventResponse(
                 1L, null, "<msg-001@test.com>", "customer@test.com", "Support request",
-                null, null, Instant.now(), IngressEventStatus.RECEIVED, null, 0, null, null, null, null);
+                null, null, Instant.now(), IngressEventStatus.RECEIVED, null, 0, null, null, null, null,
+                java.util.List.of());
 
         when(emailIngressService.receiveEvent(any())).thenReturn(event);
         when(ingressEventMapper.toResponse(event)).thenReturn(response);
@@ -219,7 +233,18 @@ class EmailDocumentControllerTest {
                 ticketId,
                 textBody,
                 htmlBody,
-                List.of(new EmailAttachmentResponse("report.pdf", "emails/report.pdf", "application/pdf", 4096L))
+                List.of(makeAttachmentMetadataResponse("report.pdf", "application/pdf"))
+        );
+    }
+
+    private AttachmentMetadataResponse makeAttachmentMetadataResponse(String fileName, String contentType) {
+        return new AttachmentMetadataResponse(
+                1L, null, null, null,
+                fileName, contentType, 4096L,
+                "EMAIL_INBOUND",
+                "/api/tickets/some-id/emails/doc-1/attachments/1/content",
+                contentType.startsWith("image/") || "application/pdf".equals(contentType),
+                Instant.now()
         );
     }
 

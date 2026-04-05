@@ -12,6 +12,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -79,6 +80,20 @@ public class CustomerController {
     public ResponseEntity<Void> deactivate(@PathVariable Long id) {
         log.info("PATCH /customers/{}/deactivate", id);
         customerService.deactivate(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Permanently deletes a customer.
+     *
+     * <p>Returns 409 Conflict when tickets are still linked to this customer.
+     * Callers must reassign or close all linked tickets before a delete is permitted.
+     */
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> deleteCustomer(@PathVariable Long id) {
+        log.info("DELETE /customers/{}", id);
+        customerService.deleteCustomer(id);
+        log.info("DELETE /customers/{} succeeded", id);
         return ResponseEntity.noContent().build();
     }
 }

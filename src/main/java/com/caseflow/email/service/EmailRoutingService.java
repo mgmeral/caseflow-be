@@ -79,66 +79,82 @@ public class EmailRoutingService {
     /**
      * Routes an inbound email based on headers only (no persisted entity required).
      * Safe to call before body parsing or attachment upload.
+     *
+     * <p>Matching order:
+     * <ol>
+     *   <li>Thread resolution (In-Reply-To / References)</li>
+     *   <li>Exact-email rules on {@code rawFrom}</li>
+     *   <li>Domain rules on {@code rawFrom}</li>
+     *   <li>Exact-email rules on {@code rawReplyTo} (fallback, when From produces no match)</li>
+     *   <li>Domain rules on {@code rawReplyTo} (fallback)</li>
+     *   <li>Unknown sender policy</li>
+     * </ol>
+     * A structured {@code ROUTING_DECISION} log is emitted for every call.
      */
     @Transactional(readOnly = true)
-    public RoutingResult routeHeaders(String rawFrom, String inReplyTo,
-                                      List<String> references, Long mailboxId) {
+    public RoutingResult routeHeaders(String rawFrom, String rawReplyTo,
+                                      String inReplyTo, List<String> references, Long mailboxId) {
         String from = normalizeEmail(rawFrom);
-        log.debug("ROUTING_CHECK from: '{}'", from);
+        String replyTo = normalizeEmail(rawReplyTo); // "" when absent
 
         // 1. Thread resolution
         Optional<Long> existingTicketId = threadingService.resolveTicketId(inReplyTo, references);
         if (existingTicketId.isPresent()) {
             log.info("ROUTING_MATCH_THREAD — ticketId: {}", existingTicketId.get());
-            return RoutingResult.linkToTicket(null, existingTicketId.get());
+            RoutingResult result = RoutingResult.linkToTicket(null, existingTicketId.get());
+            logDecision(from, replyTo, "THREAD", null, null, result);
+            return result;
         }
-
-        String domain = extractDomain(from);
 
         List<CustomerEmailRoutingRule> allActiveRules = routingRuleRepository.findAll().stream()
                 .filter(r -> Boolean.TRUE.equals(r.getIsActive()))
                 .sorted(Comparator.comparingInt(CustomerEmailRoutingRule::getPriority))
                 .toList();
 
-        // 2. Exact email rules (always beat domain rules)
-        List<CustomerEmailRoutingRule> exactMatches = allActiveRules.stream()
-                .filter(r -> r.getSenderMatchType() == SenderMatchType.EXACT_EMAIL
-                        && from.equalsIgnoreCase(normalizeMatchValue(r.getMatchValue())))
-                .toList();
-
-        if (!exactMatches.isEmpty()) {
-            // Ambiguity: multiple exact rules pointing to different customers → quarantine
-            boolean ambiguous = exactMatches.stream()
-                    .map(CustomerEmailRoutingRule::getCustomerId)
-                    .distinct()
-                    .count() > 1;
-            if (ambiguous) {
-                log.warn("ROUTING_AMBIGUOUS — {} exact-email rules match from '{}' for different customers — quarantining",
-                        exactMatches.size(), from);
-                return RoutingResult.quarantine(
-                        "Ambiguous routing: multiple exact-email rules from different customers match " + from
-                                + ". Operator must resolve priority conflict.");
-            }
-            CustomerEmailRoutingRule winner = exactMatches.get(0);
-            log.info("ROUTING_MATCH_EXACT — customerId: {}, ruleId: {}", winner.getCustomerId(), winner.getId());
-            return RoutingResult.createTicket(winner.getCustomerId());
+        // 2. Exact email rules on From
+        List<CustomerEmailRoutingRule> exactFromMatches = exactMatches(from, allActiveRules);
+        if (!exactFromMatches.isEmpty()) {
+            return resolveExact(exactFromMatches, from, replyTo, "EXACT_FROM");
         }
 
-        // 3. Domain rules
-        if (domain != null) {
-            List<CustomerEmailRoutingRule> domainMatches = allActiveRules.stream()
+        // 3. Domain rules on From
+        String fromDomain = extractDomain(from);
+        if (fromDomain != null) {
+            List<CustomerEmailRoutingRule> domainFromMatches = allActiveRules.stream()
                     .filter(r -> r.getSenderMatchType() == SenderMatchType.DOMAIN)
-                    .filter(r -> domainMatches(domain, r))
+                    .filter(r -> domainMatches(fromDomain, r))
                     .toList();
-
-            if (!domainMatches.isEmpty()) {
-                return selectDomainWinner(domainMatches, from);
+            if (!domainFromMatches.isEmpty()) {
+                return selectDomainWinner(domainFromMatches, from, replyTo, "DOMAIN_FROM");
             }
         }
 
-        // 4. Unknown sender
+        // 4+5. Reply-To fallback — only when From produced no rule match and Reply-To differs
+        if (!replyTo.isBlank() && !replyTo.equals(from)) {
+            log.debug("ROUTING_REPLY_TO_FALLBACK — from '{}' unmatched — trying replyTo '{}'", from, replyTo);
+
+            List<CustomerEmailRoutingRule> exactReplyMatches = exactMatches(replyTo, allActiveRules);
+            if (!exactReplyMatches.isEmpty()) {
+                return resolveExact(exactReplyMatches, from, replyTo, "EXACT_REPLY_TO");
+            }
+
+            String replyToDomain = extractDomain(replyTo);
+            if (replyToDomain != null) {
+                List<CustomerEmailRoutingRule> domainReplyMatches = allActiveRules.stream()
+                        .filter(r -> r.getSenderMatchType() == SenderMatchType.DOMAIN)
+                        .filter(r -> domainMatches(replyToDomain, r))
+                        .toList();
+                if (!domainReplyMatches.isEmpty()) {
+                    return selectDomainWinner(domainReplyMatches, from, replyTo, "DOMAIN_REPLY_TO");
+                }
+            }
+        }
+
+        // 6. Unknown sender
         log.info("ROUTING_NO_MATCH — from: '{}' — applying unknown sender policy", from);
-        return applyUnknownSenderPolicy(from, mailboxId);
+        RoutingResult result = applyUnknownSenderPolicy(from, mailboxId);
+        logDecision(from, replyTo, "NO_MATCH", null, null, result);
+        return result;
     }
 
     /**
@@ -146,8 +162,41 @@ public class EmailRoutingService {
      */
     @Transactional(readOnly = true)
     public RoutingResult route(EmailIngressEvent event) {
-        return routeHeaders(event.getRawFrom(), event.getInReplyTo(),
-                event.getReferencesList(), event.getMailboxId());
+        return routeHeaders(event.getRawFrom(), event.getRawReplyTo(),
+                event.getInReplyTo(), event.getReferencesList(), event.getMailboxId());
+    }
+
+    // ── Exact matching ────────────────────────────────────────────────────────
+
+    private List<CustomerEmailRoutingRule> exactMatches(String normalizedAddress,
+                                                        List<CustomerEmailRoutingRule> rules) {
+        return rules.stream()
+                .filter(r -> r.getSenderMatchType() == SenderMatchType.EXACT_EMAIL
+                        && normalizedAddress.equalsIgnoreCase(normalizeMatchValue(r.getMatchValue())))
+                .toList();
+    }
+
+    /** Resolves an exact-match set: single customer wins, multiple customers → quarantine. */
+    private RoutingResult resolveExact(List<CustomerEmailRoutingRule> matches,
+                                       String from, String replyTo, String matchType) {
+        boolean ambiguous = matches.stream()
+                .map(CustomerEmailRoutingRule::getCustomerId)
+                .distinct()
+                .count() > 1;
+        if (ambiguous) {
+            log.warn("ROUTING_AMBIGUOUS — {} exact-email rules match for different customers — quarantining",
+                    matches.size());
+            RoutingResult result = RoutingResult.quarantine(
+                    "Ambiguous routing: multiple exact-email rules from different customers. "
+                            + "Operator must resolve priority conflict.");
+            logDecision(from, replyTo, matchType, null, null, result);
+            return result;
+        }
+        CustomerEmailRoutingRule winner = matches.get(0);
+        log.info("ROUTING_MATCH_EXACT — customerId: {}, ruleId: {}", winner.getCustomerId(), winner.getId());
+        RoutingResult result = RoutingResult.createTicket(winner.getCustomerId());
+        logDecision(from, replyTo, matchType, winner.getId(), winner.getCustomerId(), result);
+        return result;
     }
 
     // ── Domain matching ───────────────────────────────────────────────────────
@@ -170,7 +219,8 @@ public class EmailRoutingService {
      * Tiebreaking: lower priority number wins, then longer domain value (more specific).
      * Equal priority AND equal domain length from different customers → quarantine (ambiguous).
      */
-    private RoutingResult selectDomainWinner(List<CustomerEmailRoutingRule> matches, String from) {
+    private RoutingResult selectDomainWinner(List<CustomerEmailRoutingRule> matches,
+                                              String from, String replyTo, String matchType) {
         List<CustomerEmailRoutingRule> ordered = matches.stream()
                 .sorted(Comparator
                         .<CustomerEmailRoutingRule, Integer>comparing(CustomerEmailRoutingRule::getPriority)
@@ -193,14 +243,36 @@ public class EmailRoutingService {
         if (ambiguousCount > 0) {
             log.warn("ROUTING_AMBIGUOUS — {} equal-weight domain rules match from '{}' — quarantining",
                     ambiguousCount + 1, from);
-            return RoutingResult.quarantine(
+            RoutingResult result = RoutingResult.quarantine(
                     "Ambiguous routing: equal-priority domain rules match " + from
                             + ". Operator must resolve priority conflict.");
+            logDecision(from, replyTo, matchType, null, null, result);
+            return result;
         }
 
         log.info("ROUTING_MATCH_DOMAIN — customerId: {}, ruleId: {}, matchValue: '{}'",
                 best.getCustomerId(), best.getId(), best.getMatchValue());
-        return RoutingResult.createTicket(best.getCustomerId());
+        RoutingResult result = RoutingResult.createTicket(best.getCustomerId());
+        logDecision(from, replyTo, matchType, best.getId(), best.getCustomerId(), result);
+        return result;
+    }
+
+    // ── Structured decision log ───────────────────────────────────────────────
+
+    /**
+     * Emits a single structured INFO log for every routing decision with all required fields.
+     * {@code normalizedReplyTo} is logged as {@code null} when absent (empty string).
+     */
+    private void logDecision(String normalizedFrom, String normalizedReplyTo,
+                              String matchType, Long matchedRuleId, Long matchedCustomerId,
+                              RoutingResult result) {
+        log.info("ROUTING_DECISION — normalizedFrom: '{}', normalizedReplyTo: '{}', "
+                        + "matchType: {}, matchedRuleId: {}, matchedCustomerId: {}, "
+                        + "decision: {}, rejectReason: '{}'",
+                normalizedFrom,
+                normalizedReplyTo.isBlank() ? null : normalizedReplyTo,
+                matchType, matchedRuleId, matchedCustomerId,
+                result.action(), result.quarantineReason());
     }
 
     // ── Unknown sender policy ─────────────────────────────────────────────────

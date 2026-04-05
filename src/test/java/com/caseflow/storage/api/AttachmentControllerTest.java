@@ -4,11 +4,15 @@ import com.caseflow.auth.CaseFlowUserDetailsService;
 import com.caseflow.auth.JwtTokenService;
 import com.caseflow.common.exception.AttachmentNotFoundException;
 import com.caseflow.common.security.SecurityConfig;
+import com.caseflow.storage.AttachmentKeyStrategy;
 import com.caseflow.storage.service.AttachmentService;
 import com.caseflow.ticket.api.dto.AttachmentMetadataResponse;
 import com.caseflow.ticket.api.mapper.AttachmentMetadataMapper;
 import com.caseflow.ticket.domain.AttachmentMetadata;
+import com.caseflow.ticket.domain.Ticket;
+import com.caseflow.ticket.repository.TicketRepository;
 import com.caseflow.ticket.security.TicketAuthorizationService;
+import com.caseflow.workflow.history.TicketHistoryService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -23,6 +27,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.io.ByteArrayInputStream;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -46,6 +52,9 @@ class AttachmentControllerTest {
     @MockBean private CaseFlowUserDetailsService userDetailsService;
     @MockBean private AttachmentService attachmentService;
     @MockBean private AttachmentMetadataMapper attachmentMetadataMapper;
+    @MockBean private AttachmentKeyStrategy keyStrategy;
+    @MockBean private TicketRepository ticketRepository;
+    @MockBean private TicketHistoryService historyService;
     @MockBean(name = "ticketAuth") private TicketAuthorizationService ticketAuth;
 
     // ── POST /api/attachments/upload ──────────────────────────────────────────
@@ -55,11 +64,25 @@ class AttachmentControllerTest {
     void upload_returns201_withMetadataResponse() throws Exception {
         when(ticketAuth.canReadTicket(any(Authentication.class), anyLong())).thenReturn(true);
 
+        Ticket ticket = new Ticket();
+        try {
+            var pid = Ticket.class.getDeclaredField("publicId");
+            pid.setAccessible(true);
+            pid.set(ticket, UUID.randomUUID());
+            var id = Ticket.class.getDeclaredField("id");
+            id.setAccessible(true);
+            id.set(ticket, 10L);
+        } catch (Exception e) { throw new RuntimeException(e); }
+
+        when(ticketRepository.findById(10L)).thenReturn(Optional.of(ticket));
+        when(keyStrategy.directUploadKey(any(UUID.class), anyString()))
+                .thenReturn("tickets/uuid/attachments/uuid_report.pdf");
+
         AttachmentMetadata metadata = new AttachmentMetadata();
         AttachmentMetadataResponse response = makeMetadataResponse(1L, 10L, "report.pdf");
 
-        when(attachmentService.upload(anyLong(), any(), anyString(), anyString(), anyString(), any(byte[].class)))
-                .thenReturn(metadata);
+        when(attachmentService.uploadWithPublicId(anyLong(), any(UUID.class), any(), anyString(),
+                anyString(), anyString(), any(byte[].class))).thenReturn(metadata);
         when(attachmentMetadataMapper.toResponse(any())).thenReturn(response);
 
         MockMultipartFile file = new MockMultipartFile(
@@ -193,9 +216,9 @@ class AttachmentControllerTest {
 
     private AttachmentMetadataResponse makeMetadataResponse(Long id, Long ticketId, String fileName) {
         return new AttachmentMetadataResponse(
-                id, ticketId, null, fileName,
-                "tickets/" + ticketId + "/uuid_" + fileName,
+                id, ticketId, null, null, fileName,
+                "application/pdf", 1024L, "UPLOAD",
                 "/api/attachments/" + id + "/download",
-                "application/pdf", 1024L, Instant.now());
+                false, Instant.now());
     }
 }

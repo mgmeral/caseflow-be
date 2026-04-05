@@ -230,8 +230,8 @@ class MailboxControllerTest {
                 "Support Inbox", null, "support@caseflow.dev",
                 ProviderType.SMTP_RELAY, InboundMode.WEBHOOK, OutboundMode.SMTP,
                 true, null, null,
-                // SMTP
-                null, null, null, null, null,
+                // SMTP: host, port, username, password, useSsl, startTls
+                null, null, null, null, null, null,
                 // IMAP
                 null, null, null, null, null, null, false, null,
                 InitialSyncStrategy.NEW_MESSAGES_ONLY);
@@ -241,8 +241,8 @@ class MailboxControllerTest {
         return new MailboxResponse(id, "Support Inbox", null, address,
                 ProviderType.SMTP_RELAY, InboundMode.WEBHOOK, OutboundMode.SMTP,
                 true, null, null,
-                // SMTP
-                null, null, null, null,
+                // SMTP: host, port, username, useSsl, startTls (no password in response)
+                null, null, null, null, null,
                 // IMAP (no password)
                 null, null, null, null, null, false, null,
                 InitialSyncStrategy.NEW_MESSAGES_ONLY,

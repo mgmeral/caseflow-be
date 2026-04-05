@@ -12,6 +12,7 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 
 /**
  * Local filesystem implementation of ObjectStorageService.
@@ -71,6 +72,19 @@ public class LocalFileStorageService implements ObjectStorageService {
     @Override
     public boolean exists(String objectKey) {
         return Files.exists(resolve(objectKey));
+    }
+
+    @Override
+    public void copy(String sourceKey, String destKey) {
+        Path source = resolve(sourceKey);
+        Path dest = resolve(destKey);
+        try {
+            Files.createDirectories(dest.getParent());
+            Files.copy(source, dest, StandardCopyOption.REPLACE_EXISTING);
+            log.debug("Copied object: {} → {}", sourceKey, destKey);
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to copy object: " + sourceKey + " → " + destKey, e);
+        }
     }
 
     private Path resolve(String objectKey) {

@@ -2,6 +2,7 @@ package com.caseflow.customer.api;
 
 import com.caseflow.auth.CaseFlowUserDetailsService;
 import com.caseflow.auth.JwtTokenService;
+import com.caseflow.common.exception.CustomerDeleteBlockedException;
 import com.caseflow.common.exception.CustomerNotFoundException;
 import com.caseflow.common.security.SecurityConfig;
 import com.caseflow.customer.api.dto.CreateCustomerRequest;
@@ -24,8 +25,11 @@ import java.time.Instant;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -113,6 +117,43 @@ class CustomerControllerTest {
     @Test
     void listCustomers_returns401_whenUnauthenticated() throws Exception {
         mockMvc.perform(get("/api/customers"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    // ── DELETE /api/customers/{id} ────────────────────────────────────────────
+
+    @Test
+    @WithMockUser(roles = "AGENT")
+    void deleteCustomer_returns204_whenNoTickets() throws Exception {
+        doNothing().when(customerService).deleteCustomer(1L);
+
+        mockMvc.perform(delete("/api/customers/1").with(csrf()))
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
+    @WithMockUser(roles = "AGENT")
+    void deleteCustomer_returns409_whenTicketsExist() throws Exception {
+        doThrow(new CustomerDeleteBlockedException(1L, 3L))
+                .when(customerService).deleteCustomer(1L);
+
+        mockMvc.perform(delete("/api/customers/1").with(csrf()))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("CUSTOMER_DELETE_BLOCKED"));
+    }
+
+    @Test
+    @WithMockUser(roles = "AGENT")
+    void deleteCustomer_returns404_whenCustomerNotFound() throws Exception {
+        doThrow(new CustomerNotFoundException(99L)).when(customerService).deleteCustomer(99L);
+
+        mockMvc.perform(delete("/api/customers/99").with(csrf()))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void deleteCustomer_returns401_whenUnauthenticated() throws Exception {
+        mockMvc.perform(delete("/api/customers/1").with(csrf()))
                 .andExpect(status().isUnauthorized());
     }
 

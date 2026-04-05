@@ -14,5 +14,8 @@ public record RoutingRuleRequest(
 
         Integer priority,
 
-        Boolean isActive
+        Boolean isActive,
+
+        /** Only meaningful for DOMAIN rules — also matches sub-domains when true. */
+        Boolean allowSubdomains
 ) {}

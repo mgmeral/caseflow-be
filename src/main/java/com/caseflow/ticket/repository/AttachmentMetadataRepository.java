@@ -13,4 +13,6 @@ public interface AttachmentMetadataRepository extends JpaRepository<AttachmentMe
     List<AttachmentMetadata> findByEmailId(String emailId);
 
     Optional<AttachmentMetadata> findByObjectKey(String objectKey);
+
+    Optional<AttachmentMetadata> findByIngressEventIdAndFileName(Long ingressEventId, String fileName);
 }

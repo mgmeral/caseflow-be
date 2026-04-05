@@ -44,6 +44,7 @@ public class CustomerEmailSettingsMapper {
         rule.setMatchValue(request.matchValue().toLowerCase().trim());
         rule.setPriority(request.priority() != null ? request.priority() : 100);
         rule.setIsActive(request.isActive() != null ? request.isActive() : Boolean.TRUE);
+        rule.setAllowSubdomains(request.allowSubdomains() != null ? request.allowSubdomains() : Boolean.FALSE);
         return rule;
     }
 
@@ -55,6 +56,7 @@ public class CustomerEmailSettingsMapper {
                 rule.getMatchValue(),
                 rule.getPriority(),
                 rule.getIsActive(),
+                rule.getAllowSubdomains(),
                 rule.getCreatedAt(),
                 rule.getUpdatedAt()
         );

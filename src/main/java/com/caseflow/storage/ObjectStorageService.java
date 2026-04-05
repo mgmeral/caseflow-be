@@ -35,4 +35,14 @@ public interface ObjectStorageService {
      * @return true if the given key exists in storage
      */
     boolean exists(String objectKey);
+
+    /**
+     * Copies an object from {@code sourceKey} to {@code destKey} within the same store.
+     * Used when promoting attachments from a staging path to a final canonical path.
+     *
+     * <p>If {@code destKey} already exists it is replaced. If {@code sourceKey} does not exist
+     * the behaviour is implementation-defined but must not throw silently — callers should
+     * handle {@link com.caseflow.common.exception.AttachmentNotFoundException}.
+     */
+    void copy(String sourceKey, String destKey);
 }

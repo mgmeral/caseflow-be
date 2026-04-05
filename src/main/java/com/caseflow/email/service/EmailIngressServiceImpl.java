@@ -13,6 +13,7 @@ import com.caseflow.email.repository.EmailIngressEventRepository;
 import com.caseflow.email.repository.EmailMailboxRepository;
 import com.caseflow.notification.service.NotificationService;
 import com.caseflow.storage.service.AttachmentService;
+import com.caseflow.ticket.domain.AttachmentMetadata;
 import com.caseflow.ticket.domain.Ticket;
 import com.caseflow.ticket.domain.TicketPriority;
 import com.caseflow.ticket.domain.TicketStatus;
@@ -26,9 +27,11 @@ import org.jsoup.safety.Safelist;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
@@ -124,22 +127,56 @@ public class EmailIngressServiceImpl implements EmailIngressService {
 
     // ── Stage 2 ───────────────────────────────────────────────────────────────
 
+    /**
+     * Processes a single ingress event in its own independent transaction ({@code REQUIRES_NEW}).
+     *
+     * <p>Using {@code REQUIRES_NEW} is critical: callers such as
+     * {@link com.caseflow.email.scheduler.EmailIngressRetryScheduler} are themselves
+     * {@code @Transactional}. If this method joined that outer transaction, a constraint violation
+     * on <em>any</em> event in the batch would mark the entire shared transaction as rollback-only,
+     * causing every event's work (including committed tickets) to be rolled back on commit and the
+     * duplicate-ticket creation cycle to restart.
+     *
+     * <p><b>Status guard:</b> only {@code RECEIVED} and {@code FAILED} events enter full processing.
+     * {@code PROCESSING} (claimed by another thread/instance), {@code PROCESSED}, and
+     * {@code QUARANTINED} are all skipped — this provides a second line of defence against
+     * concurrent re-entry even without database-level row locking.
+     *
+     * <p><b>Resume safety:</b> if a previous run created the ticket but failed before marking the
+     * event {@code PROCESSED}, the {@code ticketId} field is already set. The {@code CREATE_TICKET}
+     * branch detects this and skips ticket creation, resuming from the document/attachment steps
+     * instead. This prevents a second ticket from being created on retry.
+     */
     @Override
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void processEvent(Long eventId) {
         EmailIngressEvent event = eventRepository.findById(eventId)
                 .orElseThrow(() -> new IngressEventNotFoundException(eventId));
 
-        if (event.getStatus() == IngressEventStatus.PROCESSED) {
-            log.debug("Event {} already processed — skipping", eventId);
+        // Only RECEIVED, FAILED, and PROCESSING events may enter full processing.
+        // PROCESSING events were already claimed by claimReceivedBatch/claimFailedBatch — their
+        // attempts counter was already incremented there, so we don't re-claim them here.
+        // PROCESSED and QUARANTINED are terminal states and are always skipped.
+        if (event.getStatus() != IngressEventStatus.RECEIVED
+                && event.getStatus() != IngressEventStatus.FAILED
+                && event.getStatus() != IngressEventStatus.PROCESSING) {
+            log.debug("Event {} in non-processable state ({}) — skipping", eventId, event.getStatus());
             return;
         }
 
-        log.info("Processing ingress event {} — messageId: '{}'", eventId, event.getMessageId());
-        event.setStatus(IngressEventStatus.PROCESSING);
-        event.setProcessingAttempts(event.getProcessingAttempts() + 1);
-        event.setLastAttemptAt(Instant.now());
-        eventRepository.save(event);
+        if (event.getStatus() == IngressEventStatus.PROCESSING) {
+            // Already claimed by claimReceivedBatch/claimFailedBatch — attempts already incremented.
+            log.info("Processing ingress event {} (pre-claimed) — messageId: '{}' (attempt {})",
+                    eventId, event.getMessageId(), event.getProcessingAttempts());
+        } else {
+            // Direct call (e.g. immediate processing after receive) — claim now.
+            log.info("Processing ingress event {} — messageId: '{}' (attempt {})",
+                    eventId, event.getMessageId(), event.getProcessingAttempts() + 1);
+            event.setStatus(IngressEventStatus.PROCESSING);
+            event.setProcessingAttempts(event.getProcessingAttempts() + 1);
+            event.setLastAttemptAt(Instant.now());
+            eventRepository.save(event);
+        }
 
         try {
             // 1. Loop/auto-reply detection
@@ -178,13 +215,27 @@ public class EmailIngressServiceImpl implements EmailIngressService {
                     metrics.inboundQuarantined();
                 }
                 case CREATE_TICKET -> {
-                    Long ticketId = createTicketFromEvent(event, routing.customerId());
+                    // Resume safety: if a previous run created the ticket but failed before
+                    // marking the event PROCESSED, the ticketId is already set. Reuse it.
+                    Long ticketId;
+                    if (event.getTicketId() != null) {
+                        log.info("Event {} already has ticketId {} — skipping ticket creation, resuming remaining steps",
+                                eventId, event.getTicketId());
+                        ticketId = event.getTicketId();
+                    } else {
+                        ticketId = createTicketFromEvent(event, routing.customerId());
+                    }
                     String documentId = saveEmailDocument(event, ticketId, routing.customerId());
                     saveAttachmentMetadataRecords(event, ticketId, documentId);
                     event.setTicketId(ticketId);
                     event.setStatus(IngressEventStatus.PROCESSED);
                     event.setProcessedAt(Instant.now());
                     eventRepository.save(event);
+                    // Record inbound email as a structured history event
+                    java.util.UUID newPublicId = ticketRepository.findById(ticketId)
+                            .map(com.caseflow.ticket.domain.Ticket::getPublicId).orElse(null);
+                    historyService.recordInboundEmailReceived(ticketId, newPublicId,
+                            event.getId(), event.getRawFrom());
                     stampInboundAt(event.getMailboxId());
                     metrics.inboundProcessed();
                 }
@@ -195,8 +246,11 @@ public class EmailIngressServiceImpl implements EmailIngressService {
                     event.setStatus(IngressEventStatus.PROCESSED);
                     event.setProcessedAt(Instant.now());
                     eventRepository.save(event);
-                    historyService.record(routing.ticketId(), "EMAIL_LINKED", null,
-                            "messageId=" + event.getMessageId());
+                    // Record inbound email as a structured history event
+                    java.util.UUID linkedPublicId = ticketRepository.findById(routing.ticketId())
+                            .map(com.caseflow.ticket.domain.Ticket::getPublicId).orElse(null);
+                    historyService.recordInboundEmailReceived(routing.ticketId(), linkedPublicId,
+                            event.getId(), event.getRawFrom());
                     stampInboundAt(event.getMailboxId());
                     metrics.inboundProcessed();
                     // System transition: e.g. WAITING_CUSTOMER → IN_PROGRESS, RESOLVED/CLOSED → REOPENED
@@ -211,6 +265,52 @@ public class EmailIngressServiceImpl implements EmailIngressService {
             eventRepository.save(event);
             metrics.inboundFailed();
         }
+    }
+
+    // ── Batch claim ───────────────────────────────────────────────────────────
+
+    /**
+     * Fetches up to {@code limit} RECEIVED events under PESSIMISTIC_WRITE + SKIP LOCKED,
+     * marks each as PROCESSING (incrementing attempts), and commits before returning the IDs.
+     *
+     * <p>By committing before returning, the row locks are released and the caller can invoke
+     * {@link #processEvent} per ID without holding any outer transaction — avoiding the
+     * deadlock that would arise if the lock were still held when {@code REQUIRES_NEW}
+     * tried to UPDATE the same rows.
+     */
+    @Override
+    @Transactional
+    public List<Long> claimReceivedBatch(int limit) {
+        List<EmailIngressEvent> events = eventRepository.findAndLockReceived(limit);
+        if (events.isEmpty()) return List.of();
+        List<Long> ids = new ArrayList<>(events.size());
+        for (EmailIngressEvent event : events) {
+            event.setStatus(IngressEventStatus.PROCESSING);
+            event.setProcessingAttempts(event.getProcessingAttempts() + 1);
+            event.setLastAttemptAt(Instant.now());
+            eventRepository.save(event);
+            ids.add(event.getId());
+        }
+        log.info("Claimed {} RECEIVED events for processing", ids.size());
+        return ids;
+    }
+
+    /** Same isolation rationale as {@link #claimReceivedBatch}. */
+    @Override
+    @Transactional
+    public List<Long> claimFailedBatch(int maxAttempts, int limit) {
+        List<EmailIngressEvent> events = eventRepository.findAndLockFailedForRetry(maxAttempts, limit);
+        if (events.isEmpty()) return List.of();
+        List<Long> ids = new ArrayList<>(events.size());
+        for (EmailIngressEvent event : events) {
+            event.setStatus(IngressEventStatus.PROCESSING);
+            event.setProcessingAttempts(event.getProcessingAttempts() + 1);
+            event.setLastAttemptAt(Instant.now());
+            eventRepository.save(event);
+            ids.add(event.getId());
+        }
+        log.info("Claimed {} FAILED events for retry (maxAttempts: {})", ids.size(), maxAttempts);
+        return ids;
     }
 
     // ── Operator actions ──────────────────────────────────────────────────────
@@ -352,18 +452,26 @@ public class EmailIngressServiceImpl implements EmailIngressService {
     private void saveAttachmentMetadataRecords(EmailIngressEvent event, Long ticketId, String documentId) {
         if (event.getAttachmentsJson() == null || ticketId == null) return;
 
+        // Resolve the stable publicId so AttachmentMetadataMapper can build the
+        // ticket-scoped download URL (/api/tickets/{publicId}/emails/{emailId}/…).
+        java.util.UUID ticketPublicId = ticketRepository.findById(ticketId)
+                .map(Ticket::getPublicId).orElse(null);
+
         List<IngressAttachmentData> attachments = deserializeAttachments(event.getAttachmentsJson());
         for (IngressAttachmentData attachment : attachments) {
             try {
-                attachmentService.saveEmailAttachment(
+                AttachmentMetadata meta = attachmentService.saveEmailAttachmentWithContext(
                         ticketId,
+                        ticketPublicId,
                         documentId,
+                        event.getId(),
                         attachment.fileName(),
                         attachment.objectKey(),
                         attachment.contentType(),
                         attachment.size());
+                attachmentService.promoteAttachmentToFinalKey(meta, ticketPublicId, documentId);
             } catch (Exception e) {
-                log.warn("Failed to persist attachment metadata for ticketId={}, objectKey='{}' — {}",
+                log.warn("Failed to persist/promote attachment metadata for ticketId={}, objectKey='{}' — {}",
                         ticketId, attachment.objectKey(), e.getMessage(), e);
             }
         }

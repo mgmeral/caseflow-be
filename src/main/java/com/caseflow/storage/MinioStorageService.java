@@ -2,6 +2,8 @@ package com.caseflow.storage;
 
 import com.caseflow.common.exception.AttachmentNotFoundException;
 import io.minio.BucketExistsArgs;
+import io.minio.CopyObjectArgs;
+import io.minio.CopySource;
 import io.minio.GetObjectArgs;
 import io.minio.MakeBucketArgs;
 import io.minio.MinioClient;
@@ -101,6 +103,20 @@ public class MinioStorageService implements ObjectStorageService {
             throw new RuntimeException("Failed to check object existence: " + objectKey, e);
         } catch (Exception e) {
             throw new RuntimeException("Failed to check object existence: " + objectKey, e);
+        }
+    }
+
+    @Override
+    public void copy(String sourceKey, String destKey) {
+        try {
+            minioClient.copyObject(CopyObjectArgs.builder()
+                    .bucket(bucket)
+                    .object(destKey)
+                    .source(CopySource.builder().bucket(bucket).object(sourceKey).build())
+                    .build());
+            log.debug("Copied object in MinIO: {} → {}", sourceKey, destKey);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to copy object: " + sourceKey + " → " + destKey, e);
         }
     }
 

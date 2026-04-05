@@ -265,8 +265,6 @@ class MailTemplateServiceTest {
 
     @Test
     void update_throws_whenHtmlTemplateContainsScript() {
-        when(templateRepository.findById(1L)).thenReturn(Optional.of(customTemplate));
-
         MailTemplateRequest request = new MailTemplateRequest(
                 "CUSTOM_REPLY", "Name", null,
                 "<script>evil()</script>", "text", true);

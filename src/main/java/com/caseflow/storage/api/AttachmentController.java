@@ -1,9 +1,14 @@
 package com.caseflow.storage.api;
 
+import com.caseflow.common.exception.TicketNotFoundException;
+import com.caseflow.storage.AttachmentKeyStrategy;
 import com.caseflow.storage.service.AttachmentService;
 import com.caseflow.ticket.api.dto.AttachmentMetadataResponse;
 import com.caseflow.ticket.api.mapper.AttachmentMetadataMapper;
 import com.caseflow.ticket.domain.AttachmentMetadata;
+import com.caseflow.ticket.domain.Ticket;
+import com.caseflow.ticket.repository.TicketRepository;
+import com.caseflow.workflow.history.TicketHistoryService;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.slf4j.Logger;
@@ -15,6 +20,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -27,7 +34,6 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.List;
-import java.util.UUID;
 
 @Tag(name = "Attachments", description = "Attachment upload and download")
 @SecurityRequirement(name = "bearerAuth")
@@ -41,11 +47,20 @@ public class AttachmentController {
 
     private final AttachmentService attachmentService;
     private final AttachmentMetadataMapper attachmentMetadataMapper;
+    private final AttachmentKeyStrategy keyStrategy;
+    private final TicketRepository ticketRepository;
+    private final TicketHistoryService historyService;
 
     public AttachmentController(AttachmentService attachmentService,
-                                AttachmentMetadataMapper attachmentMetadataMapper) {
+                                AttachmentMetadataMapper attachmentMetadataMapper,
+                                AttachmentKeyStrategy keyStrategy,
+                                TicketRepository ticketRepository,
+                                TicketHistoryService historyService) {
         this.attachmentService = attachmentService;
         this.attachmentMetadataMapper = attachmentMetadataMapper;
+        this.keyStrategy = keyStrategy;
+        this.ticketRepository = ticketRepository;
+        this.historyService = historyService;
     }
 
     @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -63,15 +78,25 @@ public class AttachmentController {
             throw new IllegalArgumentException("File size exceeds limit of 25 MB");
         }
 
-        String contentType = file.getContentType() != null ? file.getContentType() : "application/octet-stream";
-        String safeFileName = sanitize(file.getOriginalFilename());
-        String objectKey = "tickets/" + ticketId + "/" + UUID.randomUUID() + "_" + safeFileName;
+        Ticket ticket = ticketRepository.findById(ticketId)
+                .orElseThrow(() -> new TicketNotFoundException(ticketId));
 
-        log.info("Uploading attachment — ticketId: {}, fileName: '{}', size: {}, contentType: '{}'",
-                ticketId, file.getOriginalFilename(), file.getSize(), contentType);
-        AttachmentMetadata metadata = attachmentService.upload(
-                ticketId, null, file.getOriginalFilename(), objectKey, contentType, file.getBytes());
+        String contentType = file.getContentType() != null ? file.getContentType() : "application/octet-stream";
+        // Use ticketPublicId in the key path — never expose the numeric internal ID in storage.
+        String objectKey = keyStrategy.directUploadKey(ticket.getPublicId(), file.getOriginalFilename());
+
+        log.info("Uploading attachment — ticketId: {}, publicId: {}, fileName: '{}', size: {}, contentType: '{}'",
+                ticketId, ticket.getPublicId(), file.getOriginalFilename(), file.getSize(), contentType);
+
+        AttachmentMetadata metadata = attachmentService.uploadWithPublicId(
+                ticketId, ticket.getPublicId(), null, file.getOriginalFilename(),
+                objectKey, contentType, file.getBytes());
+
         log.info("Attachment uploaded — attachmentId: {}, objectKey: '{}'", metadata.getId(), objectKey);
+
+        // Record history event
+        Long actorUserId = resolveCurrentUserId();
+        historyService.recordAttachmentAdded(ticketId, metadata.getId(), file.getOriginalFilename(), actorUserId);
 
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(attachmentMetadataMapper.toResponse(metadata));
@@ -94,8 +119,8 @@ public class AttachmentController {
     @PreAuthorize("@ticketAuth.canReadAttachmentById(authentication, #id)")
     public ResponseEntity<InputStreamResource> download(@PathVariable Long id) {
         AttachmentMetadata metadata = attachmentService.getById(id);
-        log.info("Downloading attachment — attachmentId: {}, fileName: '{}', objectKey: '{}'",
-                id, metadata.getFileName(), metadata.getObjectKey());
+        log.info("Downloading attachment — attachmentId: {}, fileName: '{}'",
+                id, metadata.getFileName());
         InputStream stream = attachmentService.download(metadata.getObjectKey());
 
         HttpHeaders headers = new HttpHeaders();
@@ -117,8 +142,13 @@ public class AttachmentController {
         return ResponseEntity.noContent().build();
     }
 
-    private String sanitize(String name) {
-        if (name == null) return "file";
-        return name.replaceAll("[^a-zA-Z0-9._-]", "_");
+    private Long resolveCurrentUserId() {
+        try {
+            Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+            if (auth != null && auth.getPrincipal() instanceof com.caseflow.auth.CaseFlowUserDetails d) {
+                return d.getUserId();
+            }
+        } catch (Exception ignored) { /* best-effort */ }
+        return null;
     }
 }

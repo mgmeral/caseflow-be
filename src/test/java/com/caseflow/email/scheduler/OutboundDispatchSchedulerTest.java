@@ -9,6 +9,7 @@ import com.caseflow.email.repository.OutboundEmailDispatchRepository;
 import com.caseflow.email.service.EmailDispatchService;
 import com.caseflow.email.service.EmailMetrics;
 import com.caseflow.email.service.SmtpEmailSender;
+import com.caseflow.workflow.history.TicketHistoryService;
 import com.caseflow.workflow.state.TicketSystemTransitionService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -40,6 +41,7 @@ class OutboundDispatchSchedulerTest {
     @Mock private SmtpEmailSender smtpSender;
     @Mock private EmailMetrics metrics;
     @Mock private TicketSystemTransitionService systemTransitionService;
+    @Mock private TicketHistoryService historyService;
 
     private OutboundDispatchScheduler scheduler;
 
@@ -48,7 +50,7 @@ class OutboundDispatchSchedulerTest {
         // Manually construct to control maxAttempts (final field, @Value not injectable by Mockito)
         scheduler = new OutboundDispatchScheduler(
                 dispatchRepository, dispatchService, mailboxRepository,
-                smtpSender, metrics, systemTransitionService, 3);
+                smtpSender, metrics, systemTransitionService, historyService, 3);
         // No mailbox by default — use global sender path
         lenient().when(mailboxRepository.findById(any())).thenReturn(Optional.empty());
         lenient().when(mailboxRepository.findByAddress(any())).thenReturn(Optional.empty());

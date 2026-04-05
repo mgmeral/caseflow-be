@@ -1,8 +1,10 @@
 package com.caseflow.email.api.dto;
 
 import com.caseflow.email.domain.IngressEventStatus;
+import com.caseflow.ticket.api.dto.AttachmentMetadataResponse;
 
 import java.time.Instant;
+import java.util.List;
 
 public record IngressEventResponse(
         Long id,
@@ -19,5 +21,11 @@ public record IngressEventResponse(
         Instant lastAttemptAt,
         Instant processedAt,
         String documentId,
-        Long ticketId
+        Long ticketId,
+        /**
+         * Attachment metadata for this inbound email, sourced from the attachment_metadata
+         * table. Populated in the detail endpoint; empty list on list/thread endpoints.
+         * Never null.
+         */
+        List<AttachmentMetadataResponse> attachments
 ) {}

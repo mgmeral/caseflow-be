@@ -7,12 +7,14 @@ import jakarta.mail.internet.MimeMessage;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.mail.javamail.JavaMailSenderImpl;
 
+import java.lang.reflect.Method;
 import java.net.ServerSocket;
 import java.util.Optional;
+import java.util.Properties;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -275,5 +277,104 @@ class SmtpEmailSenderTest {
         SmtpConnectionTestResponse result = sender.testSmtpConnection(mailbox);
 
         assertThat(result.message()).doesNotContain("super-secret-smtp-password");
+    }
+
+    // ── Transport mode: 465 implicit SSL ────────────────────────────────────
+
+    @Test
+    void buildMailboxSender_port465_setsImplicitSslOnly() throws Exception {
+        EmailMailbox mailbox = new EmailMailbox();
+        mailbox.setSmtpHost("smtp.gmail.com");
+        mailbox.setSmtpPort(465);
+        mailbox.setSmtpUsername("user@example.com");
+        mailbox.setSmtpPassword("pass");
+        mailbox.setSmtpUseSsl(true);
+        mailbox.setSmtpStarttls(false);
+
+        Properties props = buildPropertiesFor(mailbox);
+
+        assertThat(props.getProperty("mail.smtp.ssl.enable")).isEqualTo("true");
+        assertThat(props.getProperty("mail.smtp.starttls.enable")).isNull();
+        assertThat(props.getProperty("mail.smtp.starttls.required")).isNull();
+    }
+
+    @Test
+    void buildMailboxSender_port587_setsStarttlsOnly() throws Exception {
+        EmailMailbox mailbox = new EmailMailbox();
+        mailbox.setSmtpHost("smtp.gmail.com");
+        mailbox.setSmtpPort(587);
+        mailbox.setSmtpUsername("user@example.com");
+        mailbox.setSmtpPassword("pass");
+        mailbox.setSmtpUseSsl(false);
+        mailbox.setSmtpStarttls(true);
+
+        Properties props = buildPropertiesFor(mailbox);
+
+        assertThat(props.getProperty("mail.smtp.starttls.enable")).isEqualTo("true");
+        assertThat(props.getProperty("mail.smtp.starttls.required")).isEqualTo("true");
+        assertThat(props.getProperty("mail.smtp.ssl.enable")).isNull();
+    }
+
+    @Test
+    void buildMailboxSender_port587_doesNotSetImplicitSsl() throws Exception {
+        // This test guards against the SSLException regression.
+        // If mail.smtp.ssl.enable were set to "true" on a STARTTLS port (587),
+        // the sender would attempt a TLS handshake immediately, causing:
+        // javax.net.ssl.SSLException: Unsupported or unrecognized SSL message
+        EmailMailbox mailbox = new EmailMailbox();
+        mailbox.setSmtpHost("smtp.gmail.com");
+        mailbox.setSmtpPort(587);
+        mailbox.setSmtpUseSsl(false);
+        mailbox.setSmtpStarttls(true);
+
+        Properties props = buildPropertiesFor(mailbox);
+
+        assertThat(props.getProperty("mail.smtp.ssl.enable"))
+                .as("ssl.enable must NOT be set for STARTTLS (port 587)")
+                .isNull();
+    }
+
+    @Test
+    void buildMailboxSender_bothSslAndStarttls_sslWins_andNoStarttls() throws Exception {
+        // Contradictory config: ssl takes precedence per the guard in buildMailboxSender.
+        EmailMailbox mailbox = new EmailMailbox();
+        mailbox.setSmtpHost("smtp.example.com");
+        mailbox.setSmtpPort(465);
+        mailbox.setSmtpUseSsl(true);
+        mailbox.setSmtpStarttls(true); // contradictory
+
+        Properties props = buildPropertiesFor(mailbox);
+
+        assertThat(props.getProperty("mail.smtp.ssl.enable")).isEqualTo("true");
+        assertThat(props.getProperty("mail.smtp.starttls.enable")).isNull();
+    }
+
+    @Test
+    void buildMailboxSender_neitherSslNorStarttls_noTlsProperties() throws Exception {
+        EmailMailbox mailbox = new EmailMailbox();
+        mailbox.setSmtpHost("relay.internal");
+        mailbox.setSmtpPort(25);
+        mailbox.setSmtpUseSsl(false);
+        mailbox.setSmtpStarttls(false);
+
+        Properties props = buildPropertiesFor(mailbox);
+
+        assertThat(props.getProperty("mail.smtp.ssl.enable")).isNull();
+        assertThat(props.getProperty("mail.smtp.starttls.enable")).isNull();
+    }
+
+    // ── Helper: invoke package-private buildMailboxSender via reflection ──────
+
+    /**
+     * Uses reflection to call the private {@code buildMailboxSender} method and
+     * extract the resulting JavaMailProperties so we can assert on TLS configuration
+     * without actually opening a network socket.
+     */
+    private static Properties buildPropertiesFor(EmailMailbox mailbox) throws Exception {
+        SmtpEmailSender s = new SmtpEmailSender(Optional.empty());
+        Method method = SmtpEmailSender.class.getDeclaredMethod("buildMailboxSender", EmailMailbox.class);
+        method.setAccessible(true);
+        JavaMailSenderImpl built = (JavaMailSenderImpl) method.invoke(s, mailbox);
+        return built.getJavaMailProperties();
     }
 }

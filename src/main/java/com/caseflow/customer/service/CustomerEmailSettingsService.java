@@ -67,6 +67,7 @@ public class CustomerEmailSettingsService {
         existing.setMatchValue(updates.getMatchValue());
         existing.setPriority(updates.getPriority());
         existing.setIsActive(updates.getIsActive());
+        existing.setAllowSubdomains(updates.getAllowSubdomains());
         CustomerEmailRoutingRule saved = ruleRepository.save(existing);
         log.info("Routing rule updated — id: {}, customerId: {}", ruleId, customerId);
         return saved;

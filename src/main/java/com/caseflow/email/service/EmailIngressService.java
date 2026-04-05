@@ -2,6 +2,8 @@ package com.caseflow.email.service;
 
 import com.caseflow.email.domain.EmailIngressEvent;
 
+import java.util.List;
+
 /**
  * Two-stage durable inbound email ingress pipeline.
  *
@@ -25,10 +27,25 @@ public interface EmailIngressService {
     EmailIngressEvent receiveEvent(IngressEmailData data);
 
     /**
-     * Stage 2 — process a RECEIVED or FAILED event through the full pipeline.
-     * Updates the event status to PROCESSED or FAILED/QUARANTINED.
+     * Stage 2 — process a RECEIVED, FAILED, or PROCESSING event through the full pipeline.
+     * Updates the event status to PROCESSED, QUARANTINED, or FAILED.
      */
     void processEvent(Long eventId);
+
+    /**
+     * Atomically claim a batch of RECEIVED events: transitions each to PROCESSING and
+     * returns their IDs. Runs in a short transaction that commits before returning, so
+     * the row locks are released and the caller can invoke {@link #processEvent} per ID
+     * without any outer transaction — eliminating the PESSIMISTIC_WRITE deadlock.
+     */
+    List<Long> claimReceivedBatch(int limit);
+
+    /**
+     * Atomically claim a batch of FAILED events eligible for retry: transitions each to
+     * PROCESSING and returns their IDs. Same transaction isolation rationale as
+     * {@link #claimReceivedBatch}.
+     */
+    List<Long> claimFailedBatch(int maxAttempts, int limit);
 
     /**
      * Manually quarantine an event with an explicit reason.

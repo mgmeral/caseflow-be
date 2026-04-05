@@ -68,6 +68,14 @@ public class MailboxValidationService {
             }
         }
 
+        // Rule 5: SMTP transport mode — ssl and starttls are mutually exclusive
+        if (Boolean.TRUE.equals(mailbox.getSmtpUseSsl()) && Boolean.TRUE.equals(mailbox.getSmtpStarttls())) {
+            throw new InvalidMailboxConfigException(
+                    "smtpUseSsl and smtpStarttls cannot both be true — they are mutually exclusive. "
+                            + "Use smtpUseSsl=true for port 465 (implicit SSL) "
+                            + "or smtpStarttls=true for port 587 (STARTTLS).");
+        }
+
         // Rule 4: pollIntervalSeconds range check
         if (polling) {
             int interval = mailbox.getPollIntervalSeconds() != null ? mailbox.getPollIntervalSeconds() : 60;

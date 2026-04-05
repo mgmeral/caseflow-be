@@ -169,12 +169,26 @@ public class SmtpEmailSender {
         props.put("mail.transport.protocol", "smtp");
         props.put("mail.smtp.auth", mailbox.getSmtpUsername() != null ? "true" : "false");
 
-        if (Boolean.TRUE.equals(mailbox.getSmtpUseSsl())) {
-            props.put("mail.smtp.ssl.enable", "true");
-            props.put("mail.smtp.socketFactory.class", "javax.net.ssl.SSLSocketFactory");
-        } else {
-            props.put("mail.smtp.starttls.enable", "true");
+        boolean useImplicitSsl = Boolean.TRUE.equals(mailbox.getSmtpUseSsl());
+        boolean useStarttls    = Boolean.TRUE.equals(mailbox.getSmtpStarttls());
+
+        if (useImplicitSsl && useStarttls) {
+            // Guard: contradictory config — implicit SSL takes precedence and we log a warning.
+            log.warn("SMTP_CONFIG contradictory TLS settings for mailbox {} (both ssl and starttls are true); "
+                    + "using implicit SSL. Fix the mailbox configuration.", mailbox.getId());
+            useStarttls = false;
         }
+
+        if (useImplicitSsl) {
+            // Port 465 — implicit SSL: the TLS handshake happens before any SMTP command.
+            props.put("mail.smtp.ssl.enable", "true");
+        } else if (useStarttls) {
+            // Port 587 — STARTTLS: plain SMTP connection upgraded to TLS via STARTTLS command.
+            // Do NOT set mail.smtp.ssl.enable — that would cause the SSLException.
+            props.put("mail.smtp.starttls.enable", "true");
+            props.put("mail.smtp.starttls.required", "true");
+        }
+        // If neither flag is set: plain SMTP with no encryption (not recommended for production).
 
         props.put("mail.smtp.timeout", "10000");
         props.put("mail.smtp.connectiontimeout", "10000");

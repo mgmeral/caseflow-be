@@ -7,5 +7,7 @@ public record HistorySummaryResponse(
         String actionType,
         Long performedBy,
         String performedByName,
+        String sourceType,
+        String summary,
         Instant performedAt
 ) {}

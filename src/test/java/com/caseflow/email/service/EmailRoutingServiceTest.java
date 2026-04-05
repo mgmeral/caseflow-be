@@ -346,7 +346,7 @@ class EmailRoutingServiceTest {
         when(threadingService.resolveTicketId(any(), any())).thenReturn(Optional.of(55L));
 
         RoutingResult result = routingService.routeHeaders(
-                "sender@example.com", "<parent@example.com>", List.of(), null);
+                "sender@example.com", null, "<parent@example.com>", List.of(), null);
 
         assertEquals(RoutingResult.Action.LINK_TO_TICKET, result.action());
         assertEquals(55L, result.ticketId());
@@ -358,7 +358,7 @@ class EmailRoutingServiceTest {
         when(routingRuleRepository.findAll()).thenReturn(List.of(rule));
 
         RoutingResult result = routingService.routeHeaders(
-                "ops@bigcorp.com", null, List.of(), null);
+                "ops@bigcorp.com", null, null, List.of(), null);
 
         assertEquals(RoutingResult.Action.CREATE_TICKET, result.action());
         assertEquals(3L, result.customerId());
@@ -370,7 +370,7 @@ class EmailRoutingServiceTest {
         when(routingRuleRepository.findAll()).thenReturn(List.of(rule));
 
         RoutingResult result = routingService.routeHeaders(
-                "any@bigcorp.com", null, List.of(), null);
+                "any@bigcorp.com", null, null, List.of(), null);
 
         assertEquals(RoutingResult.Action.CREATE_TICKET, result.action());
         assertEquals(7L, result.customerId());
@@ -379,7 +379,7 @@ class EmailRoutingServiceTest {
     @Test
     void routeHeaders_quarantines_byDefault_whenNoMatch() {
         RoutingResult result = routingService.routeHeaders(
-                "stranger@unknown.com", null, List.of(), null);
+                "stranger@unknown.com", null, null, List.of(), null);
 
         assertEquals(RoutingResult.Action.QUARANTINE, result.action());
     }
@@ -391,7 +391,7 @@ class EmailRoutingServiceTest {
         when(mailboxRepository.findById(99L)).thenReturn(Optional.of(mailbox));
 
         RoutingResult result = routingService.routeHeaders(
-                "stranger@unknown.com", null, List.of(), 99L);
+                "stranger@unknown.com", null, null, List.of(), 99L);
 
         assertEquals(RoutingResult.Action.IGNORE, result.action());
     }
@@ -402,7 +402,7 @@ class EmailRoutingServiceTest {
         when(routingRuleRepository.findAll()).thenReturn(List.of(rule));
 
         RoutingResult result = routingService.routeHeaders(
-                "Alice Acme <alice@acme.com>", null, List.of(), null);
+                "Alice Acme <alice@acme.com>", null, null, List.of(), null);
 
         assertEquals(RoutingResult.Action.CREATE_TICKET, result.action());
         assertEquals(8L, result.customerId());
@@ -430,7 +430,7 @@ class EmailRoutingServiceTest {
         when(routingRuleRepository.findAll()).thenReturn(List.of(rule1, rule2));
 
         RoutingResult result = routingService.routeHeaders(
-                "shared@partner.com", null, List.of(), null);
+                "shared@partner.com", null, null, List.of(), null);
 
         assertEquals(RoutingResult.Action.QUARANTINE, result.action());
     }
@@ -446,5 +446,101 @@ class EmailRoutingServiceTest {
 
         assertEquals(RoutingResult.Action.CREATE_TICKET, result.action());
         assertEquals(10L, result.customerId());
+    }
+
+    // ── Reply-To fallback routing ─────────────────────────────────────────────
+
+    @Test
+    void routeHeaders_createsTicket_viaReplyToExactMatch_whenFromDoesNotMatch() {
+        // Automated sender: From = noreply@bigcorp.com (no rule), Reply-To = support@bigcorp.com (has rule)
+        CustomerEmailRoutingRule rule = rule(5L, SenderMatchType.EXACT_EMAIL, "support@bigcorp.com", 10);
+        when(routingRuleRepository.findAll()).thenReturn(List.of(rule));
+
+        RoutingResult result = routingService.routeHeaders(
+                "noreply@bigcorp.com", "support@bigcorp.com", null, List.of(), null);
+
+        assertEquals(RoutingResult.Action.CREATE_TICKET, result.action());
+        assertEquals(5L, result.customerId());
+    }
+
+    @Test
+    void routeHeaders_createsTicket_viaReplyToDomainMatch_whenFromDoesNotMatch() {
+        // From domain has no rule; Reply-To domain has a domain rule
+        CustomerEmailRoutingRule rule = rule(7L, SenderMatchType.DOMAIN, "bigcorp.com", 10);
+        when(routingRuleRepository.findAll()).thenReturn(List.of(rule));
+
+        RoutingResult result = routingService.routeHeaders(
+                "notifications@sendgrid.net", "contact@bigcorp.com", null, List.of(), null);
+
+        assertEquals(RoutingResult.Action.CREATE_TICKET, result.action());
+        assertEquals(7L, result.customerId());
+    }
+
+    @Test
+    void routeHeaders_createsTicket_viaReplyToDisplayName_stripped() {
+        // Reply-To contains display name — should be stripped before matching
+        CustomerEmailRoutingRule rule = rule(3L, SenderMatchType.EXACT_EMAIL, "alice@acme.com", 10);
+        when(routingRuleRepository.findAll()).thenReturn(List.of(rule));
+
+        RoutingResult result = routingService.routeHeaders(
+                "noreply@acme.com", "Alice Acme <alice@acme.com>", null, List.of(), null);
+
+        assertEquals(RoutingResult.Action.CREATE_TICKET, result.action());
+        assertEquals(3L, result.customerId());
+    }
+
+    @Test
+    void routeHeaders_fromMatchWins_replyToNotConsulted_whenFromAlreadyMatches() {
+        // From matches customer 5; Reply-To would match customer 9 — From must win
+        CustomerEmailRoutingRule fromRule   = rule(5L, SenderMatchType.EXACT_EMAIL, "ops@bigcorp.com", 10);
+        CustomerEmailRoutingRule replyRule  = rule(9L, SenderMatchType.EXACT_EMAIL, "billing@bigcorp.com", 10);
+        when(routingRuleRepository.findAll()).thenReturn(List.of(fromRule, replyRule));
+
+        RoutingResult result = routingService.routeHeaders(
+                "ops@bigcorp.com", "billing@bigcorp.com", null, List.of(), null);
+
+        assertEquals(RoutingResult.Action.CREATE_TICKET, result.action());
+        assertEquals(5L, result.customerId()); // From wins
+    }
+
+    @Test
+    void routeHeaders_doesNotCreateTicket_whenNeitherFromNorReplyToMatches() {
+        // No rules match either address — falls through to unknown sender policy (default: quarantine)
+        RoutingResult result = routingService.routeHeaders(
+                "stranger@unknown.com", "also-unknown@another.net", null, List.of(), null);
+
+        assertEquals(RoutingResult.Action.QUARANTINE, result.action());
+        assertNull(result.customerId());
+    }
+
+    @Test
+    void routeHeaders_quarantines_whenReplyToExactMatchIsAmbiguous() {
+        // Reply-To address is ambiguous (two customers claim it)
+        CustomerEmailRoutingRule rule1 = rule(10L, SenderMatchType.EXACT_EMAIL, "shared@partner.com", 10);
+        CustomerEmailRoutingRule rule2 = rule(20L, SenderMatchType.EXACT_EMAIL, "shared@partner.com", 5);
+        when(routingRuleRepository.findAll()).thenReturn(List.of(rule1, rule2));
+
+        RoutingResult result = routingService.routeHeaders(
+                "noreply@sendgrid.net", "shared@partner.com", null, List.of(), null);
+
+        assertEquals(RoutingResult.Action.QUARANTINE, result.action());
+        assertNull(result.customerId());
+    }
+
+    @Test
+    void route_createsTicket_viaReplyToOnEvent_whenFromDoesNotMatch() {
+        // Verifies route(event) also passes rawReplyTo through to matching
+        CustomerEmailRoutingRule rule = rule(5L, SenderMatchType.EXACT_EMAIL, "support@bigcorp.com", 10);
+        when(routingRuleRepository.findAll()).thenReturn(List.of(rule));
+
+        EmailIngressEvent e = new EmailIngressEvent();
+        e.setMessageId("<test@x.com>");
+        e.setRawFrom("noreply@bigcorp.com");
+        e.setRawReplyTo("support@bigcorp.com");
+
+        RoutingResult result = routingService.route(e);
+
+        assertEquals(RoutingResult.Action.CREATE_TICKET, result.action());
+        assertEquals(5L, result.customerId());
     }
 }

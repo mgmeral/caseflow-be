@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.UUID;
 
 @Service
 public class TicketQueryService {
@@ -34,6 +35,12 @@ public class TicketQueryService {
     public Ticket getByTicketNo(String ticketNo) {
         return ticketRepository.findByTicketNo(ticketNo)
                 .orElseThrow(() -> new TicketNotFoundException(ticketNo));
+    }
+
+    @Transactional(readOnly = true)
+    public Ticket getByPublicId(UUID publicId) {
+        return ticketRepository.findByPublicId(publicId)
+                .orElseThrow(() -> new TicketNotFoundException("publicId=" + publicId));
     }
 
     @Transactional(readOnly = true)

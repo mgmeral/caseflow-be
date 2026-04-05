@@ -18,7 +18,8 @@ import com.caseflow.email.service.EmailDocumentQueryService;
 import com.caseflow.email.service.EmailIngressEventQueryService;
 import com.caseflow.email.service.EmailMailboxService;
 import com.caseflow.email.service.EmailReplyService;
-import com.caseflow.ticket.repository.AttachmentMetadataRepository;
+import com.caseflow.storage.service.AttachmentService;
+import com.caseflow.ticket.api.mapper.AttachmentMetadataMapper;
 import com.caseflow.ticket.security.TicketAuthorizationService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -60,7 +61,8 @@ class TicketEmailControllerTest {
     @MockBean private EmailDocumentQueryService docQueryService;
     @MockBean private EmailReplyService replyService;
     @MockBean private EmailMailboxService mailboxService;
-    @MockBean private AttachmentMetadataRepository attachmentMetadataRepository;
+    @MockBean private AttachmentService attachmentService;
+    @MockBean private AttachmentMetadataMapper attachmentMetadataMapper;
     @MockBean private IngressEventMapper ingressMapper;
     @MockBean private DispatchMapper dispatchMapper;
     @MockBean(name = "ticketAuth") private TicketAuthorizationService ticketAuth;
@@ -117,7 +119,9 @@ class TicketEmailControllerTest {
         event.setTicketId(1L);
         when(ingressQueryService.getById(5L)).thenReturn(event);
         IngressEventResponse response = ingressEventResponse(5L, IngressEventStatus.PROCESSED);
-        when(ingressMapper.toResponse(any())).thenReturn(response);
+        when(attachmentService.findByEmailId(any())).thenReturn(java.util.List.of());
+        when(attachmentMetadataMapper.toResponseList(any())).thenReturn(java.util.List.of());
+        when(ingressMapper.toResponseWithAttachments(any(), any())).thenReturn(response);
 
         mockMvc.perform(get("/api/tickets/1/email/inbound/5"))
                 .andExpect(status().isOk())
@@ -174,10 +178,10 @@ class TicketEmailControllerTest {
         when(mailboxService.getById(1L)).thenReturn(mailboxWithAddress("support@caseflow.dev"));
         OutboundEmailDispatch dispatch = mockDispatch(99L, "customer@example.com", 1L);
         when(replyService.sendReply(anyLong(), anyLong(), any(), any(), anyString(),
-                anyString(), anyString(), any(), any(), anyLong())).thenReturn(dispatch);
+                anyString(), anyString(), any(), any(), anyLong(), any(), any())).thenReturn(dispatch);
 
         SendReplyRequest request = new SendReplyRequest(
-                1L, 10L, null, "Re: issue", "Thank you", null, null);
+                1L, 10L, null, "Re: issue", "Thank you", null, null, null, null);
 
         mockMvc.perform(post("/api/tickets/1/email/reply")
                         .with(csrf())
@@ -196,10 +200,10 @@ class TicketEmailControllerTest {
         when(mailboxService.getById(1L)).thenReturn(mailboxWithAddress("support@caseflow.dev"));
         OutboundEmailDispatch dispatch = mockDispatch(100L, "customer@example.com", 1L);
         when(replyService.sendReply(anyLong(), anyLong(), any(), any(), anyString(),
-                anyString(), anyString(), any(), any(), anyLong())).thenReturn(dispatch);
+                anyString(), anyString(), any(), any(), anyLong(), any(), any())).thenReturn(dispatch);
 
         SendReplyRequest request = new SendReplyRequest(
-                1L, null, "customer@example.com", "Re: issue", "Thank you", null, null);
+                1L, null, "customer@example.com", "Re: issue", "Thank you", null, null, null, null);
 
         mockMvc.perform(post("/api/tickets/1/email/reply")
                         .with(csrf())
@@ -216,7 +220,7 @@ class TicketEmailControllerTest {
         when(ticketAuth.canSendTicketEmailReply(any(), anyLong())).thenReturn(true);
 
         SendReplyRequest request = new SendReplyRequest(
-                1L, null, null, "Re: issue", "Thank you", null, null);
+                1L, null, null, "Re: issue", "Thank you", null, null, null, null);
 
         mockMvc.perform(post("/api/tickets/1/email/reply")
                         .with(csrf())
@@ -232,7 +236,7 @@ class TicketEmailControllerTest {
         when(ticketAuth.canSendTicketEmailReply(any(), anyLong())).thenReturn(false);
 
         SendReplyRequest request = new SendReplyRequest(
-                1L, 10L, null, "Re: issue", "Thank you", null, null);
+                1L, 10L, null, "Re: issue", "Thank you", null, null, null, null);
 
         mockMvc.perform(post("/api/tickets/1/email/reply")
                         .with(csrf())
@@ -269,7 +273,8 @@ class TicketEmailControllerTest {
     private IngressEventResponse ingressEventResponse(Long id, IngressEventStatus status) {
         return new IngressEventResponse(
                 id, null, "<msg-" + id + "@test.com>", "from@test.com",
-                "Hello", null, null, Instant.now(), status, null, 0, null, null, null, null);
+                "Hello", null, null, Instant.now(), status, null, 0, null, null, null, null,
+                java.util.List.of());
     }
 
     private DispatchResponse dispatchResponse(Long id, DispatchStatus status) {

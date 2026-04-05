@@ -7,10 +7,14 @@ import com.caseflow.email.api.dto.IngestEmailRequest;
 import com.caseflow.email.api.dto.IngressEventResponse;
 import com.caseflow.email.api.mapper.EmailDocumentMapper;
 import com.caseflow.email.api.mapper.IngressEventMapper;
+import com.caseflow.email.document.EmailDocument;
 import com.caseflow.email.domain.EmailIngressEvent;
 import com.caseflow.email.service.EmailDocumentQueryService;
 import com.caseflow.email.service.EmailIngressService;
 import com.caseflow.email.service.IngressEmailData;
+import com.caseflow.storage.service.AttachmentService;
+import com.caseflow.ticket.api.dto.AttachmentMetadataResponse;
+import com.caseflow.ticket.api.mapper.AttachmentMetadataMapper;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -40,15 +44,21 @@ public class EmailDocumentController {
     private final EmailDocumentMapper emailDocumentMapper;
     private final EmailIngressService emailIngressService;
     private final IngressEventMapper ingressEventMapper;
+    private final AttachmentService attachmentService;
+    private final AttachmentMetadataMapper attachmentMetadataMapper;
 
     public EmailDocumentController(EmailDocumentQueryService emailDocumentQueryService,
                                    EmailDocumentMapper emailDocumentMapper,
                                    EmailIngressService emailIngressService,
-                                   IngressEventMapper ingressEventMapper) {
+                                   IngressEventMapper ingressEventMapper,
+                                   AttachmentService attachmentService,
+                                   AttachmentMetadataMapper attachmentMetadataMapper) {
         this.emailDocumentQueryService = emailDocumentQueryService;
         this.emailDocumentMapper = emailDocumentMapper;
         this.emailIngressService = emailIngressService;
         this.ingressEventMapper = ingressEventMapper;
+        this.attachmentService = attachmentService;
+        this.attachmentMetadataMapper = attachmentMetadataMapper;
     }
 
     /**
@@ -95,8 +105,20 @@ public class EmailDocumentController {
     public ResponseEntity<EmailDocumentResponse> getById(@PathVariable String id) {
         log.info("GET /emails/{}", id);
         return emailDocumentQueryService.findById(id)
-                .map(doc -> ResponseEntity.ok(emailDocumentMapper.toResponse(doc)))
+                .map(doc -> ResponseEntity.ok(buildDetailResponse(doc)))
                 .orElse(ResponseEntity.notFound().build());
+    }
+
+    private EmailDocumentResponse buildDetailResponse(EmailDocument doc) {
+        List<AttachmentMetadataResponse> attachments =
+                attachmentMetadataMapper.toResponseList(attachmentService.findByEmailId(doc.getId()));
+        EmailDocumentResponse base = emailDocumentMapper.toResponse(doc);
+        return new EmailDocumentResponse(
+                base.id(), base.messageId(), base.threadKey(), base.subject(),
+                base.from(), base.to(), base.cc(),
+                base.receivedAt(), base.parsedAt(), base.ticketId(),
+                base.textBody(), base.sanitizedHtmlBody(),
+                attachments);
     }
 
     /**

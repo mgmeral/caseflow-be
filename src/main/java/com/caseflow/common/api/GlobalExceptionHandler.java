@@ -1,6 +1,7 @@
 package com.caseflow.common.api;
 
 import com.caseflow.common.exception.ActiveAssignmentAlreadyExistsException;
+import com.caseflow.common.exception.CustomerDeleteBlockedException;
 import com.caseflow.common.exception.DispatchNotFoundException;
 import com.caseflow.common.exception.InvalidMailboxConfigException;
 import com.caseflow.common.exception.DuplicateEmailException;
@@ -71,6 +72,17 @@ public class GlobalExceptionHandler {
                 request.getRequestURI()
         );
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(body);
+    }
+
+    // ── 409 Customer Delete Blocked ───────────────────────────────────────────
+
+    @ExceptionHandler(CustomerDeleteBlockedException.class)
+    public ResponseEntity<ErrorResponse> handleCustomerDeleteBlocked(CustomerDeleteBlockedException ex,
+                                                                     HttpServletRequest request) {
+        ErrorResponse body = ErrorResponse.of(
+                HttpStatus.CONFLICT.value(), HttpStatus.CONFLICT.getReasonPhrase(),
+                "CUSTOMER_DELETE_BLOCKED", ex.getMessage(), request.getRequestURI());
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(body);
     }
 
     // ── 409 Admin Lockout ─────────────────────────────────────────────────────

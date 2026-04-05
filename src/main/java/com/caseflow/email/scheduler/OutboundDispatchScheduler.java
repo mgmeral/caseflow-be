@@ -9,6 +9,7 @@ import com.caseflow.email.repository.OutboundEmailDispatchRepository;
 import com.caseflow.email.service.EmailDispatchService;
 import com.caseflow.email.service.EmailMetrics;
 import com.caseflow.email.service.SmtpEmailSender;
+import com.caseflow.workflow.history.TicketHistoryService;
 import com.caseflow.workflow.state.TicketSystemTransitionService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -39,6 +40,7 @@ public class OutboundDispatchScheduler {
     private final SmtpEmailSender smtpSender;
     private final EmailMetrics metrics;
     private final TicketSystemTransitionService systemTransitionService;
+    private final TicketHistoryService historyService;
     private final int maxAttempts;
 
     public OutboundDispatchScheduler(OutboundEmailDispatchRepository dispatchRepository,
@@ -47,6 +49,7 @@ public class OutboundDispatchScheduler {
                                       SmtpEmailSender smtpSender,
                                       EmailMetrics metrics,
                                       TicketSystemTransitionService systemTransitionService,
+                                      TicketHistoryService historyService,
                                       @Value("${caseflow.email.dispatch.max-attempts:3}") int maxAttempts) {
         this.dispatchRepository = dispatchRepository;
         this.dispatchService = dispatchService;
@@ -54,6 +57,7 @@ public class OutboundDispatchScheduler {
         this.smtpSender = smtpSender;
         this.metrics = metrics;
         this.systemTransitionService = systemTransitionService;
+        this.historyService = historyService;
         this.maxAttempts = maxAttempts;
     }
 
@@ -102,6 +106,10 @@ public class OutboundDispatchScheduler {
             metrics.outboundSent();
             log.info("SMTP_SEND_SUCCESS dispatch {} sent — ticketId: {}, to: '{}'",
                     dispatch.getId(), dispatch.getTicketId(), dispatch.getToAddress());
+            // Record successful send event in ticket history
+            if (dispatch.getTicketId() != null) {
+                historyService.recordOutboundReplySent(dispatch.getTicketId(), dispatch.getId());
+            }
             // Apply WAITING_CUSTOMER transition only after confirmed SMTP success
             if (dispatch.getTicketId() != null) {
                 systemTransitionService.applyOutboundReplyTransition(dispatch.getTicketId(), dispatch.getId());
@@ -119,6 +127,11 @@ public class OutboundDispatchScheduler {
                 dispatchService.markFailed(dispatch, e.getMessage(), category);
                 metrics.outboundFailed();
             }
+            // Record failure event in ticket history
+            if (dispatch.getTicketId() != null) {
+                historyService.recordOutboundReplyFailed(dispatch.getTicketId(), dispatch.getId(),
+                        e.getMessage(), isPermanent);
+            }
             log.warn("SMTP_SEND_FAILURE dispatch {} (attempt {}, category: {}): {}",
                     dispatch.getId(), dispatch.getAttempts(), category, e.getMessage());
         } catch (Exception e) {
@@ -127,6 +140,10 @@ public class OutboundDispatchScheduler {
             dispatchService.markFailed(dispatch, "Unexpected error: " + e.getMessage(),
                     DispatchFailureCategory.UNKNOWN);
             metrics.outboundFailed();
+            if (dispatch.getTicketId() != null) {
+                historyService.recordOutboundReplyFailed(dispatch.getTicketId(), dispatch.getId(),
+                        "Unexpected error: " + e.getMessage(), false);
+            }
         }
     }
 

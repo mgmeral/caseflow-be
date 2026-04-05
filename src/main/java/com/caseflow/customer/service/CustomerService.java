@@ -1,8 +1,12 @@
 package com.caseflow.customer.service;
 
+import com.caseflow.common.exception.CustomerDeleteBlockedException;
 import com.caseflow.common.exception.CustomerNotFoundException;
 import com.caseflow.customer.domain.Customer;
+import com.caseflow.customer.repository.CustomerEmailRoutingRuleRepository;
+import com.caseflow.customer.repository.CustomerEmailSettingsRepository;
 import com.caseflow.customer.repository.CustomerRepository;
+import com.caseflow.ticket.repository.TicketRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -16,9 +20,18 @@ public class CustomerService {
     private static final Logger log = LoggerFactory.getLogger(CustomerService.class);
 
     private final CustomerRepository customerRepository;
+    private final TicketRepository ticketRepository;
+    private final CustomerEmailSettingsRepository settingsRepository;
+    private final CustomerEmailRoutingRuleRepository ruleRepository;
 
-    public CustomerService(CustomerRepository customerRepository) {
+    public CustomerService(CustomerRepository customerRepository,
+                           TicketRepository ticketRepository,
+                           CustomerEmailSettingsRepository settingsRepository,
+                           CustomerEmailRoutingRuleRepository ruleRepository) {
         this.customerRepository = customerRepository;
+        this.ticketRepository = ticketRepository;
+        this.settingsRepository = settingsRepository;
+        this.ruleRepository = ruleRepository;
     }
 
     @Transactional
@@ -70,6 +83,27 @@ public class CustomerService {
     @Transactional(readOnly = true)
     public List<Customer> findAll() {
         return customerRepository.findAll();
+    }
+
+    /**
+     * Deletes a customer and all associated email configuration (settings + routing rules).
+     *
+     * <p><b>Business rule</b>: delete is blocked when any ticket is linked to this customer.
+     * Callers receive {@link CustomerDeleteBlockedException} (mapped to 409 Conflict) in that case.
+     * Contacts are cascade-deleted by the JPA relationship on {@code Customer}.
+     */
+    @Transactional
+    public void deleteCustomer(Long customerId) {
+        Customer customer = findOrThrow(customerId);
+        long ticketCount = ticketRepository.findByCustomerId(customerId).size();
+        if (ticketCount > 0) {
+            log.warn("Delete blocked — customerId: {} has {} linked ticket(s)", customerId, ticketCount);
+            throw new CustomerDeleteBlockedException(customerId, ticketCount);
+        }
+        ruleRepository.deleteByCustomerId(customerId);
+        settingsRepository.findByCustomerId(customerId).ifPresent(settingsRepository::delete);
+        customerRepository.delete(customer);
+        log.info("Customer {} deleted", customerId);
     }
 
     private Customer findOrThrow(Long customerId) {

@@ -125,13 +125,47 @@ class CustomerEmailSettingsControllerTest {
                 .andExpect(status().isForbidden());
     }
 
+    // ── GET /api/customers/{id}/email-settings/rules ──────────────────────────
+
+    @Test
+    @WithMockUser(authorities = "PERM_EMAIL_CONFIG_VIEW")
+    void listRules_returnsRules_whenRulesExist() throws Exception {
+        RoutingRuleResponse rule = makeRuleResponse(1L, 1L);
+        when(settingsService.findAllRules(1L)).thenReturn(
+                List.of(new com.caseflow.customer.domain.CustomerEmailRoutingRule()));
+        when(mapper.toRuleResponse(any())).thenReturn(rule);
+
+        mockMvc.perform(get("/api/customers/1/email-settings/rules"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isArray())
+                .andExpect(jsonPath("$[0].id").value(1))
+                .andExpect(jsonPath("$[0].customerId").value(1));
+    }
+
+    @Test
+    @WithMockUser(authorities = "PERM_EMAIL_CONFIG_VIEW")
+    void listRules_returnsEmptyArray_whenNoRulesExist() throws Exception {
+        when(settingsService.findAllRules(99L)).thenReturn(List.of());
+
+        mockMvc.perform(get("/api/customers/99/email-settings/rules"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isArray())
+                .andExpect(jsonPath("$").isEmpty());
+    }
+
+    @Test
+    void listRules_returns401_whenUnauthenticated() throws Exception {
+        mockMvc.perform(get("/api/customers/1/email-settings/rules"))
+                .andExpect(status().isUnauthorized());
+    }
+
     // ── POST /api/customers/{id}/email-settings/rules ─────────────────────────
 
     @Test
     @WithMockUser(authorities = "PERM_EMAIL_CONFIG_MANAGE")
     void addRule_returns201() throws Exception {
         RoutingRuleRequest request = new RoutingRuleRequest(
-                SenderMatchType.EXACT_EMAIL, "support@bigcorp.com", 10, true);
+                SenderMatchType.EXACT_EMAIL, "support@bigcorp.com", 10, true, null);
         RoutingRuleResponse response = makeRuleResponse(1L, 1L);
         when(mapper.toRuleEntity(any())).thenReturn(new com.caseflow.customer.domain.CustomerEmailRoutingRule());
         when(settingsService.addRule(anyLong(), any())).thenReturn(new com.caseflow.customer.domain.CustomerEmailRoutingRule());
@@ -151,7 +185,7 @@ class CustomerEmailSettingsControllerTest {
     @WithMockUser(authorities = "PERM_EMAIL_CONFIG_MANAGE")
     void updateRule_returns200() throws Exception {
         RoutingRuleRequest request = new RoutingRuleRequest(
-                SenderMatchType.DOMAIN, "bigcorp.com", 5, true);
+                SenderMatchType.DOMAIN, "bigcorp.com", 5, true, true);
         RoutingRuleResponse response = makeRuleResponse(1L, 1L);
         when(mapper.toRuleEntity(any())).thenReturn(new com.caseflow.customer.domain.CustomerEmailRoutingRule());
         when(settingsService.updateRule(anyLong(), anyLong(), any()))
@@ -187,6 +221,6 @@ class CustomerEmailSettingsControllerTest {
     private RoutingRuleResponse makeRuleResponse(Long id, Long customerId) {
         return new RoutingRuleResponse(
                 id, customerId, SenderMatchType.EXACT_EMAIL,
-                "support@bigcorp.com", 10, true, Instant.now(), null);
+                "support@bigcorp.com", 10, true, false, Instant.now(), null);
     }
 }

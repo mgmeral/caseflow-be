@@ -11,6 +11,8 @@ public record RoutingRuleResponse(
         String matchValue,
         Integer priority,
         Boolean isActive,
+        /** Only meaningful for DOMAIN rules — true when sub-domains are also matched. */
+        Boolean allowSubdomains,
         Instant createdAt,
         Instant updatedAt
 ) {}
