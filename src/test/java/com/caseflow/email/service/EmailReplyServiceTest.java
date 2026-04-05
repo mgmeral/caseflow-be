@@ -1,6 +1,5 @@
 package com.caseflow.email.service;
 
-import com.caseflow.common.exception.IngressEventNotFoundException;
 import com.caseflow.email.domain.EmailIngressEvent;
 import com.caseflow.email.domain.MailTemplate;
 import com.caseflow.email.domain.OutboundEmailDispatch;
@@ -159,7 +158,8 @@ class EmailReplyServiceTest {
         assertThatThrownBy(() ->
                 sendReply(1L, 2L, 999L, null, "support@caseflow.dev",
                         "Re: Issue", "body", null, null, 42L, null, null))
-                .isInstanceOf(IngressEventNotFoundException.class);
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Ingress event not found");
     }
 
     // ── No premature system transition ────────────────────────────────────────

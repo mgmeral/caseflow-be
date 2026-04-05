@@ -1,6 +1,5 @@
 package com.caseflow.email.service;
 
-import com.caseflow.common.exception.IngressEventNotFoundException;
 import com.caseflow.common.exception.TicketNotFoundException;
 import com.caseflow.email.domain.EmailIngressEvent;
 import com.caseflow.email.domain.MailTemplate;
@@ -97,7 +96,7 @@ public class EmailReplyService {
         EmailIngressEvent sourceEvent = null;
         if (sourceEventId != null) {
             sourceEvent = ingressEventRepository.findById(sourceEventId)
-                    .orElseThrow(() -> new IngressEventNotFoundException(sourceEventId));
+                    .orElseThrow(() -> new IllegalArgumentException("Ingress event not found: " + sourceEventId));
         }
 
         String resolvedToAddress = resolveReplyTarget(sourceEvent, sourceEventId, toAddressOverride);

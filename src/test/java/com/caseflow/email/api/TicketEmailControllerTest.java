@@ -5,21 +5,16 @@ import com.caseflow.auth.CaseFlowUserDetailsService;
 import com.caseflow.auth.JwtTokenService;
 import com.caseflow.common.security.SecurityConfig;
 import com.caseflow.email.api.dto.DispatchResponse;
-import com.caseflow.email.api.dto.EmailThreadItem;
-import com.caseflow.email.api.dto.IngressEventResponse;
 import com.caseflow.email.api.dto.SendReplyRequest;
 import com.caseflow.email.api.mapper.DispatchMapper;
-import com.caseflow.email.api.mapper.IngressEventMapper;
 import com.caseflow.email.domain.DispatchStatus;
 import com.caseflow.email.domain.IngressEventStatus;
 import com.caseflow.email.domain.OutboundEmailDispatch;
+import com.caseflow.email.repository.EmailIngressEventRepository;
 import com.caseflow.email.service.EmailDispatchService;
 import com.caseflow.email.service.EmailDocumentQueryService;
-import com.caseflow.email.service.EmailIngressEventQueryService;
 import com.caseflow.email.service.EmailMailboxService;
 import com.caseflow.email.service.EmailReplyService;
-import com.caseflow.storage.service.AttachmentService;
-import com.caseflow.ticket.api.mapper.AttachmentMetadataMapper;
 import com.caseflow.ticket.security.TicketAuthorizationService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -56,14 +51,11 @@ class TicketEmailControllerTest {
 
     @MockBean private JwtTokenService jwtTokenService;
     @MockBean private CaseFlowUserDetailsService userDetailsService;
-    @MockBean private EmailIngressEventQueryService ingressQueryService;
+    @MockBean private EmailIngressEventRepository ingressEventRepository;
     @MockBean private EmailDispatchService dispatchService;
     @MockBean private EmailDocumentQueryService docQueryService;
     @MockBean private EmailReplyService replyService;
     @MockBean private EmailMailboxService mailboxService;
-    @MockBean private AttachmentService attachmentService;
-    @MockBean private AttachmentMetadataMapper attachmentMetadataMapper;
-    @MockBean private IngressEventMapper ingressMapper;
     @MockBean private DispatchMapper dispatchMapper;
     @MockBean(name = "ticketAuth") private TicketAuthorizationService ticketAuth;
 
@@ -77,7 +69,7 @@ class TicketEmailControllerTest {
         Instant earlier = Instant.parse("2026-03-01T10:00:00Z");
         Instant later   = Instant.parse("2026-03-01T11:00:00Z");
 
-        when(ingressQueryService.findByTicketId(1L)).thenReturn(List.of(
+        when(ingressEventRepository.findByTicketId(1L)).thenReturn(List.of(
                 ingressEvent(10L, earlier)
         ));
         when(dispatchService.findByTicketId(1L)).thenReturn(List.of(
@@ -107,37 +99,6 @@ class TicketEmailControllerTest {
 
         mockMvc.perform(get("/api/tickets/1/email/thread"))
                 .andExpect(status().isForbidden());
-    }
-
-    // ── GET /api/tickets/{id}/email/inbound/{eventId} — ownership check ───────
-
-    @Test
-    @WithMockUser
-    void getInboundEvent_returns200_whenEventBelongsToTicket() throws Exception {
-        when(ticketAuth.canViewTicketEmail(any(), anyLong())).thenReturn(true);
-        var event = ingressEvent(5L, Instant.now());
-        event.setTicketId(1L);
-        when(ingressQueryService.getById(5L)).thenReturn(event);
-        IngressEventResponse response = ingressEventResponse(5L, IngressEventStatus.PROCESSED);
-        when(attachmentService.findByEmailId(any())).thenReturn(java.util.List.of());
-        when(attachmentMetadataMapper.toResponseList(any())).thenReturn(java.util.List.of());
-        when(ingressMapper.toResponseWithAttachments(any(), any())).thenReturn(response);
-
-        mockMvc.perform(get("/api/tickets/1/email/inbound/5"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value(5));
-    }
-
-    @Test
-    @WithMockUser
-    void getInboundEvent_returns404_whenEventBelongsToDifferentTicket() throws Exception {
-        when(ticketAuth.canViewTicketEmail(any(), anyLong())).thenReturn(true);
-        var event = ingressEvent(5L, Instant.now());
-        event.setTicketId(99L);   // different ticket
-        when(ingressQueryService.getById(5L)).thenReturn(event);
-
-        mockMvc.perform(get("/api/tickets/1/email/inbound/5"))
-                .andExpect(status().isNotFound());
     }
 
     // ── GET /api/tickets/{id}/email/outbound/{dispatchId} — ownership check ───
@@ -268,13 +229,6 @@ class TicketEmailControllerTest {
         d.setStatus(DispatchStatus.SENT);
         d.setSentAt(sentAt);
         return d;
-    }
-
-    private IngressEventResponse ingressEventResponse(Long id, IngressEventStatus status) {
-        return new IngressEventResponse(
-                id, null, "<msg-" + id + "@test.com>", "from@test.com",
-                "Hello", null, null, Instant.now(), status, null, 0, null, null, null, null,
-                java.util.List.of());
     }
 
     private DispatchResponse dispatchResponse(Long id, DispatchStatus status) {

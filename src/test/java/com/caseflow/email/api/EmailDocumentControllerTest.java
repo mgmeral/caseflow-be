@@ -5,12 +5,8 @@ import com.caseflow.auth.JwtTokenService;
 import com.caseflow.common.security.SecurityConfig;
 import com.caseflow.email.api.dto.EmailDocumentResponse;
 import com.caseflow.email.api.dto.EmailDocumentSummaryResponse;
-import com.caseflow.email.api.dto.IngressEventResponse;
 import com.caseflow.email.api.dto.IngestEmailRequest;
 import com.caseflow.email.api.mapper.EmailDocumentMapper;
-import com.caseflow.email.api.mapper.IngressEventMapper;
-import com.caseflow.email.domain.EmailIngressEvent;
-import com.caseflow.email.domain.IngressEventStatus;
 import com.caseflow.email.service.EmailDocumentQueryService;
 import com.caseflow.email.service.EmailIngressService;
 import com.caseflow.storage.service.AttachmentService;
@@ -35,8 +31,6 @@ import java.util.Optional;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -68,9 +62,6 @@ class EmailDocumentControllerTest {
 
     @MockBean
     private EmailIngressService emailIngressService;
-
-    @MockBean
-    private IngressEventMapper ingressEventMapper;
 
     @MockBean
     private AttachmentService attachmentService;
@@ -173,7 +164,7 @@ class EmailDocumentControllerTest {
 
     @Test
     @WithMockUser(authorities = "PERM_EMAIL_OPERATIONS_MANAGE")
-    void ingest_returns202_withIngressEvent() throws Exception {
+    void ingest_returns202() throws Exception {
         IngestEmailRequest request = new IngestEmailRequest(
                 "<msg-001@test.com>", null, null,
                 "Support request", "customer@test.com",
@@ -181,23 +172,12 @@ class EmailDocumentControllerTest {
                 "Please help with my issue.", null,
                 Instant.now(), null, null
         );
-        EmailIngressEvent event = new EmailIngressEvent();
-        IngressEventResponse response = new IngressEventResponse(
-                1L, null, "<msg-001@test.com>", "customer@test.com", "Support request",
-                null, null, Instant.now(), IngressEventStatus.RECEIVED, null, 0, null, null, null, null,
-                java.util.List.of());
-
-        when(emailIngressService.receiveEvent(any())).thenReturn(event);
-        when(ingressEventMapper.toResponse(event)).thenReturn(response);
 
         mockMvc.perform(post("/api/emails/ingest")
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isAccepted())
-                .andExpect(jsonPath("$.id").value(1))
-                .andExpect(jsonPath("$.messageId").value("<msg-001@test.com>"))
-                .andExpect(jsonPath("$.status").value("RECEIVED"));
+                .andExpect(status().isAccepted());
     }
 
     @Test

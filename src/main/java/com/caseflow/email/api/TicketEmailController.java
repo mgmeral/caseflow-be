@@ -3,22 +3,17 @@ package com.caseflow.email.api;
 import com.caseflow.auth.CaseFlowUserDetails;
 import com.caseflow.email.api.dto.DispatchResponse;
 import com.caseflow.email.api.dto.EmailThreadItem;
-import com.caseflow.email.api.dto.IngressEventResponse;
 import com.caseflow.email.api.dto.ReplyEnqueuedResponse;
 import com.caseflow.email.api.dto.SendReplyRequest;
 import com.caseflow.email.api.mapper.DispatchMapper;
-import com.caseflow.email.api.mapper.IngressEventMapper;
 import com.caseflow.email.domain.EmailIngressEvent;
 import com.caseflow.email.domain.OutboundEmailDispatch;
 import java.time.Instant;
+import com.caseflow.email.repository.EmailIngressEventRepository;
 import com.caseflow.email.service.EmailDispatchService;
 import com.caseflow.email.service.EmailDocumentQueryService;
-import com.caseflow.email.service.EmailIngressEventQueryService;
 import com.caseflow.email.service.EmailMailboxService;
 import com.caseflow.email.service.EmailReplyService;
-import com.caseflow.storage.service.AttachmentService;
-import com.caseflow.ticket.api.dto.AttachmentMetadataResponse;
-import com.caseflow.ticket.api.mapper.AttachmentMetadataMapper;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -50,33 +45,24 @@ public class TicketEmailController {
 
     private static final int BODY_PREVIEW_MAX = 500;
 
-    private final EmailIngressEventQueryService ingressQueryService;
+    private final EmailIngressEventRepository ingressEventRepository;
     private final EmailDispatchService dispatchService;
     private final EmailDocumentQueryService docQueryService;
     private final EmailReplyService replyService;
     private final EmailMailboxService mailboxService;
-    private final AttachmentService attachmentService;
-    private final AttachmentMetadataMapper attachmentMetadataMapper;
-    private final IngressEventMapper ingressMapper;
     private final DispatchMapper dispatchMapper;
 
-    public TicketEmailController(EmailIngressEventQueryService ingressQueryService,
+    public TicketEmailController(EmailIngressEventRepository ingressEventRepository,
                                   EmailDispatchService dispatchService,
                                   EmailDocumentQueryService docQueryService,
                                   EmailReplyService replyService,
                                   EmailMailboxService mailboxService,
-                                  AttachmentService attachmentService,
-                                  AttachmentMetadataMapper attachmentMetadataMapper,
-                                  IngressEventMapper ingressMapper,
                                   DispatchMapper dispatchMapper) {
-        this.ingressQueryService = ingressQueryService;
+        this.ingressEventRepository = ingressEventRepository;
         this.dispatchService = dispatchService;
         this.docQueryService = docQueryService;
         this.replyService = replyService;
         this.mailboxService = mailboxService;
-        this.attachmentService = attachmentService;
-        this.attachmentMetadataMapper = attachmentMetadataMapper;
-        this.ingressMapper = ingressMapper;
         this.dispatchMapper = dispatchMapper;
     }
 
@@ -90,7 +76,7 @@ public class TicketEmailController {
         log.info("GET /tickets/{}/email/thread", ticketId);
         List<EmailThreadItem> items = new ArrayList<>();
 
-        ingressQueryService.findByTicketId(ticketId).forEach(event -> {
+        ingressEventRepository.findByTicketId(ticketId).forEach(event -> {
             String preview = event.getDocumentId() != null
                     ? docQueryService.findById(event.getDocumentId())
                             .map(doc -> doc.getBodyPreview()).orElse(null)
@@ -139,31 +125,6 @@ public class TicketEmailController {
     }
 
     /**
-     * Detail view for a specific inbound event.
-     * Verifies the event belongs to the path ticketId.
-     */
-    @GetMapping("/inbound/{eventId}")
-    @PreAuthorize("@ticketAuth.canViewTicketEmail(authentication, #ticketId)")
-    public ResponseEntity<IngressEventResponse> getInboundEvent(@PathVariable Long ticketId,
-                                                                 @PathVariable Long eventId) {
-        log.info("GET /tickets/{}/email/inbound/{}", ticketId, eventId);
-        EmailIngressEvent event = ingressQueryService.getById(eventId);
-        if (!ticketId.equals(event.getTicketId())) {
-            log.warn("Ownership mismatch — eventId: {} belongs to ticketId: {}, requested under ticketId: {}",
-                    eventId, event.getTicketId(), ticketId);
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND,
-                    "Inbound event " + eventId + " not found under ticket " + ticketId);
-        }
-        // Populate attachment metadata from Postgres for the detail view.
-        // Uses the MongoDB document ID (documentId) as emailId to look up Postgres attachment records.
-        List<AttachmentMetadataResponse> attachments = event.getDocumentId() != null
-                ? attachmentMetadataMapper.toResponseList(
-                        attachmentService.findByEmailId(event.getDocumentId()))
-                : java.util.List.of();
-        return ResponseEntity.ok(ingressMapper.toResponseWithAttachments(event, attachments));
-    }
-
-    /**
      * Detail view for a specific outbound dispatch.
      * Verifies the dispatch belongs to the path ticketId.
      */
@@ -182,18 +143,6 @@ public class TicketEmailController {
         return ResponseEntity.ok(dispatchMapper.toResponse(dispatch));
     }
 
-    // ── Backward-compatible list endpoints ───────────────────────────────────
-
-    /** @deprecated Use GET /thread for the unified timeline. Kept for backward compatibility. */
-    @GetMapping("/inbound")
-    @PreAuthorize("@ticketAuth.canViewTicketEmail(authentication, #ticketId)")
-    public ResponseEntity<List<IngressEventResponse>> getInboundEvents(@PathVariable Long ticketId) {
-        log.info("GET /tickets/{}/email/inbound (list)", ticketId);
-        return ResponseEntity.ok(
-                ingressMapper.toResponseList(ingressQueryService.findByTicketId(ticketId)));
-    }
-
-    /** @deprecated Use GET /thread for the unified timeline. Kept for backward compatibility. */
     @GetMapping("/dispatches")
     @PreAuthorize("@ticketAuth.canViewTicketEmail(authentication, #ticketId)")
     public ResponseEntity<List<DispatchResponse>> getDispatches(@PathVariable Long ticketId) {

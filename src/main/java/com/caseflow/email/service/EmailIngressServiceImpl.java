@@ -1,6 +1,5 @@
 package com.caseflow.email.service;
 
-import com.caseflow.common.exception.IngressEventNotFoundException;
 import com.caseflow.customer.domain.CustomerEmailSettings;
 import com.caseflow.customer.repository.CustomerEmailSettingsRepository;
 import com.caseflow.email.document.EmailDocument;
@@ -151,7 +150,7 @@ public class EmailIngressServiceImpl implements EmailIngressService {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void processEvent(Long eventId) {
         EmailIngressEvent event = eventRepository.findById(eventId)
-                .orElseThrow(() -> new IngressEventNotFoundException(eventId));
+                .orElseThrow(() -> new IllegalArgumentException("Ingress event not found: " + eventId));
 
         // Only RECEIVED, FAILED, and PROCESSING events may enter full processing.
         // PROCESSING events were already claimed by claimReceivedBatch/claimFailedBatch — their
@@ -319,7 +318,7 @@ public class EmailIngressServiceImpl implements EmailIngressService {
     @Transactional
     public void quarantineEvent(Long eventId, String reason) {
         EmailIngressEvent event = eventRepository.findById(eventId)
-                .orElseThrow(() -> new IngressEventNotFoundException(eventId));
+                .orElseThrow(() -> new IllegalArgumentException("Ingress event not found: " + eventId));
         event.setStatus(IngressEventStatus.QUARANTINED);
         event.setFailureReason(reason);
         eventRepository.save(event);
@@ -331,7 +330,7 @@ public class EmailIngressServiceImpl implements EmailIngressService {
     @Transactional
     public void releaseEvent(Long eventId) {
         EmailIngressEvent event = eventRepository.findById(eventId)
-                .orElseThrow(() -> new IngressEventNotFoundException(eventId));
+                .orElseThrow(() -> new IllegalArgumentException("Ingress event not found: " + eventId));
         if (event.getStatus() != IngressEventStatus.QUARANTINED) {
             log.warn("Release requested for non-quarantined event {} (status={})", eventId, event.getStatus());
             return;

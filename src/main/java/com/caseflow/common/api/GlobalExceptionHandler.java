@@ -12,7 +12,6 @@ import com.caseflow.common.exception.EmailDispatchException;
 import com.caseflow.common.exception.GroupNotFoundException;
 import com.caseflow.common.exception.AdminLockoutException;
 import com.caseflow.common.exception.GroupTypeNotFoundException;
-import com.caseflow.common.exception.IngressEventNotFoundException;
 import com.caseflow.common.exception.MailboxNotFoundException;
 import com.caseflow.common.exception.RoutingRuleNotFoundException;
 import com.caseflow.common.exception.RoleNotFoundException;
@@ -57,7 +56,6 @@ public class GlobalExceptionHandler {
             NoteNotFoundException.class,
             AttachmentNotFoundException.class,
             MailboxNotFoundException.class,
-            IngressEventNotFoundException.class,
             RoutingRuleNotFoundException.class,
             DispatchNotFoundException.class
     })

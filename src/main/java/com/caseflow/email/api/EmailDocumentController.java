@@ -4,11 +4,8 @@ import com.caseflow.email.api.dto.EmailDocumentRawResponse;
 import com.caseflow.email.api.dto.EmailDocumentResponse;
 import com.caseflow.email.api.dto.EmailDocumentSummaryResponse;
 import com.caseflow.email.api.dto.IngestEmailRequest;
-import com.caseflow.email.api.dto.IngressEventResponse;
 import com.caseflow.email.api.mapper.EmailDocumentMapper;
-import com.caseflow.email.api.mapper.IngressEventMapper;
 import com.caseflow.email.document.EmailDocument;
-import com.caseflow.email.domain.EmailIngressEvent;
 import com.caseflow.email.service.EmailDocumentQueryService;
 import com.caseflow.email.service.EmailIngressService;
 import com.caseflow.email.service.IngressEmailData;
@@ -43,20 +40,17 @@ public class EmailDocumentController {
     private final EmailDocumentQueryService emailDocumentQueryService;
     private final EmailDocumentMapper emailDocumentMapper;
     private final EmailIngressService emailIngressService;
-    private final IngressEventMapper ingressEventMapper;
     private final AttachmentService attachmentService;
     private final AttachmentMetadataMapper attachmentMetadataMapper;
 
     public EmailDocumentController(EmailDocumentQueryService emailDocumentQueryService,
                                    EmailDocumentMapper emailDocumentMapper,
                                    EmailIngressService emailIngressService,
-                                   IngressEventMapper ingressEventMapper,
                                    AttachmentService attachmentService,
                                    AttachmentMetadataMapper attachmentMetadataMapper) {
         this.emailDocumentQueryService = emailDocumentQueryService;
         this.emailDocumentMapper = emailDocumentMapper;
         this.emailIngressService = emailIngressService;
-        this.ingressEventMapper = ingressEventMapper;
         this.attachmentService = attachmentService;
         this.attachmentMetadataMapper = attachmentMetadataMapper;
     }
@@ -74,7 +68,7 @@ public class EmailDocumentController {
      */
     @PostMapping("/ingest")
     @PreAuthorize("hasAuthority('PERM_EMAIL_OPERATIONS_MANAGE')")
-    public ResponseEntity<IngressEventResponse> ingest(@Valid @RequestBody IngestEmailRequest request) {
+    public ResponseEntity<Void> ingest(@Valid @RequestBody IngestEmailRequest request) {
         log.info("POST /emails/ingest — messageId: '{}', from: '{}', subject: '{}'",
                 request.messageId(), request.from(), request.subject());
 
@@ -95,9 +89,8 @@ public class EmailDocumentController {
                 null    // attachments — webhook provider handles binary storage externally
         );
 
-        EmailIngressEvent event = emailIngressService.receiveEvent(data);
-        log.info("Ingress event stored — eventId: {}, messageId: '{}'", event.getId(), event.getMessageId());
-        return ResponseEntity.status(HttpStatus.ACCEPTED).body(ingressEventMapper.toResponse(event));
+        emailIngressService.receiveEvent(data);
+        return ResponseEntity.status(HttpStatus.ACCEPTED).build();
     }
 
     @GetMapping("/{id}")
