@@ -10,5 +10,7 @@ public enum DispatchStatus {
     /** Last attempt failed; eligible for retry. */
     FAILED,
     /** Max attempts exhausted — no further retries. */
-    PERMANENTLY_FAILED
+    PERMANENTLY_FAILED,
+    /** Explicitly canceled by a user (scheduled emails only). */
+    CANCELED
 }

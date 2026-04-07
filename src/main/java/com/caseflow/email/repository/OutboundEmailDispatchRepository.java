@@ -19,7 +19,14 @@ public interface OutboundEmailDispatchRepository extends JpaRepository<OutboundE
     List<OutboundEmailDispatch> findByStatus(DispatchStatus status);
 
     /**
+     * Fetches dispatches for a ticket, ordered newest first.
+     * Includes scheduled sends.
+     */
+    List<OutboundEmailDispatch> findByTicketIdAndIsScheduledSendTrueOrderByScheduledAtDesc(Long ticketId);
+
+    /**
      * Fetches up to {@code limit} PENDING dispatches due for sending, with SKIP LOCKED.
+     * Excludes CANCELED dispatches.
      */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @QueryHints(@QueryHint(name = "jakarta.persistence.lock.timeout", value = "-2"))

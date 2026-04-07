@@ -28,5 +28,9 @@ public enum Permission {
     TICKET_EMAIL_VIEW,
     TICKET_EMAIL_REPLY_SEND,
     // Ticket tagging — separate from status change (P1 closure)
-    TICKET_TAG
+    TICKET_TAG,
+    // Phase 2 integration permissions
+    INTEGRATION_CONFIG_MANAGE,
+    INTEGRATION_JOB_VIEW,
+    SCHEDULED_EMAIL_MANAGE
 }

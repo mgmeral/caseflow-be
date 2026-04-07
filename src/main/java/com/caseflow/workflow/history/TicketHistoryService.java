@@ -245,6 +245,122 @@ public class TicketHistoryService {
         historyRepository.save(h);
     }
 
+    // ── Jira integration events ───────────────────────────────────────────────
+
+    @Transactional
+    public void recordJiraCreateRequested(Long ticketId, UUID ticketPublicId,
+                                          Long jobId, Long performedBy) {
+        History h = build(ticketId, ticketPublicId, TicketEventType.JIRA_ISSUE_CREATE_REQUESTED,
+                performedBy, null);
+        h.setSummary("Jira issue creation requested");
+        h.setMetadataJson("{\"jobId\":" + jobId + "}");
+        historyRepository.save(h);
+    }
+
+    @Transactional
+    public void recordJiraIssueCreated(Long ticketId, UUID ticketPublicId,
+                                       Long jobId, String issueKey, String issueUrl) {
+        History h = build(ticketId, ticketPublicId, TicketEventType.JIRA_ISSUE_CREATED,
+                null, null);
+        h.setSourceType("SYSTEM");
+        h.setSummary("Jira issue created: " + issueKey);
+        h.setMetadataJson("{\"jobId\":" + jobId
+                + ",\"issueKey\":\"" + escapeJson(issueKey) + "\""
+                + ",\"issueUrl\":\"" + escapeJson(issueUrl) + "\"}");
+        historyRepository.save(h);
+    }
+
+    @Transactional
+    public void recordJiraCreateFailed(Long ticketId, UUID ticketPublicId,
+                                       Long jobId, String reason, boolean permanent) {
+        History h = build(ticketId, ticketPublicId, TicketEventType.JIRA_ISSUE_CREATE_FAILED,
+                null, null);
+        h.setSourceType("SYSTEM");
+        h.setSummary(permanent ? "Jira issue creation permanently failed"
+                : "Jira issue creation attempt failed");
+        h.setMetadataJson("{\"jobId\":" + jobId
+                + ",\"permanent\":" + permanent
+                + ",\"reason\":\"" + escapeJson(reason) + "\"}");
+        historyRepository.save(h);
+    }
+
+    // ── External notification events ──────────────────────────────────────────
+
+    @Transactional
+    public void recordExternalNotificationSent(Long ticketId, UUID ticketPublicId,
+                                               Long jobId, String channelType,
+                                               String channelName, String eventType) {
+        History h = build(ticketId, ticketPublicId, TicketEventType.EXTERNAL_NOTIFICATION_SENT,
+                null, null);
+        h.setSourceType("SYSTEM");
+        h.setSummary("External notification sent: " + channelName + " [" + eventType + "]");
+        h.setMetadataJson("{\"jobId\":" + jobId
+                + ",\"channelType\":\"" + escapeJson(channelType) + "\""
+                + ",\"channelName\":\"" + escapeJson(channelName) + "\""
+                + ",\"eventType\":\"" + escapeJson(eventType) + "\"}");
+        historyRepository.save(h);
+    }
+
+    @Transactional
+    public void recordExternalNotificationFailed(Long ticketId, UUID ticketPublicId,
+                                                 Long jobId, String channelType,
+                                                 String channelName, String reason) {
+        History h = build(ticketId, ticketPublicId, TicketEventType.EXTERNAL_NOTIFICATION_FAILED,
+                null, null);
+        h.setSourceType("SYSTEM");
+        h.setSummary("External notification failed: " + channelName);
+        h.setMetadataJson("{\"jobId\":" + jobId
+                + ",\"channelType\":\"" + escapeJson(channelType) + "\""
+                + ",\"channelName\":\"" + escapeJson(channelName) + "\""
+                + ",\"reason\":\"" + escapeJson(reason) + "\"}");
+        historyRepository.save(h);
+    }
+
+    // ── Scheduled email events ────────────────────────────────────────────────
+
+    @Transactional
+    public void recordScheduledEmailCreated(Long ticketId, UUID ticketPublicId,
+                                            Long dispatchId, String toAddress,
+                                            java.time.Instant sendNotBefore, Long performedBy) {
+        History h = build(ticketId, ticketPublicId, TicketEventType.SCHEDULED_EMAIL_CREATED,
+                performedBy, null);
+        h.setSummary("Scheduled email created for " + toAddress);
+        h.setMetadataJson("{\"dispatchId\":" + dispatchId
+                + ",\"toAddress\":\"" + escapeJson(toAddress) + "\""
+                + ",\"sendNotBefore\":\"" + sendNotBefore + "\"}");
+        historyRepository.save(h);
+    }
+
+    @Transactional
+    public void recordScheduledEmailCanceled(Long ticketId, UUID ticketPublicId,
+                                              Long dispatchId, Long performedBy) {
+        History h = build(ticketId, ticketPublicId, TicketEventType.SCHEDULED_EMAIL_CANCELED,
+                performedBy, null);
+        h.setSummary("Scheduled email canceled");
+        h.setMetadataJson("{\"dispatchId\":" + dispatchId + "}");
+        historyRepository.save(h);
+    }
+
+    @Transactional
+    public void recordScheduledEmailSent(Long ticketId, UUID ticketPublicId, Long dispatchId) {
+        History h = build(ticketId, ticketPublicId, TicketEventType.SCHEDULED_EMAIL_SENT, null, null);
+        h.setSourceType("SYSTEM");
+        h.setSummary("Scheduled email sent");
+        h.setMetadataJson("{\"dispatchId\":" + dispatchId + "}");
+        historyRepository.save(h);
+    }
+
+    @Transactional
+    public void recordScheduledEmailFailed(Long ticketId, Long dispatchId, String reason) {
+        UUID publicId = resolvePublicId(ticketId);
+        History h = build(ticketId, publicId, TicketEventType.SCHEDULED_EMAIL_FAILED, null, null);
+        h.setSourceType("SYSTEM");
+        h.setSummary("Scheduled email failed: " + truncate(reason, 200));
+        h.setMetadataJson("{\"dispatchId\":" + dispatchId
+                + ",\"reason\":\"" + escapeJson(reason) + "\"}");
+        historyRepository.save(h);
+    }
+
     // ── Query ─────────────────────────────────────────────────────────────────
 
     @Transactional(readOnly = true)
@@ -279,6 +395,12 @@ public class TicketHistoryService {
 
     private static String escapeJson(String s) {
         if (s == null) return "";
-        return s.replace("\\", "\\\\").replace("\"", "\\\"");
+        return s.replace("\\", "\\\\").replace("\"", "\\\"")
+                .replace("\n", "\\n").replace("\r", "\\r");
+    }
+
+    private static String truncate(String s, int max) {
+        if (s == null) return "";
+        return s.length() > max ? s.substring(0, max) + "..." : s;
     }
 }

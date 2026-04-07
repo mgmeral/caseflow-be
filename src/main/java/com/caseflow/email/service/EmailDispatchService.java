@@ -141,6 +141,54 @@ public class EmailDispatchService {
         return dispatchRepository.findByTicketId(ticketId);
     }
 
+    @Transactional
+    public void markCanceled(OutboundEmailDispatch dispatch) {
+        if (dispatch.getStatus() != DispatchStatus.PENDING) {
+            throw new IllegalStateException(
+                    "Cannot cancel dispatch " + dispatch.getId()
+                            + " in status " + dispatch.getStatus());
+        }
+        dispatch.setStatus(DispatchStatus.CANCELED);
+        dispatch.setCanceledAt(Instant.now());
+        dispatchRepository.save(dispatch);
+        log.info("SMTP_SEND dispatch canceled — dispatchId: {}", dispatch.getId());
+    }
+
+    /**
+     * Enqueues a scheduled outbound email with a future {@code sendNotBefore} time.
+     * The existing scheduler query ({@code scheduledAt <= NOW()}) naturally holds
+     * the dispatch until that time without any additional infrastructure.
+     */
+    @Transactional
+    public OutboundEmailDispatch enqueueScheduled(Long ticketId, Long mailboxId,
+                                                    Long sentByUserId,
+                                                    String fromAddress, String toAddress,
+                                                    String subject, String textBody, String htmlBody,
+                                                    Instant sendNotBefore,
+                                                    Long appliedTemplateId, String appliedTemplateCode,
+                                                    boolean contentWasEdited) {
+        OutboundEmailDispatch dispatch = new OutboundEmailDispatch();
+        dispatch.setTicketId(ticketId);
+        dispatch.setMailboxId(mailboxId);
+        dispatch.setSentByUserId(sentByUserId);
+        dispatch.setMessageId(generateMessageId());
+        dispatch.setFromAddress(fromAddress);
+        dispatch.setToAddress(toAddress);
+        dispatch.setSubject(subject);
+        dispatch.setTextBody(textBody);
+        dispatch.setHtmlBody(htmlBody);
+        dispatch.setAppliedTemplateId(appliedTemplateId);
+        dispatch.setAppliedTemplateCode(appliedTemplateCode);
+        dispatch.setContentWasEdited(contentWasEdited);
+        dispatch.setIsScheduledSend(Boolean.TRUE);
+        dispatch.setScheduledAt(sendNotBefore);
+        dispatch.setStatus(DispatchStatus.PENDING);
+        OutboundEmailDispatch saved = dispatchRepository.save(dispatch);
+        log.info("SMTP_SEND scheduled dispatch enqueued — dispatchId: {}, to: '{}', sendAt: {}, ticketId: {}",
+                saved.getId(), toAddress, sendNotBefore, ticketId);
+        return saved;
+    }
+
     private String generateMessageId() {
         return "<" + UUID.randomUUID() + "@caseflow>";
     }

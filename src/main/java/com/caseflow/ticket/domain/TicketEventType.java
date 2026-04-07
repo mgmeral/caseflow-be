@@ -31,5 +31,21 @@ public final class TicketEventType {
     public static final String TAG_ADDED   = "TAG_ADDED";
     public static final String TAG_REMOVED = "TAG_REMOVED";
 
+    // ── Jira integration ──────────────────────────────────────────────────────
+    public static final String JIRA_ISSUE_CREATE_REQUESTED = "JIRA_ISSUE_CREATE_REQUESTED";
+    public static final String JIRA_ISSUE_CREATED          = "JIRA_ISSUE_CREATED";
+    public static final String JIRA_ISSUE_CREATE_FAILED    = "JIRA_ISSUE_CREATE_FAILED";
+
+    // ── External notifications ────────────────────────────────────────────────
+    public static final String EXTERNAL_NOTIFICATION_QUEUED  = "EXTERNAL_NOTIFICATION_QUEUED";
+    public static final String EXTERNAL_NOTIFICATION_SENT    = "EXTERNAL_NOTIFICATION_SENT";
+    public static final String EXTERNAL_NOTIFICATION_FAILED  = "EXTERNAL_NOTIFICATION_FAILED";
+
+    // ── Scheduled email ───────────────────────────────────────────────────────
+    public static final String SCHEDULED_EMAIL_CREATED  = "SCHEDULED_EMAIL_CREATED";
+    public static final String SCHEDULED_EMAIL_CANCELED = "SCHEDULED_EMAIL_CANCELED";
+    public static final String SCHEDULED_EMAIL_SENT     = "SCHEDULED_EMAIL_SENT";
+    public static final String SCHEDULED_EMAIL_FAILED   = "SCHEDULED_EMAIL_FAILED";
+
     private TicketEventType() {}
 }

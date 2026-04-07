@@ -38,10 +38,12 @@ class OutboundDispatchSchedulerTest {
     @Mock private OutboundEmailDispatchRepository dispatchRepository;
     @Mock private EmailDispatchService dispatchService;
     @Mock private EmailMailboxRepository mailboxRepository;
+    @Mock private com.caseflow.ticket.repository.TicketRepository ticketRepository;
     @Mock private SmtpEmailSender smtpSender;
     @Mock private EmailMetrics metrics;
     @Mock private TicketSystemTransitionService systemTransitionService;
     @Mock private TicketHistoryService historyService;
+    @Mock private org.springframework.context.ApplicationEventPublisher eventPublisher;
 
     private OutboundDispatchScheduler scheduler;
 
@@ -49,8 +51,8 @@ class OutboundDispatchSchedulerTest {
     void setUp() {
         // Manually construct to control maxAttempts (final field, @Value not injectable by Mockito)
         scheduler = new OutboundDispatchScheduler(
-                dispatchRepository, dispatchService, mailboxRepository,
-                smtpSender, metrics, systemTransitionService, historyService, 3);
+                dispatchRepository, dispatchService, mailboxRepository, ticketRepository,
+                smtpSender, metrics, systemTransitionService, historyService, eventPublisher, 3);
         // No mailbox by default — use global sender path
         lenient().when(mailboxRepository.findById(any())).thenReturn(Optional.empty());
         lenient().when(mailboxRepository.findByAddress(any())).thenReturn(Optional.empty());

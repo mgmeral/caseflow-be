@@ -2,6 +2,8 @@ package com.caseflow.workflow.assignment;
 
 import com.caseflow.common.exception.ActiveAssignmentAlreadyExistsException;
 import com.caseflow.common.exception.TicketNotFoundException;
+import com.caseflow.integration.domain.TicketDomainEvent;
+import com.caseflow.integration.notification.domain.NotificationEventType;
 import com.caseflow.notification.domain.NotificationType;
 import com.caseflow.notification.service.NotificationService;
 import com.caseflow.ticket.domain.Ticket;
@@ -11,6 +13,7 @@ import com.caseflow.workflow.history.TicketHistoryService;
 import com.caseflow.workflow.repository.AssignmentRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,15 +35,18 @@ public class AssignmentService {
     private final TicketRepository ticketRepository;
     private final TicketHistoryService ticketHistoryService;
     private final NotificationService notificationService;
+    private final ApplicationEventPublisher eventPublisher;
 
     public AssignmentService(AssignmentRepository assignmentRepository,
                              TicketRepository ticketRepository,
                              TicketHistoryService ticketHistoryService,
-                             NotificationService notificationService) {
+                             NotificationService notificationService,
+                             ApplicationEventPublisher eventPublisher) {
         this.assignmentRepository = assignmentRepository;
         this.ticketRepository = ticketRepository;
         this.ticketHistoryService = ticketHistoryService;
         this.notificationService = notificationService;
+        this.eventPublisher = eventPublisher;
     }
 
     @Transactional
@@ -75,6 +81,9 @@ public class AssignmentService {
                     userId, NotificationType.TICKET_ASSIGNED_TO_USER, assignedBy);
         }
 
+        eventPublisher.publishEvent(new TicketDomainEvent(ticketId, ticket.getPublicId(),
+                NotificationEventType.TICKET_ASSIGNED, assignedBy,
+                ticket.getCustomerId(), ticket.getAssignedGroupId()));
         log.info("Ticket {} assigned — userId: {}, groupId: {}", ticketId, userId, groupId);
         return saved;
     }

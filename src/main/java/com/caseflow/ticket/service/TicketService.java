@@ -1,6 +1,8 @@
 package com.caseflow.ticket.service;
 
 import com.caseflow.common.exception.TicketNotFoundException;
+import com.caseflow.integration.domain.TicketDomainEvent;
+import com.caseflow.integration.notification.domain.NotificationEventType;
 import com.caseflow.ticket.domain.Ticket;
 import com.caseflow.ticket.domain.TicketPriority;
 import com.caseflow.ticket.domain.TicketStatus;
@@ -9,6 +11,7 @@ import com.caseflow.workflow.history.TicketHistoryService;
 import com.caseflow.workflow.state.TicketStateMachineService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,13 +25,16 @@ public class TicketService {
     private final TicketRepository ticketRepository;
     private final TicketStateMachineService ticketStateMachineService;
     private final TicketHistoryService ticketHistoryService;
+    private final ApplicationEventPublisher eventPublisher;
 
     public TicketService(TicketRepository ticketRepository,
                          TicketStateMachineService ticketStateMachineService,
-                         TicketHistoryService ticketHistoryService) {
+                         TicketHistoryService ticketHistoryService,
+                         ApplicationEventPublisher eventPublisher) {
         this.ticketRepository = ticketRepository;
         this.ticketStateMachineService = ticketStateMachineService;
         this.ticketHistoryService = ticketHistoryService;
+        this.eventPublisher = eventPublisher;
     }
 
     @Transactional
@@ -44,6 +50,9 @@ public class TicketService {
         ticket.setStatus(TicketStatus.NEW);
         Ticket saved = ticketRepository.save(ticket);
         ticketHistoryService.recordCreated(saved.getId(), createdBy);
+        eventPublisher.publishEvent(new TicketDomainEvent(saved.getId(), saved.getPublicId(),
+                NotificationEventType.TICKET_CREATED, createdBy,
+                saved.getCustomerId(), saved.getAssignedGroupId()));
         log.info("Ticket created — ticketId: {}, ticketNo: {}", saved.getId(), saved.getTicketNo());
         return saved;
     }
@@ -78,6 +87,15 @@ public class TicketService {
         Ticket saved = ticketRepository.save(ticket);
         ticketHistoryService.recordStatusChanged(ticketId, performedBy,
                 previousStatus.name(), newStatus.name());
+        if (newStatus == TicketStatus.RESOLVED) {
+            eventPublisher.publishEvent(new TicketDomainEvent(saved.getId(), saved.getPublicId(),
+                    NotificationEventType.TICKET_RESOLVED, performedBy,
+                    saved.getCustomerId(), saved.getAssignedGroupId()));
+        } else if (newStatus == TicketStatus.CLOSED) {
+            eventPublisher.publishEvent(new TicketDomainEvent(saved.getId(), saved.getPublicId(),
+                    NotificationEventType.TICKET_CLOSED, performedBy,
+                    saved.getCustomerId(), saved.getAssignedGroupId()));
+        }
         log.info("Ticket {} status changed to {}", ticketId, newStatus);
         return saved;
     }
@@ -91,6 +109,9 @@ public class TicketService {
         ticket.setClosedAt(Instant.now());
         Ticket saved = ticketRepository.save(ticket);
         ticketHistoryService.recordClosed(ticketId, performedBy);
+        eventPublisher.publishEvent(new TicketDomainEvent(saved.getId(), saved.getPublicId(),
+                NotificationEventType.TICKET_CLOSED, performedBy,
+                saved.getCustomerId(), saved.getAssignedGroupId()));
         log.info("Ticket {} closed", ticketId);
         return saved;
     }

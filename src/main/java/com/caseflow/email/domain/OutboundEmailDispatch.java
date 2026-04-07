@@ -108,6 +108,17 @@ public class OutboundEmailDispatch {
     @Column(name = "content_was_edited", nullable = false)
     private Boolean contentWasEdited = Boolean.FALSE;
 
+    /**
+     * True when this dispatch was deliberately created as a scheduled future send.
+     * Regular immediate replies have this false.
+     */
+    @Column(name = "is_scheduled_send", nullable = false)
+    private Boolean isScheduledSend = Boolean.FALSE;
+
+    /** Populated when a scheduled dispatch is explicitly canceled. */
+    @Column(name = "canceled_at")
+    private Instant canceledAt;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -199,4 +210,10 @@ public class OutboundEmailDispatch {
     public void setContentWasEdited(Boolean contentWasEdited) { this.contentWasEdited = contentWasEdited; }
 
     public Instant getCreatedAt() { return createdAt; }
+
+    public Boolean getIsScheduledSend() { return isScheduledSend; }
+    public void setIsScheduledSend(Boolean isScheduledSend) { this.isScheduledSend = isScheduledSend; }
+
+    public Instant getCanceledAt() { return canceledAt; }
+    public void setCanceledAt(Instant canceledAt) { this.canceledAt = canceledAt; }
 }

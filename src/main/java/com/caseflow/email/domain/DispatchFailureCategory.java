@@ -18,5 +18,7 @@ public enum DispatchFailureCategory {
     /** No SMTP sender is configured at all (global sender absent and no mailbox config). */
     UNCONFIGURED,
     /** Catch-all for failures that do not fit the above categories. */
-    UNKNOWN
+    UNKNOWN,
+    /** Pre-send revalidation failed (ticket closed, dispatch canceled, etc.). */
+    REVALIDATION_FAILURE
 }
