@@ -1,10 +1,8 @@
 package com.caseflow.email.service;
 
 import com.caseflow.common.exception.TicketNotFoundException;
-import com.caseflow.email.domain.EmailIngressEvent;
 import com.caseflow.email.domain.MailTemplate;
 import com.caseflow.email.domain.OutboundEmailDispatch;
-import com.caseflow.email.repository.EmailIngressEventRepository;
 import com.caseflow.ticket.domain.Ticket;
 import com.caseflow.ticket.repository.TicketRepository;
 import com.caseflow.workflow.history.TicketHistoryService;
@@ -14,6 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Optional;
+
 
 /**
  * Orchestrates outbound customer replies for a ticket.
@@ -56,23 +55,23 @@ public class EmailReplyService {
 
     private final EmailDispatchService dispatchService;
     private final TicketRepository ticketRepository;
-    private final EmailIngressEventRepository ingressEventRepository;
     private final TicketHistoryService historyService;
     private final EmailMetrics metrics;
     private final MailTemplateService mailTemplateService;
+    private final ReplyThreadContextResolver threadContextResolver;
 
     public EmailReplyService(EmailDispatchService dispatchService,
                              TicketRepository ticketRepository,
-                             EmailIngressEventRepository ingressEventRepository,
                              TicketHistoryService historyService,
                              EmailMetrics metrics,
-                             MailTemplateService mailTemplateService) {
+                             MailTemplateService mailTemplateService,
+                             ReplyThreadContextResolver threadContextResolver) {
         this.dispatchService = dispatchService;
         this.ticketRepository = ticketRepository;
-        this.ingressEventRepository = ingressEventRepository;
         this.historyService = historyService;
         this.metrics = metrics;
         this.mailTemplateService = mailTemplateService;
+        this.threadContextResolver = threadContextResolver;
     }
 
     /**
@@ -94,32 +93,15 @@ public class EmailReplyService {
         Ticket ticket = ticketRepository.findById(ticketId)
                 .orElseThrow(() -> new TicketNotFoundException(ticketId));
 
-        // Load source event once — used for reply-target derivation AND threading headers
-        EmailIngressEvent sourceEvent = null;
-        if (sourceEventId != null) {
-            sourceEvent = ingressEventRepository.findById(sourceEventId)
-                    .orElseThrow(() -> new IllegalArgumentException("Ingress event not found: " + sourceEventId));
-        }
+        // Resolve reply-to address and RFC 2822 threading headers via shared resolver
+        ReplyThreadContext threadCtx = threadContextResolver.resolve(sourceEventId, toAddressOverride);
+        String resolvedToAddress = threadCtx.resolvedToAddress();
 
-        String resolvedToAddress = resolveReplyTarget(sourceEvent, sourceEventId, toAddressOverride);
-
-        // Derive RFC 2822 threading headers from source event when not explicitly provided
-        String resolvedInReplyTo = inReplyToMessageId;
-        String referencesHeader = null;
-        if (sourceEvent != null) {
-            if (resolvedInReplyTo == null || resolvedInReplyTo.isBlank()) {
-                resolvedInReplyTo = sourceEvent.getMessageId();
-            }
-            // Build References chain: prior chain + source messageId
-            String priorRefs = sourceEvent.getRawReferences();
-            if (priorRefs != null && !priorRefs.isBlank()) {
-                // rawReferences is stored pipe-separated; RFC 2822 References is space-separated
-                referencesHeader = priorRefs.replace("|", " ").trim()
-                        + " " + sourceEvent.getMessageId();
-            } else {
-                referencesHeader = sourceEvent.getMessageId();
-            }
-        }
+        // Caller can explicitly override In-Reply-To (e.g. preview-to-send flow)
+        String resolvedInReplyTo = (inReplyToMessageId != null && !inReplyToMessageId.isBlank())
+                ? inReplyToMessageId
+                : threadCtx.inReplyToMessageId();
+        String referencesHeader = threadCtx.referencesHeader();
 
         log.info("SMTP_SEND enqueueing reply — ticketId: {}, to: '{}', mailboxId: {}, sentBy: {}",
                 ticketId, resolvedToAddress, mailboxId, sentByUserId);
@@ -228,34 +210,4 @@ public class EmailReplyService {
         return null;
     }
 
-    private String resolveReplyTarget(EmailIngressEvent sourceEvent, Long sourceEventId,
-                                      String toAddressOverride) {
-        if (sourceEvent != null) {
-            String derived = sourceEvent.effectiveReplyTo();
-            if (derived == null || derived.isBlank()) {
-                throw new IllegalArgumentException(
-                        "Cannot derive reply target: source event " + sourceEventId
-                                + " has no From or Reply-To header");
-            }
-            return extractEmailAddress(derived);
-        }
-
-        if (toAddressOverride != null && !toAddressOverride.isBlank()) {
-            return toAddressOverride;
-        }
-
-        throw new IllegalArgumentException(
-                "Reply target cannot be determined: provide sourceEventId or toAddress");
-    }
-
-    /** Strips display name from "Display Name <email@host>" → "email@host". */
-    private String extractEmailAddress(String raw) {
-        if (raw == null) return null;
-        int start = raw.lastIndexOf('<');
-        int end = raw.lastIndexOf('>');
-        if (start >= 0 && end > start) {
-            return raw.substring(start + 1, end).trim();
-        }
-        return raw.trim();
-    }
 }

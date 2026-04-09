@@ -131,6 +131,7 @@ public class TicketReadService {
                 ticket.getCreatedAt(),
                 ticket.getUpdatedAt(),
                 ticket.getClosedAt(),
+                ticket.getStatusChangedAt(),
                 attachments,
                 history
         );
@@ -155,7 +156,8 @@ public class TicketReadService {
                 resolveGroupName(t.getAssignedGroupId()),
                 t.getCreatedAt(),
                 t.getUpdatedAt(),
-                t.getClosedAt()
+                t.getClosedAt(),
+                t.getStatusChangedAt()
         );
     }
 
@@ -193,7 +195,8 @@ public class TicketReadService {
                 t.getAssignedGroupId(),
                 t.getAssignedGroupId() != null ? groupNames.get(t.getAssignedGroupId()) : null,
                 t.getCreatedAt(),
-                t.getUpdatedAt()
+                t.getUpdatedAt(),
+                t.getStatusChangedAt()
         ));
     }
 

@@ -155,9 +155,51 @@ public class EmailDispatchService {
     }
 
     /**
-     * Enqueues a scheduled outbound email with a future {@code sendNotBefore} time.
-     * The existing scheduler query ({@code scheduledAt <= NOW()}) naturally holds
-     * the dispatch until that time without any additional infrastructure.
+     * Enqueues a scheduled outbound email with full thread-aware context.
+     *
+     * @param sourceIngressEventId inbound event being replied to; null for proactive scheduled sends
+     * @param resolvedToAddress    backend-derived recipient (from source event or explicit)
+     * @param inReplyToMessageId   RFC 2822 In-Reply-To header; null for proactive sends
+     * @param referencesHeader     RFC 2822 References chain (space-separated); null for proactive sends
+     */
+    @Transactional
+    public OutboundEmailDispatch enqueueScheduled(Long ticketId, Long mailboxId,
+                                                    Long sourceIngressEventId, Long sentByUserId,
+                                                    String fromAddress, String toAddress,
+                                                    String resolvedToAddress,
+                                                    String subject, String textBody, String htmlBody,
+                                                    String inReplyToMessageId, String referencesHeader,
+                                                    Instant sendNotBefore,
+                                                    Long appliedTemplateId, String appliedTemplateCode,
+                                                    boolean contentWasEdited) {
+        OutboundEmailDispatch dispatch = new OutboundEmailDispatch();
+        dispatch.setTicketId(ticketId);
+        dispatch.setMailboxId(mailboxId);
+        dispatch.setSourceIngressEventId(sourceIngressEventId);
+        dispatch.setSentByUserId(sentByUserId);
+        dispatch.setMessageId(generateMessageId());
+        dispatch.setFromAddress(fromAddress);
+        dispatch.setToAddress(toAddress);
+        dispatch.setResolvedToAddress(resolvedToAddress);
+        dispatch.setSubject(subject);
+        dispatch.setTextBody(textBody);
+        dispatch.setHtmlBody(htmlBody);
+        dispatch.setInReplyToMessageId(inReplyToMessageId);
+        dispatch.setReferencesHeader(referencesHeader);
+        dispatch.setAppliedTemplateId(appliedTemplateId);
+        dispatch.setAppliedTemplateCode(appliedTemplateCode);
+        dispatch.setContentWasEdited(contentWasEdited);
+        dispatch.setIsScheduledSend(Boolean.TRUE);
+        dispatch.setScheduledAt(sendNotBefore);
+        dispatch.setStatus(DispatchStatus.PENDING);
+        OutboundEmailDispatch saved = dispatchRepository.save(dispatch);
+        log.info("SMTP_SEND scheduled dispatch enqueued — dispatchId: {}, to: '{}', resolvedTo: '{}', sendAt: {}, ticketId: {}, sourceEvent: {}",
+                saved.getId(), toAddress, resolvedToAddress, sendNotBefore, ticketId, sourceIngressEventId);
+        return saved;
+    }
+
+    /**
+     * Backward-compatible overload — no threading headers (proactive send).
      */
     @Transactional
     public OutboundEmailDispatch enqueueScheduled(Long ticketId, Long mailboxId,
@@ -167,26 +209,10 @@ public class EmailDispatchService {
                                                     Instant sendNotBefore,
                                                     Long appliedTemplateId, String appliedTemplateCode,
                                                     boolean contentWasEdited) {
-        OutboundEmailDispatch dispatch = new OutboundEmailDispatch();
-        dispatch.setTicketId(ticketId);
-        dispatch.setMailboxId(mailboxId);
-        dispatch.setSentByUserId(sentByUserId);
-        dispatch.setMessageId(generateMessageId());
-        dispatch.setFromAddress(fromAddress);
-        dispatch.setToAddress(toAddress);
-        dispatch.setSubject(subject);
-        dispatch.setTextBody(textBody);
-        dispatch.setHtmlBody(htmlBody);
-        dispatch.setAppliedTemplateId(appliedTemplateId);
-        dispatch.setAppliedTemplateCode(appliedTemplateCode);
-        dispatch.setContentWasEdited(contentWasEdited);
-        dispatch.setIsScheduledSend(Boolean.TRUE);
-        dispatch.setScheduledAt(sendNotBefore);
-        dispatch.setStatus(DispatchStatus.PENDING);
-        OutboundEmailDispatch saved = dispatchRepository.save(dispatch);
-        log.info("SMTP_SEND scheduled dispatch enqueued — dispatchId: {}, to: '{}', sendAt: {}, ticketId: {}",
-                saved.getId(), toAddress, sendNotBefore, ticketId);
-        return saved;
+        return enqueueScheduled(ticketId, mailboxId, null, sentByUserId,
+                fromAddress, toAddress, toAddress,
+                subject, textBody, htmlBody, null, null,
+                sendNotBefore, appliedTemplateId, appliedTemplateCode, contentWasEdited);
     }
 
     private String generateMessageId() {

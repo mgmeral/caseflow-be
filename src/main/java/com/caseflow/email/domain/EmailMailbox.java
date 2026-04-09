@@ -91,6 +91,28 @@ public class EmailMailbox {
     @Column(name = "imap_password", length = 512)
     private String imapPassword;
 
+    // ── Auth type ──────────────────────────────────────────────────────────────
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "mail_provider", nullable = false, length = 50)
+    private MailProvider mailProvider = MailProvider.OTHER;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "auth_type", nullable = false, length = 50)
+    private AuthType authType = AuthType.PASSWORD;
+
+    // ── OAuth2 credentials (Outlook / XOAUTH2) — all write-only ───────────────
+
+    @Column(name = "oauth_tenant_id", length = 255)
+    private String oauthTenantId;
+
+    @Column(name = "oauth_client_id", length = 255)
+    private String oauthClientId;
+
+    /** Write-only. Never exposed in API responses. */
+    @Column(name = "oauth_client_secret", length = 512)
+    private String oauthClientSecret;
+
     @Column(name = "imap_use_ssl", nullable = false)
     private Boolean imapUseSsl = Boolean.FALSE;
 
@@ -279,4 +301,26 @@ public class EmailMailbox {
 
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
+
+    public MailProvider getMailProvider() { return mailProvider; }
+    public void setMailProvider(MailProvider mailProvider) { this.mailProvider = mailProvider; }
+
+    public AuthType getAuthType() { return authType; }
+    public void setAuthType(AuthType authType) { this.authType = authType; }
+
+    public String getOauthTenantId() { return oauthTenantId; }
+    public void setOauthTenantId(String oauthTenantId) { this.oauthTenantId = oauthTenantId; }
+
+    public String getOauthClientId() { return oauthClientId; }
+    public void setOauthClientId(String oauthClientId) { this.oauthClientId = oauthClientId; }
+
+    public String getOauthClientSecret() { return oauthClientSecret; }
+    public void setOauthClientSecret(String oauthClientSecret) { this.oauthClientSecret = oauthClientSecret; }
+
+    /** Derived field — true when all three OAuth2 credentials are present. */
+    public boolean isOauthConfigured() {
+        return oauthTenantId != null && !oauthTenantId.isBlank()
+                && oauthClientId != null && !oauthClientId.isBlank()
+                && oauthClientSecret != null && !oauthClientSecret.isBlank();
+    }
 }

@@ -48,7 +48,7 @@ public class SecurityConfig {
             "/api/auth/logout"
     };
 
-    @Value("${caseflow.cors.allowed-origins:http://localhost:3000,http://localhost:5173}")
+    @Value("${caseflow.cors.allowed-origins:http://localhost:3000,http://localhost:5173,http://localhost:8090}")
     private String[] allowedOrigins;
 
     private final JwtTokenService jwtTokenService;

@@ -231,13 +231,13 @@ class TicketControllerAuthTest {
         return new TicketResponse(id, null, ticketNo, "Test", null,
                 TicketStatus.NEW, TicketPriority.MEDIUM,
                 null, null, null, null, null, null,
-                Instant.now(), Instant.now(), null);
+                Instant.now(), Instant.now(), null, null);
     }
 
     private TicketSummaryResponse makeTicketSummary(Long id, String ticketNo) {
         return new TicketSummaryResponse(id, null, ticketNo, "Test",
                 TicketStatus.NEW, TicketPriority.MEDIUM,
                 null, null, null, null, null, null,
-                Instant.now(), Instant.now());
+                Instant.now(), Instant.now(), null);
     }
 }

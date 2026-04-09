@@ -3,6 +3,7 @@ package com.caseflow.email.api;
 import com.caseflow.email.api.dto.MailboxConnectionTestResponse;
 import com.caseflow.email.api.dto.MailboxRequest;
 import com.caseflow.email.api.dto.MailboxResponse;
+import com.caseflow.email.api.dto.ResetCursorRequest;
 import com.caseflow.email.api.dto.SmtpConnectionTestResponse;
 import com.caseflow.email.api.mapper.EmailMailboxMapper;
 import com.caseflow.email.domain.EmailMailbox;
@@ -95,6 +96,33 @@ public class MailboxController {
             @RequestParam(required = false, defaultValue = "false") boolean activeOnly) {
         List<EmailMailbox> mailboxes = activeOnly ? mailboxService.findActive() : mailboxService.findAll();
         return ResponseEntity.ok(mailboxMapper.toResponseList(mailboxes));
+    }
+
+    /**
+     * Triggers an immediate IMAP poll for the given mailbox.
+     * Bypasses the scheduler interval and the {@code pollingEnabled} guard.
+     * Runs synchronously — returns 204 when the poll cycle completes (success or failure).
+     * Check the mailbox {@code lastPollError} field via GET if you need the outcome.
+     */
+    @PostMapping("/{id}/poll-now")
+    @PreAuthorize("hasAuthority('PERM_EMAIL_CONFIG_MANAGE')")
+    public ResponseEntity<Void> pollNow(@PathVariable Long id) {
+        log.info("POLL_NOW POST /admin/mailboxes/{}/poll-now", id);
+        mailboxService.pollNow(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Resets the IMAP UID cursor for the given mailbox.
+     * Returns the updated mailbox state so the caller can verify the new cursor value.
+     */
+    @PostMapping("/{id}/reset-cursor")
+    @PreAuthorize("hasAuthority('PERM_EMAIL_CONFIG_MANAGE')")
+    public ResponseEntity<MailboxResponse> resetCursor(@PathVariable Long id,
+                                                        @Valid @RequestBody ResetCursorRequest request) {
+        log.info("CURSOR_RESET POST /admin/mailboxes/{}/reset-cursor — mode: {}", id, request.mode());
+        EmailMailbox updated = mailboxService.resetCursor(id, request.mode(), request.explicitUid());
+        return ResponseEntity.ok(mailboxMapper.toResponse(updated));
     }
 
     /**

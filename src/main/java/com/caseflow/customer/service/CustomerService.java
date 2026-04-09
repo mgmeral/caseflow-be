@@ -6,9 +6,11 @@ import com.caseflow.customer.domain.Customer;
 import com.caseflow.customer.repository.CustomerEmailRoutingRuleRepository;
 import com.caseflow.customer.repository.CustomerEmailSettingsRepository;
 import com.caseflow.customer.repository.CustomerRepository;
+import com.caseflow.customer.repository.CustomerSpecification;
 import com.caseflow.ticket.repository.TicketRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -35,23 +37,27 @@ public class CustomerService {
     }
 
     @Transactional
-    public Customer createCustomer(String name, String code) {
+    public Customer createCustomer(String name, String code, String colorHex) {
         log.info("Creating customer — name: '{}', code: '{}'", name, code);
         Customer customer = new Customer();
         customer.setName(name);
         customer.setCode(code);
         customer.setIsActive(true);
+        customer.setColorHex(normalizeColorHex(colorHex));
         Customer saved = customerRepository.save(customer);
         log.info("Customer created — customerId: {}", saved.getId());
         return saved;
     }
 
     @Transactional
-    public Customer updateCustomer(Long customerId, String name, String code) {
+    public Customer updateCustomer(Long customerId, String name, String code, String colorHex) {
         log.info("Updating customer {} — name: '{}', code: '{}'", customerId, name, code);
         Customer customer = findOrThrow(customerId);
         customer.setName(name);
         customer.setCode(code);
+        if (colorHex != null) {
+            customer.setColorHex(normalizeColorHex(colorHex));
+        }
         Customer saved = customerRepository.save(customer);
         log.info("Customer {} updated", customerId);
         return saved;
@@ -86,6 +92,21 @@ public class CustomerService {
     }
 
     /**
+     * Filtered listing with optional name/code search and active-status filter.
+     * Both parameters are optional; passing nulls is equivalent to {@link #findAll()}.
+     *
+     * @param search   case-insensitive substring matched against name OR code
+     * @param isActive null = all, true = active only, false = inactive only
+     */
+    @Transactional(readOnly = true)
+    public List<Customer> findFiltered(String search, Boolean isActive) {
+        Specification<Customer> spec = Specification
+                .where(CustomerSpecification.nameOrCodeContains(search))
+                .and(CustomerSpecification.hasStatus(isActive));
+        return customerRepository.findAll(spec);
+    }
+
+    /**
      * Deletes a customer and all associated email configuration (settings + routing rules).
      *
      * <p><b>Business rule</b>: delete is blocked when any ticket is linked to this customer.
@@ -109,5 +130,10 @@ public class CustomerService {
     private Customer findOrThrow(Long customerId) {
         return customerRepository.findById(customerId)
                 .orElseThrow(() -> new CustomerNotFoundException(customerId));
+    }
+
+    /** Normalizes a valid #RRGGBB color string to uppercase. Returns null for null input. */
+    private static String normalizeColorHex(String colorHex) {
+        return colorHex == null ? null : colorHex.toUpperCase();
     }
 }

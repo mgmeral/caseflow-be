@@ -20,6 +20,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -42,7 +43,7 @@ public class CustomerController {
     @PostMapping
     public ResponseEntity<CustomerResponse> createCustomer(@Valid @RequestBody CreateCustomerRequest request) {
         log.info("POST /customers — name: '{}', code: '{}'", request.name(), request.code());
-        CustomerResponse response = customerMapper.toResponse(customerService.createCustomer(request.name(), request.code()));
+        CustomerResponse response = customerMapper.toResponse(customerService.createCustomer(request.name(), request.code(), request.colorHex()));
         log.info("POST /customers succeeded — customerId: {}", response.id());
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
@@ -53,18 +54,32 @@ public class CustomerController {
         return ResponseEntity.ok(customerMapper.toResponse(customerService.getById(id)));
     }
 
+    /**
+     * Lists customers with optional filtering.
+     *
+     * @param search   case-insensitive substring matched against name or code; omit for no filter
+     * @param isActive true = active only, false = inactive only; omit for all
+     */
     @GetMapping
-    public ResponseEntity<List<CustomerSummaryResponse>> listCustomers() {
-        return ResponseEntity.ok(
-                customerService.findAll().stream().map(customerMapper::toSummaryResponse).toList()
-        );
+    public ResponseEntity<List<CustomerSummaryResponse>> listCustomers(
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) Boolean isActive) {
+        log.debug("GET /customers — search: '{}', isActive: {}", search, isActive);
+        List<CustomerSummaryResponse> results;
+        if (search == null && isActive == null) {
+            results = customerService.findAll().stream().map(customerMapper::toSummaryResponse).toList();
+        } else {
+            results = customerService.findFiltered(search, isActive).stream()
+                    .map(customerMapper::toSummaryResponse).toList();
+        }
+        return ResponseEntity.ok(results);
     }
 
     @PutMapping("/{id}")
     public ResponseEntity<CustomerResponse> updateCustomer(@PathVariable Long id,
                                                            @Valid @RequestBody UpdateCustomerRequest request) {
         log.info("PUT /customers/{}", id);
-        CustomerResponse response = customerMapper.toResponse(customerService.updateCustomer(id, request.name(), request.code()));
+        CustomerResponse response = customerMapper.toResponse(customerService.updateCustomer(id, request.name(), request.code(), request.colorHex()));
         log.info("PUT /customers/{} succeeded", id);
         return ResponseEntity.ok(response);
     }

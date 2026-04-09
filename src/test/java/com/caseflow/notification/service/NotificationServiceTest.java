@@ -1,6 +1,7 @@
 package com.caseflow.notification.service;
 
 import com.caseflow.identity.repository.UserRepository;
+import com.caseflow.notification.api.dto.NotificationResponse;
 import com.caseflow.notification.domain.NotificationType;
 import com.caseflow.notification.domain.UserNotification;
 import com.caseflow.notification.repository.UserNotificationRepository;
@@ -213,5 +214,126 @@ class NotificationServiceTest {
         int count = sut.markAllRead(3L);
 
         assertThat(count).isEqualTo(5);
+    }
+
+    // ── notifyUsersMentioned ─────────────────────────────────────────────────
+
+    @Test
+    void notifyUsersMentioned_createsNotificationForEachMentionedUser() {
+        Long noteId = 20L;
+        List<Long> mentionedIds = List.of(1L, 2L, 3L);
+        Long authorId = 99L;
+
+        when(notificationRepository.saveAll(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        sut.notifyUsersMentioned(ticketId, ticketPublicId, ticketNo,
+                noteId, mentionedIds, authorId, "Author User");
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<UserNotification>> captor = ArgumentCaptor.forClass(List.class);
+        verify(notificationRepository).saveAll(captor.capture());
+
+        List<UserNotification> saved = captor.getValue();
+        assertThat(saved).hasSize(3);
+        assertThat(saved).allMatch(n -> n.getType() == NotificationType.USER_MENTIONED_IN_NOTE);
+        assertThat(saved).allMatch(n -> noteId.equals(n.getNoteId()));
+        assertThat(saved).allMatch(n -> ticketId.equals(n.getTicketId()));
+        assertThat(saved).allMatch(n -> !n.getIsRead());
+        assertThat(saved).extracting(UserNotification::getUserId)
+                .containsExactlyInAnyOrder(1L, 2L, 3L);
+    }
+
+    @Test
+    void notifyUsersMentioned_skipsAuthor_onSelfMention() {
+        Long noteId = 21L;
+        Long authorId = 5L;
+        // Author is in the mention list — should be filtered out
+        List<Long> mentionedIds = List.of(authorId, 6L, 7L);
+
+        when(notificationRepository.saveAll(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        sut.notifyUsersMentioned(ticketId, ticketPublicId, ticketNo,
+                noteId, mentionedIds, authorId, "Author");
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<UserNotification>> captor = ArgumentCaptor.forClass(List.class);
+        verify(notificationRepository).saveAll(captor.capture());
+
+        // Only 2 notifications — author skipped
+        assertThat(captor.getValue()).hasSize(2);
+        assertThat(captor.getValue()).extracting(UserNotification::getUserId)
+                .containsExactlyInAnyOrder(6L, 7L);
+    }
+
+    @Test
+    void notifyUsersMentioned_doesNothing_whenMentionListIsEmpty() {
+        sut.notifyUsersMentioned(ticketId, ticketPublicId, ticketNo,
+                1L, List.of(), 99L, "Actor");
+
+        verify(notificationRepository, never()).saveAll(any());
+    }
+
+    @Test
+    void notifyUsersMentioned_doesNothing_whenMentionListIsNull() {
+        sut.notifyUsersMentioned(ticketId, ticketPublicId, ticketNo,
+                1L, null, 99L, "Actor");
+
+        verify(notificationRepository, never()).saveAll(any());
+    }
+
+    // ── NotificationResponse.noteId ──────────────────────────────────────────
+
+    @Test
+    void notificationResponse_includesNoteId_forMentionNotification() {
+        UserNotification n = new UserNotification();
+        n.setUserId(3L);
+        n.setType(NotificationType.USER_MENTIONED_IN_NOTE);
+        n.setTitle("You were mentioned");
+        n.setMessage("...");
+        n.setTicketId(ticketId);
+        n.setTicketPublicId(ticketPublicId);
+        n.setTicketNo(ticketNo);
+        n.setNoteId(42L);
+
+        NotificationResponse response = NotificationResponse.from(n);
+
+        assertThat(response.noteId()).isEqualTo(42L);
+        assertThat(response.type()).isEqualTo(NotificationType.USER_MENTIONED_IN_NOTE);
+    }
+
+    @Test
+    void notificationResponse_noteIdIsNull_forNonMentionNotification() {
+        UserNotification n = new UserNotification();
+        n.setUserId(3L);
+        n.setType(NotificationType.TICKET_ASSIGNED_TO_USER);
+        n.setTitle("Ticket assigned");
+        n.setMessage("...");
+        n.setTicketId(ticketId);
+        n.setTicketPublicId(ticketPublicId);
+        n.setTicketNo(ticketNo);
+        // noteId not set — remains null
+
+        NotificationResponse response = NotificationResponse.from(n);
+
+        assertThat(response.noteId()).isNull();
+        assertThat(response.type()).isEqualTo(NotificationType.TICKET_ASSIGNED_TO_USER);
+    }
+
+    @Test
+    void notifyUsersMentioned_setsNoteIdOnEachNotification() {
+        Long noteId = 55L;
+        List<Long> mentionedIds = List.of(10L, 11L);
+        Long authorId = 99L;
+
+        when(notificationRepository.saveAll(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        sut.notifyUsersMentioned(ticketId, ticketPublicId, ticketNo,
+                noteId, mentionedIds, authorId, "Actor");
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<UserNotification>> captor = ArgumentCaptor.forClass(List.class);
+        verify(notificationRepository).saveAll(captor.capture());
+
+        assertThat(captor.getValue()).allMatch(n -> noteId.equals(n.getNoteId()));
     }
 }

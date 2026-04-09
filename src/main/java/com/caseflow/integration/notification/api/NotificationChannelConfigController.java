@@ -4,6 +4,7 @@ import com.caseflow.auth.CaseFlowUserDetails;
 import com.caseflow.integration.notification.api.dto.ChannelConfigRequest;
 import com.caseflow.integration.notification.api.dto.ChannelConfigResponse;
 import com.caseflow.integration.notification.domain.NotificationChannelConfig;
+import com.caseflow.integration.notification.domain.NotificationEventType;
 import com.caseflow.integration.notification.service.NotificationChannelConfigService;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
@@ -81,5 +82,15 @@ public class NotificationChannelConfigController {
     public ResponseEntity<Void> delete(@PathVariable Long id) {
         configService.delete(id);
         return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Returns the backend-supported event type catalog.
+     * FE uses this to enumerate valid event options in channel config UI.
+     * Only values returned here are accepted for channel subscriptions.
+     */
+    @GetMapping("/event-catalog")
+    public ResponseEntity<List<String>> getEventCatalog() {
+        return ResponseEntity.ok(NotificationEventType.supportedValues());
     }
 }

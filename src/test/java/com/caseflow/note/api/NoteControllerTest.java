@@ -23,6 +23,8 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
+import com.caseflow.note.api.dto.UserSummary;
+
 import java.time.Instant;
 import java.util.List;
 
@@ -70,11 +72,12 @@ class NoteControllerTest {
     @Test
     @WithMockUser(authorities = "PERM_INTERNAL_NOTE_ADD")
     void addNote_returns201_withValidRequest() throws Exception {
-        AddNoteRequest request = new AddNoteRequest(10L, "Investigation started.", NoteType.INVESTIGATION);
+        AddNoteRequest request = new AddNoteRequest(10L, "Investigation started.", NoteType.INVESTIGATION, null);
         Note note = buildNote(1L, 10L);
-        NoteResponse response = new NoteResponse(1L, 10L, "Investigation started.", NoteType.INVESTIGATION, 1L, Instant.now());
+        NoteResponse response = new NoteResponse(1L, 10L, "Investigation started.",
+                NoteType.INVESTIGATION, 1L, null, List.of(), Instant.now());
 
-        when(noteService.addNote(any(), any(), any(), anyLong())).thenReturn(note);
+        when(noteService.addNote(any(), any(), any(), anyLong(), any())).thenReturn(note);
         when(noteMapper.toResponse(note)).thenReturn(response);
 
         mockMvc.perform(post("/api/notes")
@@ -89,7 +92,7 @@ class NoteControllerTest {
     @Test
     @WithMockUser(authorities = "PERM_INTERNAL_NOTE_ADD")
     void addNote_returns400_whenContentIsBlank() throws Exception {
-        AddNoteRequest request = new AddNoteRequest(10L, "", NoteType.INFO);
+        AddNoteRequest request = new AddNoteRequest(10L, "", NoteType.INFO, null);
 
         mockMvc.perform(post("/api/notes")
                         .with(csrf())
@@ -103,7 +106,8 @@ class NoteControllerTest {
     @WithMockUser(authorities = "PERM_TICKET_READ")
     void getById_returns200_whenFound() throws Exception {
         Note note = buildNote(5L, 10L);
-        NoteResponse response = new NoteResponse(5L, 10L, "Some content.", NoteType.INFO, 1L, Instant.now());
+        NoteResponse response = new NoteResponse(5L, 10L, "Some content.", NoteType.INFO, 1L,
+                null, List.of(), Instant.now());
 
         when(noteService.getById(5L)).thenReturn(note);
         when(noteMapper.toResponse(note)).thenReturn(response);
@@ -127,7 +131,8 @@ class NoteControllerTest {
     @WithMockUser(authorities = "PERM_TICKET_READ")
     void getByTicket_returns200_withNoteList() throws Exception {
         Note n = buildNote(1L, 10L);
-        NoteResponse r = new NoteResponse(1L, 10L, "Content.", NoteType.INFO, 1L, Instant.now());
+        NoteResponse r = new NoteResponse(1L, 10L, "Content.", NoteType.INFO, 1L,
+                null, List.of(), Instant.now());
 
         when(noteService.listByTicket(10L)).thenReturn(List.of(n));
         when(noteMapper.toResponseList(any())).thenReturn(List.of(r));
@@ -141,6 +146,48 @@ class NoteControllerTest {
     void getByTicket_returns401_whenUnauthenticated() throws Exception {
         mockMvc.perform(get("/api/notes/by-ticket/10"))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @WithMockUser(authorities = "PERM_TICKET_READ")
+    void getByTicket_responseIncludesCreatedByUserAndMentions() throws Exception {
+        Note n = buildNote(1L, 10L);
+        UserSummary author = new UserSummary(1L, "alice", "Alice Smith");
+        UserSummary mentioned = new UserSummary(2L, "bob", "Bob Jones");
+
+        NoteResponse r = new NoteResponse(1L, 10L, "Hey @bob.", NoteType.INTERNAL,
+                1L, author, List.of(mentioned), Instant.now());
+
+        when(noteService.listByTicket(10L)).thenReturn(List.of(n));
+        when(noteMapper.toResponseList(any())).thenReturn(List.of(r));
+
+        mockMvc.perform(get("/api/notes/by-ticket/10"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].createdByUser.username").value("alice"))
+                .andExpect(jsonPath("$[0].mentions[0].username").value("bob"));
+    }
+
+    @Test
+    @WithMockUser(authorities = "PERM_INTERNAL_NOTE_ADD")
+    void addNote_responseIncludesCreatedByUser_afterCreate() throws Exception {
+        AddNoteRequest request = new AddNoteRequest(10L, "Hello @charlie.", NoteType.INTERNAL, List.of(3L));
+        Note note = buildNote(2L, 10L);
+        UserSummary author = new UserSummary(1L, "alice", "Alice Smith");
+        UserSummary charlie = new UserSummary(3L, "charlie", "Charlie Dev");
+        NoteResponse response = new NoteResponse(2L, 10L, "Hello @charlie.", NoteType.INTERNAL,
+                1L, author, List.of(charlie), Instant.now());
+
+        when(noteService.addNote(any(), any(), any(), anyLong(), any())).thenReturn(note);
+        when(noteMapper.toResponse(note)).thenReturn(response);
+
+        mockMvc.perform(post("/api/notes")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.createdByUser.username").value("alice"))
+                .andExpect(jsonPath("$.mentions[0].username").value("charlie"))
+                .andExpect(jsonPath("$.mentions[0].displayName").value("Charlie Dev"));
     }
 
     private Note buildNote(Long id, Long ticketId) {

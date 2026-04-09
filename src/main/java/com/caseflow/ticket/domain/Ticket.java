@@ -64,11 +64,21 @@ public class Ticket {
     @Column(name = "closed_at")
     private Instant closedAt;
 
+    /**
+     * When the current {@link TicketStatus} was entered.
+     * Updated whenever {@link #setStatus(TicketStatus)} is called.
+     * NULL for tickets created before V28 migration.
+     * Semantics: "how long has this ticket been in its current state?"
+     */
+    @Column(name = "status_changed_at")
+    private Instant statusChangedAt;
+
     @PrePersist
     private void onCreate() {
         if (publicId == null) publicId = UUID.randomUUID();
         createdAt = Instant.now();
         updatedAt = Instant.now();
+        statusChangedAt = Instant.now();
     }
 
     @PreUpdate
@@ -113,6 +123,9 @@ public class Ticket {
     }
 
     public void setStatus(TicketStatus status) {
+        if (this.status != status) {
+            this.statusChangedAt = Instant.now();
+        }
         this.status = status;
     }
 
@@ -162,5 +175,9 @@ public class Ticket {
 
     public void setClosedAt(Instant closedAt) {
         this.closedAt = closedAt;
+    }
+
+    public Instant getStatusChangedAt() {
+        return statusChangedAt;
     }
 }

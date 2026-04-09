@@ -58,6 +58,10 @@ public class UserNotification {
     @Column(name = "actor_user_id")
     private Long actorUserId;
 
+    /** Source note id for USER_MENTIONED_IN_NOTE notifications; null for other types. */
+    @Column(name = "note_id")
+    private Long noteId;
+
     @Column(name = "is_read", nullable = false)
     private boolean isRead = false;
 
@@ -100,6 +104,9 @@ public class UserNotification {
 
     public Long getActorUserId() { return actorUserId; }
     public void setActorUserId(Long actorUserId) { this.actorUserId = actorUserId; }
+
+    public Long getNoteId() { return noteId; }
+    public void setNoteId(Long noteId) { this.noteId = noteId; }
 
     public boolean getIsRead() { return isRead; }
     public void setIsRead(boolean isRead) { this.isRead = isRead; }

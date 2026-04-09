@@ -4,7 +4,10 @@ import com.caseflow.common.exception.InvalidMailboxConfigException;
 import com.caseflow.common.exception.MailboxNotFoundException;
 import com.caseflow.email.api.dto.MailboxConnectionTestResponse;
 import com.caseflow.email.api.dto.SmtpConnectionTestResponse;
+import com.caseflow.email.domain.AuthType;
+import com.caseflow.email.domain.CursorResetMode;
 import com.caseflow.email.domain.EmailMailbox;
+import com.caseflow.email.domain.InitialSyncStrategy;
 import com.caseflow.email.domain.ProviderType;
 import com.caseflow.email.repository.EmailMailboxRepository;
 import org.slf4j.Logger;
@@ -80,6 +83,17 @@ public class EmailMailboxService {
         existing.setPollIntervalSeconds(updates.getPollIntervalSeconds());
         if (updates.getInitialSyncStrategy() != null) {
             existing.setInitialSyncStrategy(updates.getInitialSyncStrategy());
+        }
+
+        // Mail provider / auth type
+        existing.setMailProvider(updates.getMailProvider());
+        existing.setAuthType(updates.getAuthType());
+
+        // OAuth2 — only update credentials when new values are provided
+        existing.setOauthTenantId(updates.getOauthTenantId());
+        existing.setOauthClientId(updates.getOauthClientId());
+        if (updates.getOauthClientSecret() != null) {
+            existing.setOauthClientSecret(updates.getOauthClientSecret());
         }
 
         // Validate the merged state
@@ -160,14 +174,91 @@ public class EmailMailboxService {
                             + mailbox.getProviderType() + ")",
                     Instant.now());
         }
-        if (mailbox.getImapHost() == null || mailbox.getImapUsername() == null
-                || mailbox.getImapPassword() == null) {
-            return new MailboxConnectionTestResponse(false,
-                    "Incomplete IMAP configuration — host, username, and password are required",
-                    Instant.now());
+
+        AuthType authType = mailbox.getAuthType() != null ? mailbox.getAuthType() : AuthType.PASSWORD;
+        if (authType == AuthType.PASSWORD) {
+            if (mailbox.getImapHost() == null || mailbox.getImapUsername() == null
+                    || mailbox.getImapPassword() == null) {
+                return new MailboxConnectionTestResponse(false,
+                        "Incomplete IMAP configuration — host, username, and password are required for authType=PASSWORD",
+                        Instant.now());
+            }
+        } else if (authType == AuthType.OAUTH2) {
+            if (mailbox.getImapHost() == null || mailbox.getImapUsername() == null) {
+                return new MailboxConnectionTestResponse(false,
+                        "Incomplete IMAP configuration — host and username are required for authType=OAUTH2",
+                        Instant.now());
+            }
+            if (mailbox.getOauthTenantId() == null || mailbox.getOauthClientId() == null
+                    || mailbox.getOauthClientSecret() == null) {
+                return new MailboxConnectionTestResponse(false,
+                        "Incomplete OAuth2 configuration — oauthTenantId, oauthClientId, and oauthClientSecret are required for authType=OAUTH2",
+                        Instant.now());
+            }
         }
 
         return imapPoller.testImapConnection(mailbox);
+    }
+
+    /**
+     * Triggers an immediate IMAP poll for the given mailbox, bypassing the
+     * {@code pollingEnabled} guard and the scheduler interval check.
+     *
+     * <p>Intended for operator-initiated recovery. The poll runs synchronously;
+     * all lifecycle state (lastPollAt, lastPollError, lease) is updated before returning.
+     * Returns gracefully on connection failure — check {@code lastPollError} in the response.
+     *
+     * @throws IllegalStateException if the mailbox has no IMAP configuration
+     */
+    public void pollNow(Long mailboxId) {
+        EmailMailbox mailbox = findOrThrow(mailboxId);
+        if (mailbox.getImapHost() == null || mailbox.getImapUsername() == null) {
+            throw new IllegalStateException(
+                    "Mailbox " + mailboxId + " has no IMAP configuration — cannot poll");
+        }
+        log.info("POLL_NOW operator-triggered — mailboxId: {}", mailboxId);
+        imapPoller.forcePoll(mailbox);
+    }
+
+    /**
+     * Resets the IMAP cursor (lastSeenUid) for the given mailbox.
+     *
+     * <ul>
+     *   <li>{@code CLEAR_FOR_REINIT} — sets lastSeenUid = null; next poll re-enters initial sync
+     *       using the mailbox's existing {@code initialSyncStrategy}.</li>
+     *   <li>{@code SET_TO_LATEST} — sets lastSeenUid = null and initialSyncStrategy =
+     *       NEW_MESSAGES_ONLY; next poll will advance to the current inbox top without
+     *       ingesting historical messages.</li>
+     *   <li>{@code SET_EXPLICIT_UID} — sets lastSeenUid to the provided value; next poll
+     *       processes messages with UID &gt; explicitUid.</li>
+     * </ul>
+     *
+     * @return the updated mailbox entity
+     */
+    @Transactional
+    public EmailMailbox resetCursor(Long mailboxId, CursorResetMode mode, Long explicitUid) {
+        EmailMailbox mailbox = findOrThrow(mailboxId);
+        switch (mode) {
+            case CLEAR_FOR_REINIT -> {
+                mailbox.setLastSeenUid(null);
+                log.info("CURSOR_RESET CLEAR_FOR_REINIT — mailboxId: {}", mailboxId);
+            }
+            case SET_TO_LATEST -> {
+                mailbox.setLastSeenUid(null);
+                mailbox.setInitialSyncStrategy(InitialSyncStrategy.NEW_MESSAGES_ONLY);
+                log.info("CURSOR_RESET SET_TO_LATEST — mailboxId: {} (next poll will advance to latest without ingesting history)",
+                        mailboxId);
+            }
+            case SET_EXPLICIT_UID -> {
+                if (explicitUid == null) {
+                    throw new IllegalArgumentException(
+                            "explicitUid is required for CursorResetMode.SET_EXPLICIT_UID");
+                }
+                mailbox.setLastSeenUid(explicitUid);
+                log.info("CURSOR_RESET SET_EXPLICIT_UID — mailboxId: {}, uid: {}", mailboxId, explicitUid);
+            }
+        }
+        return mailboxRepository.save(mailbox);
     }
 
     /**

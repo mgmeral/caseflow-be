@@ -9,5 +9,7 @@ public enum NotificationType {
     /** Ticket first-assigned to this specific user. */
     TICKET_ASSIGNED_TO_USER,
     /** Ticket reassigned to this specific user from someone else. */
-    TICKET_REASSIGNED_TO_USER
+    TICKET_REASSIGNED_TO_USER,
+    /** User was @mentioned in an INTERNAL note on a ticket. */
+    USER_MENTIONED_IN_NOTE
 }

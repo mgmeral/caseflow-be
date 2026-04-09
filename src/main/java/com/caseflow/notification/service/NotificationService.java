@@ -107,6 +107,44 @@ public class NotificationService {
     }
 
     /**
+     * Creates an unread {@link NotificationType#USER_MENTIONED_IN_NOTE} notification for each
+     * mentioned user. Skips if the actor mentioned themselves (self-mention produces no notification).
+     *
+     * @param ticketId       internal ticket id
+     * @param ticketPublicId stable public UUID
+     * @param ticketNo       human-readable ticket reference
+     * @param noteId         the note containing the mention
+     * @param mentionedUserIds users to notify (already deduplicated by caller)
+     * @param actorUserId    user who created the note (self-mention guard applied here)
+     * @param actorDisplayName display name used in the notification title
+     */
+    @Transactional
+    public void notifyUsersMentioned(Long ticketId, UUID ticketPublicId, String ticketNo,
+                                     Long noteId, List<Long> mentionedUserIds,
+                                     Long actorUserId, String actorDisplayName) {
+        if (mentionedUserIds == null || mentionedUserIds.isEmpty()) return;
+
+        String title = actorDisplayName + " mentioned you in a note";
+        String message = actorDisplayName + " mentioned you in an internal note on ticket " + ticketNo;
+
+        List<UserNotification> notifications = mentionedUserIds.stream()
+                .filter(userId -> !userId.equals(actorUserId)) // self-mention → no notification
+                .map(userId -> {
+                    UserNotification n = build(userId, NotificationType.USER_MENTIONED_IN_NOTE,
+                            title, message, ticketId, ticketPublicId, ticketNo, null, actorUserId);
+                    n.setNoteId(noteId);
+                    return n;
+                })
+                .toList();
+
+        if (!notifications.isEmpty()) {
+            notificationRepository.saveAll(notifications);
+            log.info("NOTIFICATION_CREATED type: USER_MENTIONED_IN_NOTE, noteId: {}, ticketId: {}, recipientCount: {}",
+                    noteId, ticketId, notifications.size());
+        }
+    }
+
+    /**
      * Marks all unread notifications for the given user+ticket as read.
      * Called when a user opens the ticket detail view.
      *

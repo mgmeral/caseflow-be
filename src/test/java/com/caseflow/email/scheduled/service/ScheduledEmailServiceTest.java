@@ -6,6 +6,8 @@ import com.caseflow.email.domain.OutboundEmailDispatch;
 import com.caseflow.email.repository.EmailMailboxRepository;
 import com.caseflow.email.repository.OutboundEmailDispatchRepository;
 import com.caseflow.email.service.EmailDispatchService;
+import com.caseflow.email.service.ReplyThreadContext;
+import com.caseflow.email.service.ReplyThreadContextResolver;
 import com.caseflow.ticket.domain.Ticket;
 import com.caseflow.ticket.domain.TicketPriority;
 import com.caseflow.ticket.domain.TicketStatus;
@@ -42,6 +44,7 @@ class ScheduledEmailServiceTest {
     @Mock private TicketRepository ticketRepository;
     @Mock private OutboundEmailDispatchRepository dispatchRepository;
     @Mock private TicketHistoryService historyService;
+    @Mock private ReplyThreadContextResolver threadContextResolver;
 
     @InjectMocks
     private ScheduledEmailService service;
@@ -127,10 +130,14 @@ class ScheduledEmailServiceTest {
     void scheduleEmail_createsDispatch_forValidRequest() {
         UUID publicId = UUID.randomUUID();
         Instant sendAt = Instant.now().plus(2, ChronoUnit.HOURS);
+        ReplyThreadContext threadCtx = new ReplyThreadContext("to@example.com", null, null, null);
 
         when(ticketRepository.findByPublicId(publicId)).thenReturn(Optional.of(openTicket));
         when(mailboxRepository.findById(1L)).thenReturn(Optional.of(activeMailbox));
-        when(dispatchService.enqueueScheduled(any(), any(), any(), any(), any(), any(), any(), any(),
+        when(threadContextResolver.resolve(null, "to@example.com")).thenReturn(threadCtx);
+        when(dispatchService.enqueueScheduled(
+                any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(),
                 eq(sendAt), any(), any(), anyBoolean())).thenReturn(dispatch);
 
         OutboundEmailDispatch result = service.scheduleEmail(publicId, 1L, "to@example.com",
@@ -138,6 +145,49 @@ class ScheduledEmailServiceTest {
 
         assertThat(result).isSameAs(dispatch);
         verify(historyService).recordScheduledEmailCreated(any(), any(), any(), anyString(), eq(sendAt), eq(42L));
+    }
+
+    @Test
+    void scheduleEmail_throwsIllegalArgument_whenNeitherSourceEventIdNorToAddress() {
+        UUID publicId = UUID.randomUUID();
+        Instant sendAt = Instant.now().plus(1, ChronoUnit.HOURS);
+
+        assertThatThrownBy(() -> service.scheduleEmail(publicId, 1L,
+                null, null,
+                "Subject", "body", null,
+                sendAt, 42L, null, null, false))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("sourceEventId");
+    }
+
+    @Test
+    void scheduleEmail_withSourceEventId_populatesThreadContextFromResolver() {
+        UUID publicId = UUID.randomUUID();
+        Instant sendAt = Instant.now().plus(2, ChronoUnit.HOURS);
+        Long sourceEventId = 77L;
+        ReplyThreadContext threadCtx = new ReplyThreadContext(
+                "customer@example.com",
+                "<original@mail.example.com>",
+                "<original@mail.example.com>",
+                sourceEventId);
+
+        when(ticketRepository.findByPublicId(publicId)).thenReturn(Optional.of(openTicket));
+        when(mailboxRepository.findById(1L)).thenReturn(Optional.of(activeMailbox));
+        when(threadContextResolver.resolve(sourceEventId, null)).thenReturn(threadCtx);
+        when(dispatchService.enqueueScheduled(
+                any(), any(), eq(sourceEventId), any(),
+                any(), eq("customer@example.com"), eq("customer@example.com"),
+                any(), any(), any(),
+                eq("<original@mail.example.com>"), eq("<original@mail.example.com>"),
+                eq(sendAt), any(), any(), anyBoolean())).thenReturn(dispatch);
+
+        OutboundEmailDispatch result = service.scheduleEmail(publicId, 1L,
+                sourceEventId, null,
+                "Re: Your ticket", "body text", null,
+                sendAt, 42L, null, null, false);
+
+        assertThat(result).isSameAs(dispatch);
+        verify(threadContextResolver).resolve(sourceEventId, null);
     }
 
     // ── cancelScheduledEmail ──────────────────────────────────────────────────

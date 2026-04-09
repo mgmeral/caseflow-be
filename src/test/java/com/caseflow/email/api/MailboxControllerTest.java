@@ -6,7 +6,9 @@ import com.caseflow.common.security.SecurityConfig;
 import com.caseflow.email.api.dto.MailboxConnectionTestResponse;
 import com.caseflow.email.api.dto.MailboxRequest;
 import com.caseflow.email.api.dto.MailboxResponse;
+import com.caseflow.email.api.dto.ResetCursorRequest;
 import com.caseflow.email.api.mapper.EmailMailboxMapper;
+import com.caseflow.email.domain.CursorResetMode;
 import com.caseflow.email.domain.EmailMailbox;
 import com.caseflow.email.domain.InboundMode;
 import com.caseflow.email.domain.InitialSyncStrategy;
@@ -223,6 +225,74 @@ class MailboxControllerTest {
                 .andExpect(status().isForbidden());
     }
 
+    // ── POST /api/admin/mailboxes/{id}/poll-now ───────────────────────────────
+
+    @Test
+    @WithMockUser(authorities = "PERM_EMAIL_CONFIG_MANAGE")
+    void pollNow_returns204_onSuccess() throws Exception {
+        mockMvc.perform(post("/api/admin/mailboxes/1/poll-now").with(csrf()))
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
+    void pollNow_returns401_whenUnauthenticated() throws Exception {
+        mockMvc.perform(post("/api/admin/mailboxes/1/poll-now").with(csrf()))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @WithMockUser(authorities = "PERM_EMAIL_CONFIG_VIEW")
+    void pollNow_returns403_whenMissingEmailConfigManage() throws Exception {
+        mockMvc.perform(post("/api/admin/mailboxes/1/poll-now").with(csrf()))
+                .andExpect(status().isForbidden());
+    }
+
+    // ── POST /api/admin/mailboxes/{id}/reset-cursor ───────────────────────────
+
+    @Test
+    @WithMockUser(authorities = "PERM_EMAIL_CONFIG_MANAGE")
+    void resetCursor_clearForReinit_returns200_withUpdatedMailbox() throws Exception {
+        MailboxResponse response = makeResponse(1L, "support@caseflow.dev");
+        when(mailboxService.resetCursor(1L, CursorResetMode.CLEAR_FOR_REINIT, null))
+                .thenReturn(new EmailMailbox());
+        when(mailboxMapper.toResponse(any())).thenReturn(response);
+
+        ResetCursorRequest body = new ResetCursorRequest(CursorResetMode.CLEAR_FOR_REINIT, null);
+        mockMvc.perform(post("/api/admin/mailboxes/1/reset-cursor")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(1));
+    }
+
+    @Test
+    @WithMockUser(authorities = "PERM_EMAIL_CONFIG_MANAGE")
+    void resetCursor_setExplicitUid_returns200() throws Exception {
+        MailboxResponse response = makeResponse(1L, "support@caseflow.dev");
+        when(mailboxService.resetCursor(1L, CursorResetMode.SET_EXPLICIT_UID, 500L))
+                .thenReturn(new EmailMailbox());
+        when(mailboxMapper.toResponse(any())).thenReturn(response);
+
+        ResetCursorRequest body = new ResetCursorRequest(CursorResetMode.SET_EXPLICIT_UID, 500L);
+        mockMvc.perform(post("/api/admin/mailboxes/1/reset-cursor")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.address").value("support@caseflow.dev"));
+    }
+
+    @Test
+    void resetCursor_returns401_whenUnauthenticated() throws Exception {
+        ResetCursorRequest body = new ResetCursorRequest(CursorResetMode.SET_TO_LATEST, null);
+        mockMvc.perform(post("/api/admin/mailboxes/1/reset-cursor")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isUnauthorized());
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private MailboxRequest makeRequest() {
@@ -234,7 +304,9 @@ class MailboxControllerTest {
                 null, null, null, null, null, null,
                 // IMAP
                 null, null, null, null, null, null, false, null,
-                InitialSyncStrategy.NEW_MESSAGES_ONLY);
+                InitialSyncStrategy.NEW_MESSAGES_ONLY,
+                // mailProvider, authType, oauthTenantId, oauthClientId, oauthClientSecret
+                null, null, null, null, null);
     }
 
     private MailboxResponse makeResponse(Long id, String address) {
@@ -247,6 +319,8 @@ class MailboxControllerTest {
                 null, null, null, null, null, false, null,
                 InitialSyncStrategy.NEW_MESSAGES_ONLY,
                 null, null, null,
+                // mailProvider, authType, oauthTenantId, oauthClientId, oauthConfigured
+                null, null, null, null, null,
                 // timestamps
                 null, null, Instant.now(), Instant.now());
     }

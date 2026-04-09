@@ -7,6 +7,7 @@ public record CustomerResponse(
         String name,
         String code,
         Boolean isActive,
+        String colorHex,
         Instant createdAt,
         Instant updatedAt
 ) {}

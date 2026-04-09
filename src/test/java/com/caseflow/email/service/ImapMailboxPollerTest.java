@@ -70,26 +70,64 @@ class ImapMailboxPollerTest {
         verify(mailboxRepository, never()).save(any());
     }
 
-    // ── Guard: missing credentials ────────────────────────────────────────────
+    // ── Guard: missing credentials (inside try — lifecycle still runs) ─────────
 
     @Test
-    void pollMailbox_skips_whenImapHostIsNull() {
+    void pollMailbox_missingImapHost_setsLastPollErrorAndSavesMailbox() {
         mailbox.setImapHost(null);
 
         poller.pollMailbox(mailbox);
 
         verify(ingressService, never()).receiveEvent(any());
-        verify(mailboxRepository, never()).save(any());
+        verify(mailboxRepository).save(mailbox);
+        assertThat(mailbox.getLastPollError()).isNotNull();
+        assertThat(mailbox.getLastPollAt()).isNotNull();
     }
 
     @Test
-    void pollMailbox_skips_whenImapUsernameIsNull() {
+    void pollMailbox_missingImapUsername_setsLastPollErrorAndSavesMailbox() {
         mailbox.setImapUsername(null);
 
         poller.pollMailbox(mailbox);
 
         verify(ingressService, never()).receiveEvent(any());
-        verify(mailboxRepository, never()).save(any());
+        verify(mailboxRepository).save(mailbox);
+        assertThat(mailbox.getLastPollError()).isNotNull();
+        assertThat(mailbox.getLastPollAt()).isNotNull();
+    }
+
+    @Test
+    void pollMailbox_missingImapHost_releasesLease() {
+        mailbox.setImapHost(null);
+        mailbox.setPollLockedBy("instance-xyz");
+        mailbox.setPollLeasedUntil(Instant.now().plusSeconds(300));
+
+        poller.pollMailbox(mailbox);
+
+        assertThat(mailbox.getPollLockedBy()).isNull();
+        assertThat(mailbox.getPollLeasedUntil()).isNull();
+        verify(mailboxRepository).save(mailbox);
+    }
+
+    // ── forcePoll: bypasses pollingEnabled guard ──────────────────────────────
+
+    @Test
+    void forcePoll_bypassesPollingEnabledGuard_attemptsConnection() throws Exception {
+        int port;
+        try (ServerSocket s = new ServerSocket(0)) {
+            port = s.getLocalPort();
+        }
+        mailbox.setPollingEnabled(false); // would normally skip poll
+        mailbox.setImapHost("localhost");
+        mailbox.setImapPort(port);
+        mailbox.setImapUseSsl(false);
+
+        poller.forcePoll(mailbox);
+
+        // Connection attempted (and failed) — lifecycle state must be recorded
+        verify(mailboxRepository).save(mailbox);
+        assertThat(mailbox.getLastPollError()).isNotNull();
+        assertThat(mailbox.getLastPollAt()).isNotNull();
     }
 
     // ── Connection failure → lastPollError set, lease released ───────────────

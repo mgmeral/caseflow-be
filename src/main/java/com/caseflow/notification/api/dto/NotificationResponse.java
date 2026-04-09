@@ -17,6 +17,8 @@ public record NotificationResponse(
         String ticketNo,
         Long groupId,
         Long actorUserId,
+        /** Source note id. Non-null only for USER_MENTIONED_IN_NOTE; allows FE to deep-link to the note. */
+        Long noteId,
         boolean isRead,
         Instant readAt,
         Instant createdAt
@@ -33,6 +35,7 @@ public record NotificationResponse(
                 n.getTicketNo(),
                 n.getGroupId(),
                 n.getActorUserId(),
+                n.getNoteId(),
                 n.getIsRead(),
                 n.getReadAt(),
                 n.getCreatedAt()

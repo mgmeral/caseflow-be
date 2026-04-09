@@ -44,7 +44,8 @@ public class NoteController {
         Long userId = SecurityContextHelper.requireCurrentUserId();
         log.info("POST /notes — ticketId: {}, type: {}, userId: {}", request.ticketId(), request.type(), userId);
         NoteResponse response = noteMapper.toResponse(noteService.addNote(
-                request.ticketId(), request.content(), request.type(), userId));
+                request.ticketId(), request.content(), request.type(), userId,
+                request.mentionedUserIds()));
         log.info("POST /notes succeeded — noteId: {}, ticketId: {}", response.id(), request.ticketId());
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }

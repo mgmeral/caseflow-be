@@ -22,5 +22,7 @@ public record TicketResponse(
         String assignedGroupName,
         Instant createdAt,
         Instant updatedAt,
-        Instant closedAt
+        Instant closedAt,
+        /** When the current status was entered. Null for tickets pre-dating V28 migration. */
+        Instant statusChangedAt
 ) {}

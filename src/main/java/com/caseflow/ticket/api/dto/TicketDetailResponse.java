@@ -24,6 +24,8 @@ public record TicketDetailResponse(
         Instant createdAt,
         Instant updatedAt,
         Instant closedAt,
+        /** When the current status was entered. Null for tickets pre-dating V28 migration. */
+        Instant statusChangedAt,
         List<AttachmentMetadataResponse> attachments,
         List<HistorySummaryResponse> history
 ) {}

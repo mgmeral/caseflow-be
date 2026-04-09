@@ -1,8 +1,10 @@
 package com.caseflow.email.service;
 
 import com.caseflow.common.exception.InvalidMailboxConfigException;
+import com.caseflow.email.domain.AuthType;
 import com.caseflow.email.domain.EmailMailbox;
 import com.caseflow.email.domain.InboundMode;
+import com.caseflow.email.domain.MailProvider;
 import com.caseflow.email.domain.ProviderType;
 import org.springframework.stereotype.Service;
 
@@ -48,7 +50,14 @@ public class MailboxValidationService {
             }
         }
 
-        // Rule 3: IMAP polling mode requires complete IMAP credentials
+        // Rule 3: Outlook always requires OAUTH2
+        if (mailbox.getMailProvider() == MailProvider.OUTLOOK
+                && mailbox.getAuthType() != AuthType.OAUTH2) {
+            throw new InvalidMailboxConfigException(
+                    "mailProvider=OUTLOOK requires authType=OAUTH2");
+        }
+
+        // Rule 4: IMAP polling mode requires complete connection config
         if (polling || mailbox.getInboundMode() == InboundMode.POLLING) {
             if (isBlank(mailbox.getImapHost())) {
                 throw new InvalidMailboxConfigException("IMAP polling requires imapHost");
@@ -56,15 +65,33 @@ public class MailboxValidationService {
             if (isBlank(mailbox.getImapUsername())) {
                 throw new InvalidMailboxConfigException("IMAP polling requires imapUsername");
             }
-            if (isBlank(mailbox.getImapPassword())) {
-                throw new InvalidMailboxConfigException(
-                        "IMAP polling requires imapPassword — provide the password on create or when changing credentials");
-            }
             if (mailbox.getImapPort() == null) {
                 throw new InvalidMailboxConfigException("IMAP polling requires imapPort");
             }
             if (isBlank(mailbox.getImapFolder())) {
                 throw new InvalidMailboxConfigException("IMAP polling requires imapFolder (default: INBOX)");
+            }
+
+            // Auth-type specific credential checks
+            AuthType authType = mailbox.getAuthType() != null ? mailbox.getAuthType() : AuthType.PASSWORD;
+            if (authType == AuthType.PASSWORD) {
+                if (isBlank(mailbox.getImapPassword())) {
+                    throw new InvalidMailboxConfigException(
+                            "IMAP polling with authType=PASSWORD requires imapPassword — provide the password on create or when changing credentials");
+                }
+            } else if (authType == AuthType.OAUTH2) {
+                if (isBlank(mailbox.getOauthTenantId())) {
+                    throw new InvalidMailboxConfigException(
+                            "IMAP polling with authType=OAUTH2 requires oauthTenantId");
+                }
+                if (isBlank(mailbox.getOauthClientId())) {
+                    throw new InvalidMailboxConfigException(
+                            "IMAP polling with authType=OAUTH2 requires oauthClientId");
+                }
+                if (isBlank(mailbox.getOauthClientSecret())) {
+                    throw new InvalidMailboxConfigException(
+                            "IMAP polling with authType=OAUTH2 requires oauthClientSecret — provide it on create or when rotating credentials");
+                }
             }
         }
 
@@ -76,7 +103,7 @@ public class MailboxValidationService {
                             + "or smtpStarttls=true for port 587 (STARTTLS).");
         }
 
-        // Rule 4: pollIntervalSeconds range check
+        // Rule 6: pollIntervalSeconds range check
         if (polling) {
             int interval = mailbox.getPollIntervalSeconds() != null ? mailbox.getPollIntervalSeconds() : 60;
             if (interval < MIN_POLL_INTERVAL_SECONDS || interval > MAX_POLL_INTERVAL_SECONDS) {

@@ -20,5 +20,7 @@ public record TicketSummaryResponse(
         Long assignedGroupId,
         String assignedGroupName,
         Instant createdAt,
-        Instant updatedAt
+        Instant updatedAt,
+        /** When the current status was entered. Null for tickets pre-dating V28 migration. */
+        Instant statusChangedAt
 ) {}

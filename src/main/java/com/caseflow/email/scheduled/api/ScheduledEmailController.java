@@ -62,9 +62,12 @@ public class ScheduledEmailController {
             @AuthenticationPrincipal CaseFlowUserDetails user) {
 
         OutboundEmailDispatch dispatch = scheduledEmailService.scheduleEmail(
-                ticketPublicId, req.mailboxId(), req.toAddress(),
+                ticketPublicId, req.mailboxId(),
+                req.sourceEventId(), req.toAddress(),
                 req.subject(), req.textBody(), req.htmlBody(),
-                req.sendNotBefore(), user.getUserId()
+                req.sendNotBefore(), user.getUserId(),
+                req.templateId(), req.templateCode(),
+                Boolean.TRUE.equals(req.contentWasEdited())
         );
         return ResponseEntity.status(201).body(ScheduledEmailResponse.from(dispatch));
     }

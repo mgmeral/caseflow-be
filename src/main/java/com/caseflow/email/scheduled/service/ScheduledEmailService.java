@@ -6,6 +6,8 @@ import com.caseflow.email.domain.OutboundEmailDispatch;
 import com.caseflow.email.repository.EmailMailboxRepository;
 import com.caseflow.email.repository.OutboundEmailDispatchRepository;
 import com.caseflow.email.service.EmailDispatchService;
+import com.caseflow.email.service.ReplyThreadContext;
+import com.caseflow.email.service.ReplyThreadContextResolver;
 import com.caseflow.ticket.domain.Ticket;
 import com.caseflow.ticket.domain.TicketStatus;
 import com.caseflow.ticket.repository.TicketRepository;
@@ -22,9 +24,13 @@ import java.util.UUID;
 /**
  * Manages scheduled outbound email dispatches.
  *
- * <p>Scheduled sends reuse the existing {@link OutboundEmailDispatch} mechanism —
- * the {@code scheduledAt} field acts as a "not-before" gate in the scheduler query.
- * The {@code isScheduledSend} flag distinguishes them from immediate replies.
+ * <p>Scheduled sends are thread-aware: when a {@code sourceEventId} is provided, the
+ * recipient address, In-Reply-To, and References headers are derived from the inbound event
+ * via {@link ReplyThreadContextResolver} — the same resolver used by immediate replies.
+ *
+ * <p>Dispatches use the existing {@link OutboundEmailDispatch} mechanism;
+ * {@code isScheduledSend=true} and {@code scheduledAt} act as the not-before gate
+ * in the scheduler query.
  *
  * <p>Pre-send revalidation is performed by
  * {@link com.caseflow.email.scheduler.OutboundDispatchScheduler} before SMTP dispatch.
@@ -35,48 +41,66 @@ public class ScheduledEmailService {
     private static final Logger log = LoggerFactory.getLogger(ScheduledEmailService.class);
 
     /** Tickets in these statuses may not receive scheduled outbound emails. */
-    private static final List<TicketStatus> BLOCKED_STATUSES =
-            List.of(TicketStatus.CLOSED);
+    private static final List<TicketStatus> BLOCKED_STATUSES = List.of(TicketStatus.CLOSED);
 
     private final EmailDispatchService dispatchService;
     private final EmailMailboxRepository mailboxRepository;
     private final TicketRepository ticketRepository;
     private final OutboundEmailDispatchRepository dispatchRepository;
     private final TicketHistoryService historyService;
+    private final ReplyThreadContextResolver threadContextResolver;
 
     public ScheduledEmailService(EmailDispatchService dispatchService,
                                   EmailMailboxRepository mailboxRepository,
                                   TicketRepository ticketRepository,
                                   OutboundEmailDispatchRepository dispatchRepository,
-                                  TicketHistoryService historyService) {
+                                  TicketHistoryService historyService,
+                                  ReplyThreadContextResolver threadContextResolver) {
         this.dispatchService = dispatchService;
         this.mailboxRepository = mailboxRepository;
         this.ticketRepository = ticketRepository;
         this.dispatchRepository = dispatchRepository;
         this.historyService = historyService;
+        this.threadContextResolver = threadContextResolver;
     }
 
     /**
-     * Creates a scheduled outbound email for the given ticket.
+     * Creates a thread-aware scheduled outbound email for the given ticket.
+     *
+     * <p>When {@code sourceEventId} is provided, the reply-to address and threading headers
+     * (In-Reply-To, References) are derived from the inbound event. When absent,
+     * {@code toAddress} must be provided (proactive outreach path).
      *
      * @param ticketPublicId the ticket to send from
      * @param mailboxId      mailbox to use for SMTP
-     * @param toAddress      recipient address
+     * @param sourceEventId  optional — inbound event being replied to; drives thread context
+     * @param toAddress      explicit recipient; required when sourceEventId is absent
      * @param subject        email subject
      * @param textBody       plain-text body
      * @param htmlBody       HTML body (optional)
      * @param sendNotBefore  earliest time to dispatch this email
      * @param requestedBy    user who created the schedule
+     * @param templateId     optional — explicit template id override
+     * @param templateCode   optional — template code; ignored when templateId set
+     * @param contentWasEdited true when the agent modified the rendered content before scheduling
      * @return the queued dispatch record
      */
     @Transactional
     public OutboundEmailDispatch scheduleEmail(UUID ticketPublicId, Long mailboxId,
-                                               String toAddress, String subject,
-                                               String textBody, String htmlBody,
-                                               Instant sendNotBefore, Long requestedBy) {
+                                               Long sourceEventId, String toAddress,
+                                               String subject, String textBody, String htmlBody,
+                                               Instant sendNotBefore, Long requestedBy,
+                                               Long templateId, String templateCode,
+                                               boolean contentWasEdited) {
         if (sendNotBefore.isBefore(Instant.now())) {
             throw new IllegalArgumentException(
                     "sendNotBefore must be in the future; got: " + sendNotBefore);
+        }
+
+        // Both sourceEventId and toAddress absent — cannot determine recipient
+        if (sourceEventId == null && (toAddress == null || toAddress.isBlank())) {
+            throw new IllegalArgumentException(
+                    "Either sourceEventId or toAddress must be provided");
         }
 
         Ticket ticket = ticketRepository.findByPublicId(ticketPublicId)
@@ -100,19 +124,42 @@ public class ScheduledEmailService {
             throw new IllegalStateException("Mailbox " + mailboxId + " has no SMTP configuration");
         }
 
+        // Resolve recipient address and threading headers from source event (or explicit override)
+        ReplyThreadContext threadCtx = threadContextResolver.resolve(sourceEventId, toAddress);
+
         OutboundEmailDispatch dispatch = dispatchService.enqueueScheduled(
-                ticket.getId(), mailboxId, requestedBy,
-                mailbox.getAddress(), toAddress,
+                ticket.getId(), mailboxId,
+                threadCtx.sourceIngressEventId(), requestedBy,
+                mailbox.getAddress(), threadCtx.resolvedToAddress(),
+                threadCtx.resolvedToAddress(),
                 subject, textBody, htmlBody,
-                sendNotBefore, null, null, false
+                threadCtx.inReplyToMessageId(), threadCtx.referencesHeader(),
+                sendNotBefore, templateId, templateCode,
+                contentWasEdited
         );
 
         historyService.recordScheduledEmailCreated(ticket.getId(), ticket.getPublicId(),
-                dispatch.getId(), toAddress, sendNotBefore, requestedBy);
+                dispatch.getId(), threadCtx.resolvedToAddress(), sendNotBefore, requestedBy);
 
-        log.info("Scheduled email created — dispatchId: {}, ticket: {}, to: {}, sendAt: {}",
-                dispatch.getId(), ticket.getTicketNo(), toAddress, sendNotBefore);
+        log.info("Scheduled email created — dispatchId: {}, ticket: {}, to: '{}', sourceEvent: {}, sendAt: {}",
+                dispatch.getId(), ticket.getTicketNo(), threadCtx.resolvedToAddress(),
+                sourceEventId, sendNotBefore);
         return dispatch;
+    }
+
+    /**
+     * Backward-compatible overload — no source event, explicit toAddress (proactive send).
+     */
+    @Transactional
+    public OutboundEmailDispatch scheduleEmail(UUID ticketPublicId, Long mailboxId,
+                                               String toAddress, String subject,
+                                               String textBody, String htmlBody,
+                                               Instant sendNotBefore, Long requestedBy) {
+        return scheduleEmail(ticketPublicId, mailboxId,
+                null, toAddress,
+                subject, textBody, htmlBody,
+                sendNotBefore, requestedBy,
+                null, null, false);
     }
 
     /**
@@ -134,7 +181,6 @@ public class ScheduledEmailService {
                     "Dispatch " + dispatchId + " is not a scheduled send");
         }
 
-        // Security: dispatch must belong to this ticket
         if (!java.util.Objects.equals(ticket.getId(), dispatch.getTicketId())) {
             throw new IllegalArgumentException(
                     "Dispatch " + dispatchId + " does not belong to ticket " + ticketPublicId);
@@ -151,7 +197,7 @@ public class ScheduledEmailService {
     }
 
     /**
-     * Lists all scheduled (pending) outbound emails for a ticket.
+     * Lists all scheduled (including sent and canceled) outbound emails for a ticket.
      */
     @Transactional(readOnly = true)
     public List<OutboundEmailDispatch> listScheduledForTicket(UUID ticketPublicId) {

@@ -6,16 +6,21 @@ import jakarta.persistence.LockModeType;
 import jakarta.persistence.QueryHint;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.jpa.repository.QueryHints;
 import org.springframework.data.repository.query.Param;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
-public interface EmailIngressEventRepository extends JpaRepository<EmailIngressEvent, Long> {
+public interface EmailIngressEventRepository
+        extends JpaRepository<EmailIngressEvent, Long>,
+                JpaSpecificationExecutor<EmailIngressEvent> {
 
     Optional<EmailIngressEvent> findByMessageId(String messageId);
 
@@ -59,4 +64,26 @@ public interface EmailIngressEventRepository extends JpaRepository<EmailIngressE
     List<EmailIngressEvent> findByMailboxId(Long mailboxId);
 
     Page<EmailIngressEvent> findByMailboxId(Long mailboxId, Pageable pageable);
+
+    /**
+     * Composite admin filter query.
+     * All parameters are optional; null values are not applied as filters.
+     */
+    @Query("""
+            SELECT e FROM EmailIngressEvent e
+            WHERE (:status IS NULL OR e.status = :status)
+              AND (:mailboxId IS NULL OR e.mailboxId = :mailboxId)
+              AND (:messageId IS NULL OR e.messageId = :messageId)
+              AND (:ticketId IS NULL OR e.ticketId = :ticketId)
+              AND (:from IS NULL OR e.receivedAt >= :from)
+              AND (:to IS NULL OR e.receivedAt <= :to)
+            """)
+    Page<EmailIngressEvent> findFiltered(
+            @Param("status") IngressEventStatus status,
+            @Param("mailboxId") Long mailboxId,
+            @Param("messageId") String messageId,
+            @Param("ticketId") Long ticketId,
+            @Param("from") Instant from,
+            @Param("to") Instant to,
+            Pageable pageable);
 }

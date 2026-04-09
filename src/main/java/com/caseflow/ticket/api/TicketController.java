@@ -120,6 +120,18 @@ public class TicketController {
         return ResponseEntity.ok(ticketReadService.getResponseByTicketNo(ticketNo));
     }
 
+    /**
+     * Lists tickets with optional filters, pagination, and sorting.
+     *
+     * <p><b>Filter contract — single-value only:</b> each filter parameter ({@code status},
+     * {@code priority}, {@code userId}, {@code groupId}, {@code customerId}) accepts exactly one
+     * value. Passing repeated params for the same key is not supported and the framework will
+     * reject or use only the last value. FE must send at most one value per filter key.
+     *
+     * <p><b>Supported sort fields:</b> {@code createdAt}, {@code updatedAt}, {@code statusChangedAt},
+     * {@code priority}, {@code status}, {@code ticketNo}, {@code subject}, {@code closedAt}.
+     * Unknown sort fields fall back silently to {@code createdAt}.
+     */
     @GetMapping
     @PreAuthorize("hasAuthority('PERM_TICKET_READ')")
     public ResponseEntity<PagedResponse<TicketSummaryResponse>> listTickets(
@@ -138,7 +150,8 @@ public class TicketController {
             @RequestParam(defaultValue = "desc") String direction) {
 
         Sort.Direction dir = "asc".equalsIgnoreCase(direction) ? Sort.Direction.ASC : Sort.Direction.DESC;
-        PageRequest pageRequest = PageRequest.of(page, Math.min(size, 100), Sort.by(dir, sort));
+        String safeSort = ALLOWED_SORTS.contains(sort) ? sort : "createdAt";
+        PageRequest pageRequest = PageRequest.of(page, Math.min(size, 100), Sort.by(dir, safeSort));
 
         Instant fromInstant = from != null ? Instant.parse(from) : null;
         Instant toInstant   = to   != null ? Instant.parse(to)   : null;
@@ -160,7 +173,8 @@ public class TicketController {
             @RequestParam(defaultValue = "asc") String direction) {
 
         Sort.Direction dir = "asc".equalsIgnoreCase(direction) ? Sort.Direction.ASC : Sort.Direction.DESC;
-        PageRequest pageRequest = PageRequest.of(page, Math.min(size, 100), Sort.by(dir, sort));
+        String adminSafeSort = ALLOWED_SORTS.contains(sort) ? sort : "createdAt";
+        PageRequest pageRequest = PageRequest.of(page, Math.min(size, 100), Sort.by(dir, adminSafeSort));
 
         Specification<Ticket> spec = buildAdminPoolSpec(user);
 
@@ -237,6 +251,18 @@ public class TicketController {
         log.info("POST /tickets/{}/reply — not implemented", id);
         return ResponseEntity.status(HttpStatus.NOT_IMPLEMENTED).build();
     }
+
+    // ── Constants ─────────────────────────────────────────────────────────────
+
+    /**
+     * Allowlist of sort fields the FE may request. Prevents arbitrary column injection.
+     * All fields are direct columns on the tickets table.
+     * Derived/joined fields (customerName, assignedUserName, groupName) are not supported
+     * as they require explicit JOIN queries outside the current sort infrastructure.
+     */
+    private static final java.util.Set<String> ALLOWED_SORTS = java.util.Set.of(
+            "createdAt", "updatedAt", "statusChangedAt", "priority", "status",
+            "ticketNo", "subject", "closedAt");
 
     // ── Scope helpers ─────────────────────────────────────────────────────────
 

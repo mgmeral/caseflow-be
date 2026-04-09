@@ -1,6 +1,7 @@
 package com.caseflow.email.service;
 
 import com.caseflow.email.api.dto.MailboxConnectionTestResponse;
+import com.caseflow.email.domain.AuthType;
 import com.caseflow.email.domain.EmailMailbox;
 import com.caseflow.email.domain.InitialSyncStrategy;
 import com.caseflow.email.repository.EmailMailboxRepository;
@@ -80,34 +81,50 @@ public class ImapMailboxPoller {
     private final ObjectStorageService objectStorageService;
     private final AttachmentKeyStrategy keyStrategy;
     private final EmailRoutingService routingService;
+    private final MicrosoftOAuthTokenService oauthTokenService;
 
     public ImapMailboxPoller(EmailMailboxRepository mailboxRepository,
                              EmailIngressService ingressService,
                              ObjectStorageService objectStorageService,
                              AttachmentKeyStrategy keyStrategy,
-                             EmailRoutingService routingService) {
+                             EmailRoutingService routingService,
+                             MicrosoftOAuthTokenService oauthTokenService) {
         this.mailboxRepository = mailboxRepository;
         this.ingressService = ingressService;
         this.objectStorageService = objectStorageService;
         this.keyStrategy = keyStrategy;
         this.routingService = routingService;
+        this.oauthTokenService = oauthTokenService;
     }
 
     // ── Polling ───────────────────────────────────────────────────────────────
 
     /**
      * Polls a single mailbox for new messages.
-     * Always updates {@code lastPollAt} and clears the poll lease in the {@code finally} block.
+     * Skips silently when {@code pollingEnabled} is false — no lease is held in that case.
+     * All other paths (including missing config) run the {@code finally} block, releasing
+     * the poll lease and recording {@code lastPollAt} and {@code lastPollError}.
      */
     @Transactional
     public void pollMailbox(EmailMailbox mailbox) {
         if (!Boolean.TRUE.equals(mailbox.getPollingEnabled())) return;
-        if (mailbox.getImapHost() == null || mailbox.getImapUsername() == null) {
-            log.warn("IMAP_POLL mailbox {} ({}) has polling enabled but missing IMAP credentials — skipping",
-                    mailbox.getId(), mailbox.getAddress());
-            return;
-        }
+        doPoll(mailbox);
+    }
 
+    /**
+     * Admin-triggered forced poll that bypasses the {@code pollingEnabled} guard.
+     * Intended for the poll-now admin endpoint. All cleanup (lease, timestamps) runs in {@code finally}.
+     */
+    @Transactional
+    public void forcePoll(EmailMailbox mailbox) {
+        doPoll(mailbox);
+    }
+
+    /**
+     * Core poll implementation. Lease release, lastPollAt, and lastPollError are always
+     * written in the {@code finally} block regardless of which exit path is taken.
+     */
+    private void doPoll(EmailMailbox mailbox) {
         log.info("IMAP_POLL start — mailbox: {} ({}), folder: {}",
                 mailbox.getId(), mailbox.getAddress(), mailbox.getImapFolder());
 
@@ -117,13 +134,22 @@ public class ImapMailboxPoller {
         String pollError = null;
 
         try {
+            // ── Guard: missing IMAP config (inside try so finally always runs) ────
+            if (mailbox.getImapHost() == null || mailbox.getImapUsername() == null) {
+                pollError = "IMAP credentials missing — imapHost and imapUsername are required";
+                log.warn("IMAP_POLL mailbox {} ({}) missing IMAP credentials — releasing lease",
+                        mailbox.getId(), mailbox.getAddress());
+                return; // finally still runs
+            }
+
             store = openStore(mailbox);
             folder = openFolder(store, mailbox.getImapFolder());
 
             if (!(folder instanceof UIDFolder uidFolder)) {
-                log.warn("IMAP_POLL mailbox {} — folder does not support UID operations — skipping",
+                pollError = "IMAP folder does not support UID operations";
+                log.warn("IMAP_POLL mailbox {} — folder does not support UID operations",
                         mailbox.getId());
-                return;
+                return; // finally still runs
             }
 
             // ── First-time onboarding (null cursor) ──────────────────────────
@@ -135,31 +161,15 @@ public class ImapMailboxPoller {
                 if (strategy == InitialSyncStrategy.NEW_MESSAGES_ONLY) {
                     maxUidSeen = resolveLatestUid(folder, uidFolder);
                     log.info("IMAP_CURSOR_INIT mailbox {} — NEW_MESSAGES_ONLY: cursor advanced to UID {}; "
-                            + "no historical messages will be ingested", mailbox.getId(), maxUidSeen);
-                    return; // cursor updated in finally
+                            + "no historical messages ingested", mailbox.getId(), maxUidSeen);
+                    return; // finally updates cursor
                 }
 
                 if (strategy == InitialSyncStrategy.SCAN_LAST_1_DAY
                         || strategy == InitialSyncStrategy.SCAN_LAST_3_DAYS
                         || strategy == InitialSyncStrategy.SCAN_LAST_7_DAYS) {
-                    int days = strategyToDays(strategy);
-                    maxUidSeen = resolveLatestUid(folder, uidFolder); // advance cursor after scan
-                    Instant cutoff = Instant.now().minus(days, ChronoUnit.DAYS);
-                    log.info("IMAP_CURSOR_INIT mailbox {} — {}: scanning last {} day(s) since {}; cursor: {}",
-                            mailbox.getId(), strategy, days, cutoff, maxUidSeen);
-                    Message[] recentMessages = searchSince(folder, cutoff);
-                    log.info("IMAP_POLL mailbox {} — {} scan found {} candidate message(s)",
-                            mailbox.getId(), strategy, recentMessages.length);
-                    for (Message message : recentMessages) {
-                        long uid = uidFolder.getUID(message);
-                        try {
-                            processMessage(mailbox, message, uid);
-                        } catch (Exception e) {
-                            log.error("IMAP_POLL failed to ingest message uid={} mailbox={} — {}",
-                                    uid, mailbox.getId(), e.getMessage(), e);
-                        }
-                    }
-                    return; // cursor updated in finally
+                    maxUidSeen = doScanLast(mailbox, folder, uidFolder, strategy);
+                    return; // finally updates cursor
                 }
 
                 // SCAN_FROM_START: proceed with startUid = 1 (maxUidSeen stays 0)
@@ -205,6 +215,64 @@ public class ImapMailboxPoller {
             mailbox.setPollLeasedUntil(null);
             mailboxRepository.save(mailbox);
         }
+    }
+
+    /**
+     * Executes a SCAN_LAST_* historical scan and returns the safe cursor position.
+     *
+     * <h2>Cursor safety</h2>
+     * The cursor is advanced ONLY after processing, based on what was actually processed:
+     * <ul>
+     *   <li>Partial success: advance to highest successfully processed UID (not to latest).</li>
+     *   <li>Empty scan (no messages found): advance to current latest UID (nothing to miss).</li>
+     *   <li>All messages failed: do not advance cursor (return 0 → stays null → retried next poll).</li>
+     * </ul>
+     */
+    private long doScanLast(EmailMailbox mailbox, Folder folder, UIDFolder uidFolder,
+                             InitialSyncStrategy strategy) throws MessagingException {
+        int days = strategyToDays(strategy);
+        Instant cutoff = Instant.now().minus(days, ChronoUnit.DAYS);
+        log.info("IMAP_CURSOR_INIT mailbox {} — {}: scanning last {} day(s) since {}",
+                mailbox.getId(), strategy, days, cutoff);
+
+        Message[] recentMessages = searchSince(folder, cutoff);
+        log.info("IMAP_POLL mailbox {} — {} scan found {} candidate message(s)",
+                mailbox.getId(), strategy, recentMessages.length);
+
+        if (recentMessages.length == 0) {
+            // Nothing to scan — advance to latest so next poll starts from current position
+            long latestUid = resolveLatestUid(folder, uidFolder);
+            log.info("IMAP_CURSOR_INIT mailbox {} — {} scan empty: cursor advanced to latest UID {}",
+                    mailbox.getId(), strategy, latestUid);
+            return latestUid;
+        }
+
+        long highestProcessed = 0L;
+        boolean anyFailure = false;
+
+        for (Message message : recentMessages) {
+            long uid = uidFolder.getUID(message);
+            try {
+                processMessage(mailbox, message, uid);
+                if (uid > highestProcessed) highestProcessed = uid;
+            } catch (Exception e) {
+                anyFailure = true;
+                log.error("IMAP_POLL failed to ingest message uid={} mailbox={} during {} scan — {}",
+                        uid, mailbox.getId(), strategy, e.getMessage(), e);
+            }
+        }
+
+        if (highestProcessed > 0) {
+            log.info("IMAP_CURSOR_INIT mailbox {} — {} scan complete: cursor advanced to highest processed UID {}{}",
+                    mailbox.getId(), strategy, highestProcessed,
+                    anyFailure ? " (partial failure — NOT jumping to latest)" : "");
+            return highestProcessed;
+        }
+
+        // All messages failed to process — do not advance cursor
+        log.warn("IMAP_CURSOR_INIT mailbox {} — {} scan: all {} message(s) failed — cursor NOT advanced; will retry on next poll",
+                mailbox.getId(), strategy, recentMessages.length);
+        return 0L; // finally: 0 → lastSeenUid stays null → initial sync retried next poll
     }
 
     // ── Connection test ───────────────────────────────────────────────────────
@@ -382,7 +450,56 @@ public class ImapMailboxPoller {
     // ── IMAP connection helpers ───────────────────────────────────────────────
 
     private Store openStore(EmailMailbox mailbox) throws MessagingException {
+        AuthType authType = mailbox.getAuthType() != null ? mailbox.getAuthType() : AuthType.PASSWORD;
+        if (authType == AuthType.OAUTH2) {
+            return openStoreOAuth2(mailbox);
+        }
+        return openStorePassword(mailbox);
+    }
+
+    private Store openStorePassword(EmailMailbox mailbox) throws MessagingException {
         String protocol = Boolean.TRUE.equals(mailbox.getImapUseSsl()) ? "imaps" : "imap";
+        Properties props = buildBaseProps(protocol, mailbox);
+
+        Session session = Session.getInstance(props);
+        Store store = session.getStore(protocol);
+        store.connect(mailbox.getImapHost(), mailbox.getImapUsername(), mailbox.getImapPassword());
+        return store;
+    }
+
+    /**
+     * Opens an IMAP store using OAuth2 / XOAUTH2 (Microsoft 365 / Exchange Online).
+     * Disables LOGIN and PLAIN, enables XOAUTH2, and uses the access token as the password.
+     */
+    private Store openStoreOAuth2(EmailMailbox mailbox) throws MessagingException {
+        String accessToken;
+        try {
+            accessToken = oauthTokenService.getAccessToken(
+                    mailbox.getOauthTenantId(),
+                    mailbox.getOauthClientId(),
+                    mailbox.getOauthClientSecret());
+        } catch (Exception e) {
+            throw new MessagingException(
+                    "Failed to obtain OAuth2 access token for mailbox " + mailbox.getId()
+                            + " — " + e.getMessage(), e);
+        }
+
+        String protocol = Boolean.TRUE.equals(mailbox.getImapUseSsl()) ? "imaps" : "imap";
+        Properties props = buildBaseProps(protocol, mailbox);
+
+        // Disable plain-text auth mechanisms and enable XOAUTH2
+        props.setProperty("mail." + protocol + ".auth.mechanisms", "XOAUTH2");
+        props.setProperty("mail." + protocol + ".auth.login.disable", "true");
+        props.setProperty("mail." + protocol + ".auth.plain.disable", "true");
+
+        Session session = Session.getInstance(props);
+        Store store = session.getStore(protocol);
+        // JavaMail uses the 'password' parameter as the XOAUTH2 token when XOAUTH2 is the selected mechanism
+        store.connect(mailbox.getImapHost(), mailbox.getImapUsername(), accessToken);
+        return store;
+    }
+
+    private Properties buildBaseProps(String protocol, EmailMailbox mailbox) {
         Properties props = new Properties();
         props.setProperty("mail.store.protocol", protocol);
         props.setProperty("mail." + protocol + ".host", mailbox.getImapHost());
@@ -391,11 +508,7 @@ public class ImapMailboxPoller {
         }
         props.setProperty("mail." + protocol + ".timeout", "15000");
         props.setProperty("mail." + protocol + ".connectiontimeout", "15000");
-
-        Session session = Session.getInstance(props);
-        Store store = session.getStore(protocol);
-        store.connect(mailbox.getImapHost(), mailbox.getImapUsername(), mailbox.getImapPassword());
-        return store;
+        return props;
     }
 
     private Folder openFolder(Store store, String folderName) throws MessagingException {
