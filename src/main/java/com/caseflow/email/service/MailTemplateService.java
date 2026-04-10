@@ -65,6 +65,8 @@ public class MailTemplateService {
         template.setHtmlTemplate(request.htmlTemplate());
         template.setPlainTextTemplate(request.plainTextTemplate());
         template.setIsActive(request.isActive() != null ? request.isActive() : true);
+        template.setUsageType(request.usageType());
+        template.setDescription(request.description());
         template.setIsBuiltIn(false);
         MailTemplate saved = templateRepository.save(template);
         log.info("TEMPLATE_CRUD create — templateId: {}, code: '{}'", saved.getId(), saved.getCode());
@@ -81,6 +83,12 @@ public class MailTemplateService {
         template.setPlainTextTemplate(request.plainTextTemplate());
         if (request.isActive() != null) {
             template.setIsActive(request.isActive());
+        }
+        if (request.usageType() != null) {
+            template.setUsageType(request.usageType());
+        }
+        if (request.description() != null) {
+            template.setDescription(request.description());
         }
         // code is immutable after creation to preserve cross-system references
         MailTemplate saved = templateRepository.save(template);

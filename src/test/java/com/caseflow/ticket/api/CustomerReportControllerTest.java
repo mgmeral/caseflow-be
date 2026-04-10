@@ -43,7 +43,7 @@ class CustomerReportControllerTest {
                 Instant.parse("2026-01-01T00:00:00Z"),
                 Instant.parse("2026-01-31T23:59:59Z"),
                 10L, 6L, 2L, 3L, 1L, 2L, 2L, 0L,
-                List.of(new CustomerTicketReportResponse.TagCount(1L, "BUG", "Bug", 3L))
+                List.of(new CustomerTicketReportResponse.TagCount(1L, "BUG", "Bug", null, 3L))
         );
         when(reportingService.customerReport(anyLong(), any(), any())).thenReturn(report);
 

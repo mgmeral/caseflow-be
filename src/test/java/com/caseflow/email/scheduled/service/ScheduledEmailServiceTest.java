@@ -1,5 +1,6 @@
 package com.caseflow.email.scheduled.service;
 
+import com.caseflow.common.exception.EmailOperationException;
 import com.caseflow.common.exception.TicketNotFoundException;
 import com.caseflow.email.domain.EmailMailbox;
 import com.caseflow.email.domain.OutboundEmailDispatch;
@@ -32,6 +33,7 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -83,14 +85,16 @@ class ScheduledEmailServiceTest {
     // ── scheduleEmail ─────────────────────────────────────────────────────────
 
     @Test
-    void scheduleEmail_throwsIllegalArgument_whenSendNotBeforeIsInPast() {
+    void scheduleEmail_throwsScheduleTimeInvalid_whenSendNotBeforeIsInPast() {
         UUID publicId = UUID.randomUUID();
         Instant pastTime = Instant.now().minusSeconds(60);
 
         assertThatThrownBy(() -> service.scheduleEmail(publicId, 1L, "to@example.com",
                 "Subject", "body", null, pastTime, 42L))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("future");
+                .isInstanceOf(EmailOperationException.class)
+                .hasMessageContaining("future")
+                .extracting(e -> ((EmailOperationException) e).getCode())
+                .isEqualTo("SCHEDULE_TIME_INVALID");
     }
 
     @Test
@@ -115,15 +119,17 @@ class ScheduledEmailServiceTest {
     }
 
     @Test
-    void scheduleEmail_throwsIllegalState_whenMailboxInactive() {
+    void scheduleEmail_throwsMailboxNotActive_whenMailboxInactive() {
         UUID publicId = UUID.randomUUID();
         when(ticketRepository.findByPublicId(publicId)).thenReturn(Optional.of(openTicket));
         when(mailboxRepository.findById(1L)).thenReturn(Optional.of(inactiveMailbox));
 
         assertThatThrownBy(() -> service.scheduleEmail(publicId, 1L, "to@example.com",
                 "Subject", "body", null, Instant.now().plusSeconds(3600), 42L))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("inactive");
+                .isInstanceOf(EmailOperationException.class)
+                .hasMessageContaining("inactive")
+                .extracting(e -> ((EmailOperationException) e).getCode())
+                .isEqualTo("MAILBOX_NOT_ACTIVE");
     }
 
     @Test
@@ -134,7 +140,7 @@ class ScheduledEmailServiceTest {
 
         when(ticketRepository.findByPublicId(publicId)).thenReturn(Optional.of(openTicket));
         when(mailboxRepository.findById(1L)).thenReturn(Optional.of(activeMailbox));
-        when(threadContextResolver.resolve(null, "to@example.com")).thenReturn(threadCtx);
+        when(threadContextResolver.resolveForTicket(isNull(), eq("to@example.com"), any())).thenReturn(threadCtx);
         when(dispatchService.enqueueScheduled(
                 any(), any(), any(), any(), any(), any(), any(),
                 any(), any(), any(), any(), any(),
@@ -148,7 +154,7 @@ class ScheduledEmailServiceTest {
     }
 
     @Test
-    void scheduleEmail_throwsIllegalArgument_whenNeitherSourceEventIdNorToAddress() {
+    void scheduleEmail_throwsReplyTargetUnresolvable_whenNeitherSourceEventIdNorToAddress() {
         UUID publicId = UUID.randomUUID();
         Instant sendAt = Instant.now().plus(1, ChronoUnit.HOURS);
 
@@ -156,8 +162,9 @@ class ScheduledEmailServiceTest {
                 null, null,
                 "Subject", "body", null,
                 sendAt, 42L, null, null, false))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("sourceEventId");
+                .isInstanceOf(EmailOperationException.class)
+                .extracting(e -> ((EmailOperationException) e).getCode())
+                .isEqualTo("REPLY_TARGET_UNRESOLVABLE");
     }
 
     @Test
@@ -173,7 +180,7 @@ class ScheduledEmailServiceTest {
 
         when(ticketRepository.findByPublicId(publicId)).thenReturn(Optional.of(openTicket));
         when(mailboxRepository.findById(1L)).thenReturn(Optional.of(activeMailbox));
-        when(threadContextResolver.resolve(sourceEventId, null)).thenReturn(threadCtx);
+        when(threadContextResolver.resolveForTicket(eq(sourceEventId), isNull(), any())).thenReturn(threadCtx);
         when(dispatchService.enqueueScheduled(
                 any(), any(), eq(sourceEventId), any(),
                 any(), eq("customer@example.com"), eq("customer@example.com"),
@@ -187,7 +194,41 @@ class ScheduledEmailServiceTest {
                 sendAt, 42L, null, null, false);
 
         assertThat(result).isSameAs(dispatch);
-        verify(threadContextResolver).resolve(sourceEventId, null);
+        verify(threadContextResolver).resolveForTicket(eq(sourceEventId), isNull(), any());
+    }
+
+    @Test
+    void scheduleEmail_throwsSourceEventNotForTicket_whenResolverRejectsOwnership() {
+        UUID publicId = UUID.randomUUID();
+        Instant sendAt = Instant.now().plus(2, ChronoUnit.HOURS);
+        Long sourceEventId = 55L;
+
+        when(ticketRepository.findByPublicId(publicId)).thenReturn(Optional.of(openTicket));
+        when(mailboxRepository.findById(1L)).thenReturn(Optional.of(activeMailbox));
+        when(threadContextResolver.resolveForTicket(eq(sourceEventId), isNull(), any()))
+                .thenThrow(new EmailOperationException("SOURCE_EVENT_NOT_FOR_TICKET",
+                        "Source event 55 does not belong to ticket null"));
+
+        assertThatThrownBy(() -> service.scheduleEmail(publicId, 1L,
+                sourceEventId, null,
+                "Subject", "body", null,
+                sendAt, 42L, null, null, false))
+                .isInstanceOf(EmailOperationException.class)
+                .extracting(e -> ((EmailOperationException) e).getCode())
+                .isEqualTo("SOURCE_EVENT_NOT_FOR_TICKET");
+    }
+
+    @Test
+    void scheduleEmail_throwsMailboxNotFound_whenMailboxMissing() {
+        UUID publicId = UUID.randomUUID();
+        when(ticketRepository.findByPublicId(publicId)).thenReturn(Optional.of(openTicket));
+        when(mailboxRepository.findById(99L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.scheduleEmail(publicId, 99L, "to@example.com",
+                "Subject", "body", null, Instant.now().plusSeconds(3600), 42L))
+                .isInstanceOf(EmailOperationException.class)
+                .extracting(e -> ((EmailOperationException) e).getCode())
+                .isEqualTo("MAILBOX_NOT_FOUND");
     }
 
     // ── cancelScheduledEmail ──────────────────────────────────────────────────

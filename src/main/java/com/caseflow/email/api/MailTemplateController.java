@@ -21,6 +21,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.Map;
 
 @Tag(name = "Admin — Mail Templates", description = "Manage outbound email templates")
 @SecurityRequirement(name = "bearerAuth")
@@ -74,5 +75,35 @@ public class MailTemplateController {
     public MailTemplatePreviewResponse preview(@PathVariable Long id,
                                                @RequestBody MailTemplatePreviewRequest request) {
         return templateService.preview(id, request);
+    }
+
+    /**
+     * Returns the supported placeholder tokens and valid usage types for template authoring.
+     * The FE can use this to display an inline helper panel.
+     */
+    @GetMapping("/help")
+    @PreAuthorize("hasAuthority('PERM_EMAIL_CONFIG_VIEW')")
+    public Map<String, Object> help() {
+        return Map.of(
+                "supportedPlaceholders", List.of(
+                        Map.of("name", "{replyBody}",
+                               "description", "The agent's reply text — HTML-escaped when embedded in HTML templates, plain otherwise"),
+                        Map.of("name", "{ticketRef}",
+                               "description", "Ticket reference number, e.g. TKT-00001"),
+                        Map.of("name", "{mailboxName}",
+                               "description", "Display name of the sending mailbox"),
+                        Map.of("name", "{agentName}",
+                               "description", "Display name of the agent sending the reply"),
+                        Map.of("name", "{signatureBlock}",
+                               "description", "Optional agent signature block")
+                ),
+                "usageTypes", List.of(
+                        Map.of("value", "CUSTOMER_REPLY",   "label", "Direct reply to a customer inquiry"),
+                        Map.of("value", "ACKNOWLEDGEMENT",  "label", "Acknowledge receipt of a new ticket"),
+                        Map.of("value", "FOLLOW_UP",        "label", "Follow up when awaiting customer response"),
+                        Map.of("value", "RESOLUTION",       "label", "Notify customer the ticket has been resolved"),
+                        Map.of("value", "NEED_MORE_INFO",   "label", "Request additional information from customer")
+                )
+        );
     }
 }

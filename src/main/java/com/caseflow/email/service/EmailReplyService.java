@@ -93,8 +93,8 @@ public class EmailReplyService {
         Ticket ticket = ticketRepository.findById(ticketId)
                 .orElseThrow(() -> new TicketNotFoundException(ticketId));
 
-        // Resolve reply-to address and RFC 2822 threading headers via shared resolver
-        ReplyThreadContext threadCtx = threadContextResolver.resolve(sourceEventId, toAddressOverride);
+        // Resolve reply-to address and RFC 2822 threading headers — validates source event ownership
+        ReplyThreadContext threadCtx = threadContextResolver.resolveForTicket(sourceEventId, toAddressOverride, ticketId);
         String resolvedToAddress = threadCtx.resolvedToAddress();
 
         // Caller can explicitly override In-Reply-To (e.g. preview-to-send flow)

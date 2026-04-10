@@ -116,7 +116,7 @@ class MailTemplateServiceTest {
     void create_savesTemplateWithUpperCaseCode() {
         MailTemplateRequest request = new MailTemplateRequest(
                 "my_template", "My Template", null,
-                "<html>body</html>", "body", true);
+                "<html>body</html>", "body", true, null, null);
         when(templateRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         MailTemplate result = sut.create(request);
@@ -128,7 +128,7 @@ class MailTemplateServiceTest {
     @Test
     void create_defaultsToActive_whenIsActiveNull() {
         MailTemplateRequest request = new MailTemplateRequest(
-                "TMPL", "Tmpl", null, "<html/>", "text", null);
+                "TMPL", "Tmpl", null, "<html/>", "text", null, null, null);
         when(templateRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         MailTemplate result = sut.create(request);
@@ -145,7 +145,7 @@ class MailTemplateServiceTest {
 
         MailTemplateRequest request = new MailTemplateRequest(
                 "CUSTOM_REPLY", "Updated Name", null,
-                "<html>new</html>", "new text", true);
+                "<html>new</html>", "new text", true, null, null);
 
         MailTemplate result = sut.update(1L, request);
 
@@ -234,7 +234,7 @@ class MailTemplateServiceTest {
     void create_throws_whenHtmlTemplateContainsScript() {
         MailTemplateRequest request = new MailTemplateRequest(
                 "BAD", "Bad", null,
-                "<html><script>alert(1)</script></html>", "text", true);
+                "<html><script>alert(1)</script></html>", "text", true, null, null);
 
         assertThatThrownBy(() -> sut.create(request))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -245,7 +245,7 @@ class MailTemplateServiceTest {
     void create_throws_whenHtmlTemplateContainsIframe() {
         MailTemplateRequest request = new MailTemplateRequest(
                 "BAD", "Bad", null,
-                "<html><iframe src='x'></iframe></html>", "text", true);
+                "<html><iframe src='x'></iframe></html>", "text", true, null, null);
 
         assertThatThrownBy(() -> sut.create(request))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -256,7 +256,7 @@ class MailTemplateServiceTest {
     void create_throws_whenHtmlTemplateContainsJavascriptUri() {
         MailTemplateRequest request = new MailTemplateRequest(
                 "BAD", "Bad", null,
-                "<a href=\"javascript:void(0)\">click</a>", "text", true);
+                "<a href=\"javascript:void(0)\">click</a>", "text", true, null, null);
 
         assertThatThrownBy(() -> sut.create(request))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -267,7 +267,7 @@ class MailTemplateServiceTest {
     void update_throws_whenHtmlTemplateContainsScript() {
         MailTemplateRequest request = new MailTemplateRequest(
                 "CUSTOM_REPLY", "Name", null,
-                "<script>evil()</script>", "text", true);
+                "<script>evil()</script>", "text", true, null, null);
 
         assertThatThrownBy(() -> sut.update(1L, request))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -278,7 +278,7 @@ class MailTemplateServiceTest {
     void create_accepts_safeHtmlTemplate() {
         MailTemplateRequest request = new MailTemplateRequest(
                 "SAFE", "Safe", null,
-                "<html><body><p>{replyBody}</p></body></html>", "body", true);
+                "<html><body><p>{replyBody}</p></body></html>", "body", true, null, null);
         when(templateRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         // Must not throw

@@ -1,5 +1,6 @@
 package com.caseflow.email.scheduled.service;
 
+import com.caseflow.common.exception.EmailOperationException;
 import com.caseflow.common.exception.TicketNotFoundException;
 import com.caseflow.email.domain.EmailMailbox;
 import com.caseflow.email.domain.OutboundEmailDispatch;
@@ -93,13 +94,13 @@ public class ScheduledEmailService {
                                                Long templateId, String templateCode,
                                                boolean contentWasEdited) {
         if (sendNotBefore.isBefore(Instant.now())) {
-            throw new IllegalArgumentException(
+            throw new EmailOperationException("SCHEDULE_TIME_INVALID",
                     "sendNotBefore must be in the future; got: " + sendNotBefore);
         }
 
         // Both sourceEventId and toAddress absent — cannot determine recipient
         if (sourceEventId == null && (toAddress == null || toAddress.isBlank())) {
-            throw new IllegalArgumentException(
+            throw new EmailOperationException("REPLY_TARGET_UNRESOLVABLE",
                     "Either sourceEventId or toAddress must be provided");
         }
 
@@ -113,19 +114,21 @@ public class ScheduledEmailService {
         }
 
         EmailMailbox mailbox = mailboxRepository.findById(mailboxId)
-                .orElseThrow(() -> new IllegalArgumentException(
+                .orElseThrow(() -> new EmailOperationException("MAILBOX_NOT_FOUND",
                         "Mailbox not found: " + mailboxId));
 
         if (!Boolean.TRUE.equals(mailbox.getIsActive())) {
-            throw new IllegalStateException("Mailbox " + mailboxId + " is inactive");
+            throw new EmailOperationException("MAILBOX_NOT_ACTIVE",
+                    "Mailbox " + mailboxId + " is inactive");
         }
 
         if (mailbox.getSmtpHost() == null || mailbox.getSmtpHost().isBlank()) {
-            throw new IllegalStateException("Mailbox " + mailboxId + " has no SMTP configuration");
+            throw new EmailOperationException("MAILBOX_NOT_ACTIVE",
+                    "Mailbox " + mailboxId + " has no SMTP configuration");
         }
 
-        // Resolve recipient address and threading headers from source event (or explicit override)
-        ReplyThreadContext threadCtx = threadContextResolver.resolve(sourceEventId, toAddress);
+        // Resolve recipient address and threading headers — validates source event ticket ownership
+        ReplyThreadContext threadCtx = threadContextResolver.resolveForTicket(sourceEventId, toAddress, ticket.getId());
 
         OutboundEmailDispatch dispatch = dispatchService.enqueueScheduled(
                 ticket.getId(), mailboxId,

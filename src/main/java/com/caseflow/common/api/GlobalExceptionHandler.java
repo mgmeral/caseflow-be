@@ -3,6 +3,7 @@ package com.caseflow.common.api;
 import com.caseflow.common.exception.ActiveAssignmentAlreadyExistsException;
 import com.caseflow.common.exception.CustomerDeleteBlockedException;
 import com.caseflow.common.exception.DispatchNotFoundException;
+import com.caseflow.common.exception.EmailOperationException;
 import com.caseflow.common.exception.InvalidMailboxConfigException;
 import com.caseflow.common.exception.DuplicateEmailException;
 import com.caseflow.common.exception.AttachmentNotFoundException;
@@ -13,6 +14,7 @@ import com.caseflow.common.exception.GroupNotFoundException;
 import com.caseflow.common.exception.AdminLockoutException;
 import com.caseflow.common.exception.GroupTypeNotFoundException;
 import com.caseflow.common.exception.MailboxNotFoundException;
+import com.caseflow.common.exception.MailTemplateNotFoundException;
 import com.caseflow.common.exception.RoutingRuleNotFoundException;
 import com.caseflow.common.exception.RoleNotFoundException;
 import com.caseflow.common.exception.InvalidTicketStateException;
@@ -58,6 +60,7 @@ public class GlobalExceptionHandler {
             NoteNotFoundException.class,
             AttachmentNotFoundException.class,
             MailboxNotFoundException.class,
+            MailTemplateNotFoundException.class,
             RoutingRuleNotFoundException.class,
             DispatchNotFoundException.class
     })
@@ -225,6 +228,31 @@ public class GlobalExceptionHandler {
                 request.getRequestURI()
         );
         return ResponseEntity.badRequest().body(body);
+    }
+
+    // ── Email operation errors (structured code → deterministic HTTP status) ────
+
+    @ExceptionHandler(EmailOperationException.class)
+    public ResponseEntity<ErrorResponse> handleEmailOperation(EmailOperationException ex,
+                                                              HttpServletRequest request) {
+        HttpStatus status = resolveEmailOpStatus(ex.getCode());
+        log.warn("Email operation error [{}]: {}", ex.getCode(), ex.getMessage());
+        ErrorResponse body = ErrorResponse.of(
+                status.value(), status.getReasonPhrase(),
+                ex.getCode(), ex.getMessage(), request.getRequestURI());
+        return ResponseEntity.status(status).body(body);
+    }
+
+    private static HttpStatus resolveEmailOpStatus(String code) {
+        return switch (code) {
+            case "SOURCE_EVENT_NOT_FOUND", "MAILBOX_NOT_FOUND", "TEMPLATE_NOT_FOUND"
+                    -> HttpStatus.NOT_FOUND;
+            case "SOURCE_EVENT_NOT_FOR_TICKET", "REPLY_TARGET_UNRESOLVABLE",
+                 "MAILBOX_NOT_ACTIVE", "TEMPLATE_INACTIVE",
+                 "SCHEDULE_TIME_INVALID", "REPLY_BODY_EMPTY"
+                    -> HttpStatus.UNPROCESSABLE_ENTITY;
+            default -> HttpStatus.BAD_REQUEST;
+        };
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

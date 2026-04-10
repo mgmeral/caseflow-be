@@ -18,6 +18,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -81,7 +82,7 @@ class MailTemplateControllerTest {
     void create_returns201_withCreatedTemplate() {
         MailTemplateRequest request = new MailTemplateRequest(
                 "NEW_TMPL", "New Template", null,
-                "<html>x</html>", "x", true);
+                "<html>x</html>", "x", true, "CUSTOMER_REPLY", null);
         when(templateService.create(any())).thenReturn(template);
 
         ResponseEntity<MailTemplateResponse> result = sut.create(request);
@@ -94,7 +95,7 @@ class MailTemplateControllerTest {
     void update_returnsUpdatedTemplate() {
         MailTemplateRequest request = new MailTemplateRequest(
                 "CUSTOMER_REPLY", "Updated", null,
-                "<html>new</html>", "new", true);
+                "<html>new</html>", "new", true, null, null);
         when(templateService.update(eq(1L), any())).thenReturn(template);
 
         MailTemplateResponse result = sut.update(1L, request);
@@ -118,6 +119,37 @@ class MailTemplateControllerTest {
         assertThatThrownBy(() -> sut.delete(1L))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("built-in");
+    }
+
+    @Test
+    void response_includesUsageType_whenSet() {
+        template.setUsageType("CUSTOMER_REPLY");
+        template.setDescription("Standard customer reply template");
+        when(templateService.findAll()).thenReturn(List.of(template));
+
+        List<MailTemplateResponse> result = sut.list();
+
+        assertThat(result.get(0).usageType()).isEqualTo("CUSTOMER_REPLY");
+        assertThat(result.get(0).description()).isEqualTo("Standard customer reply template");
+    }
+
+    @Test
+    void help_returnsPlaceholdersAndUsageTypes() {
+        Map<String, Object> result = sut.help();
+
+        assertThat(result).containsKey("supportedPlaceholders");
+        assertThat(result).containsKey("usageTypes");
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, String>> placeholders = (List<Map<String, String>>) result.get("supportedPlaceholders");
+        assertThat(placeholders).hasSizeGreaterThanOrEqualTo(5);
+        assertThat(placeholders.stream().map(m -> m.get("name")))
+                .contains("{replyBody}", "{ticketRef}", "{mailboxName}", "{agentName}", "{signatureBlock}");
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, String>> usageTypes = (List<Map<String, String>>) result.get("usageTypes");
+        assertThat(usageTypes.stream().map(m -> m.get("value")))
+                .contains("CUSTOMER_REPLY", "ACKNOWLEDGEMENT", "FOLLOW_UP", "RESOLUTION", "NEED_MORE_INFO");
     }
 
     @Test

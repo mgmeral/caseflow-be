@@ -229,8 +229,11 @@ public class TicketEmailController {
 
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(new ReplyEnqueuedResponse(
                 dispatch.getId(),
+                request.sourceEventId(),
                 dispatch.getResolvedToAddress(),
+                fromAddress,
                 dispatch.getMailboxId(),
+                request.subject(),
                 Instant.now()
         ));
     }

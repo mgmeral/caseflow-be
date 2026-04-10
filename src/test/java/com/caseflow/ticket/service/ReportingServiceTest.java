@@ -226,7 +226,7 @@ class ReportingServiceTest {
                 .thenReturn(new ArrayList<>());
 
         // countTagsByCustomerAndDateRange returns (tagId, count) pairs
-        List<Object[]> tagCounts = List.of(new Object[]{10L, 3L});
+        List<Object[]> tagCounts = statusCounts(new Object[]{10L, 3L});
         when(ticketTagRepository.countTagsByCustomerAndDateRange(eq(1L), any(), any()))
                 .thenReturn(tagCounts);
 

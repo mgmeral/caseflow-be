@@ -62,6 +62,17 @@ public class MailTemplate {
     @Column(name = "is_built_in", nullable = false)
     private Boolean isBuiltIn = false;
 
+    /**
+     * Semantic usage type — guides the FE in presenting the right template for the context.
+     * Suggested values: CUSTOMER_REPLY, ACKNOWLEDGEMENT, FOLLOW_UP, RESOLUTION, NEED_MORE_INFO.
+     */
+    @Column(name = "usage_type", length = 50)
+    private String usageType;
+
+    /** Optional human-readable description of when/why to use this template. */
+    @Column(name = "description", length = 1000)
+    private String description;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -101,6 +112,12 @@ public class MailTemplate {
 
     public Boolean getIsBuiltIn() { return isBuiltIn; }
     public void setIsBuiltIn(Boolean isBuiltIn) { this.isBuiltIn = isBuiltIn; }
+
+    public String getUsageType() { return usageType; }
+    public void setUsageType(String usageType) { this.usageType = usageType; }
+
+    public String getDescription() { return description; }
+    public void setDescription(String description) { this.description = description; }
 
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }

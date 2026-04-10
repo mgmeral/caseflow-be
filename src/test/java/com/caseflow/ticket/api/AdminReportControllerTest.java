@@ -37,7 +37,7 @@ class AdminReportControllerTest {
     @WithMockUser(authorities = "PERM_REPORT_VIEW")
     void aggregateReport_returns200_withPagedRows() throws Exception {
         AdminCustomerReportRow row = new AdminCustomerReportRow(
-                1L, "Acme Corp", 20L, 12L, 3L, 5L, 2L, 4L, 4L, 2L);
+                1L, "Acme Corp", null, 20L, 12L, 3L, 5L, 2L, 4L, 4L, 2L);
 
         when(reportingService.adminAggregateReport(any(), any(), any()))
                 .thenReturn(new PageImpl<>(List.of(row), PageRequest.of(0, 20), 1));

@@ -27,6 +27,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import com.caseflow.common.exception.EmailOperationException;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -84,9 +85,9 @@ class EmailReplyServiceTest {
 
         lenient().when(mailTemplateService.findActiveByCode(anyString())).thenReturn(Optional.empty());
 
-        // Default: resolver returns the source event's from-address as the reply target.
+        // Default: resolveForTicket returns the source event's from-address as the reply target.
         // When sourceEventId is null (manual toAddress), inReplyTo/references are also null.
-        lenient().when(threadContextResolver.resolve(any(), any()))
+        lenient().when(threadContextResolver.resolveForTicket(any(), any(), any()))
                 .thenAnswer(inv -> {
                     Long sourceId = inv.getArgument(0);
                     String toOverride = inv.getArgument(1);
@@ -116,7 +117,7 @@ class EmailReplyServiceTest {
     @Test
     void sendReply_derivesToAddressFromSourceEvent_replyToHeaderTakesPrecedence() {
         sourceEvent.setRawReplyTo("reply-target@example.com");
-        when(threadContextResolver.resolve(eq(10L), isNull()))
+        when(threadContextResolver.resolveForTicket(eq(10L), isNull(), any()))
                 .thenReturn(new ReplyThreadContext("reply-target@example.com",
                         sourceEvent.getMessageId(), sourceEvent.getMessageId(), 10L));
 
@@ -133,7 +134,7 @@ class EmailReplyServiceTest {
     @Test
     void sendReply_stripsDisplayNameFromReplyTo() {
         sourceEvent.setRawReplyTo("John Customer <john@bigcorp.com>");
-        when(threadContextResolver.resolve(eq(10L), isNull()))
+        when(threadContextResolver.resolveForTicket(eq(10L), isNull(), any()))
                 .thenReturn(new ReplyThreadContext("john@bigcorp.com",
                         sourceEvent.getMessageId(), sourceEvent.getMessageId(), 10L));
 
@@ -162,26 +163,42 @@ class EmailReplyServiceTest {
 
     @Test
     void sendReply_throws_whenNeitherSourceEventNorToAddress() {
-        when(threadContextResolver.resolve(isNull(), isNull()))
-                .thenThrow(new IllegalArgumentException("sourceEventId or toAddress must be provided"));
+        when(threadContextResolver.resolveForTicket(isNull(), isNull(), any()))
+                .thenThrow(new EmailOperationException("REPLY_TARGET_UNRESOLVABLE",
+                        "Reply target cannot be determined: provide sourceEventId or toAddress"));
 
         assertThatThrownBy(() ->
                 sendReply(1L, 2L, null, null, "support@caseflow.dev",
                         "Re: Issue", "body", null, null, 42L, null, null))
-                .isInstanceOf(IllegalArgumentException.class)
+                .isInstanceOf(EmailOperationException.class)
                 .hasMessageContaining("sourceEventId or toAddress");
     }
 
     @Test
     void sendReply_throws_whenSourceEventNotFound() {
-        when(threadContextResolver.resolve(eq(999L), isNull()))
-                .thenThrow(new IllegalArgumentException("Ingress event not found: 999"));
+        when(threadContextResolver.resolveForTicket(eq(999L), isNull(), any()))
+                .thenThrow(new EmailOperationException("SOURCE_EVENT_NOT_FOUND",
+                        "Source event not found: 999"));
 
         assertThatThrownBy(() ->
                 sendReply(1L, 2L, 999L, null, "support@caseflow.dev",
                         "Re: Issue", "body", null, null, 42L, null, null))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("Ingress event not found");
+                .isInstanceOf(EmailOperationException.class)
+                .hasMessageContaining("Source event not found");
+    }
+
+    @Test
+    void sendReply_throws_whenSourceEventBelongsToDifferentTicket() {
+        when(threadContextResolver.resolveForTicket(eq(10L), isNull(), eq(1L)))
+                .thenThrow(new EmailOperationException("SOURCE_EVENT_NOT_FOR_TICKET",
+                        "Source event 10 does not belong to ticket 1"));
+
+        assertThatThrownBy(() ->
+                sendReply(1L, 2L, 10L, null, "support@caseflow.dev",
+                        "Re: Issue", "body", null, null, 42L, null, null))
+                .isInstanceOf(EmailOperationException.class)
+                .extracting(e -> ((EmailOperationException) e).getCode())
+                .isEqualTo("SOURCE_EVENT_NOT_FOR_TICKET");
     }
 
     // ── No premature system transition ────────────────────────────────────────
@@ -242,7 +259,7 @@ class EmailReplyServiceTest {
     void sendReply_buildsReferencesChain_whenPriorRefsExist() {
         sourceEvent.setRawReplyTo(null);
         sourceEvent.setRawReferences("<thread-start@example.com>|<thread-mid@example.com>");
-        when(threadContextResolver.resolve(eq(10L), isNull()))
+        when(threadContextResolver.resolveForTicket(eq(10L), isNull(), any()))
                 .thenReturn(new ReplyThreadContext("customer@example.com",
                         "<msg123@example.com>",
                         "<thread-start@example.com> <thread-mid@example.com> <msg123@example.com>",
