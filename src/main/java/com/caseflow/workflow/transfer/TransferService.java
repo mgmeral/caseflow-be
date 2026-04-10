@@ -1,13 +1,17 @@
 package com.caseflow.workflow.transfer;
 
 import com.caseflow.common.exception.TicketNotFoundException;
+import com.caseflow.identity.repository.GroupRepository;
+import com.caseflow.identity.repository.UserRepository;
 import com.caseflow.integration.domain.TicketDomainEvent;
 import com.caseflow.integration.notification.domain.NotificationEventType;
 import com.caseflow.ticket.domain.Ticket;
+import com.caseflow.ticket.domain.TicketStatus;
 import com.caseflow.ticket.repository.TicketRepository;
 import com.caseflow.workflow.domain.Transfer;
 import com.caseflow.workflow.history.TicketHistoryService;
 import com.caseflow.workflow.repository.TransferRepository;
+import com.caseflow.workflow.transfer.dto.TransferResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
@@ -25,30 +29,41 @@ public class TransferService {
     private final TicketRepository ticketRepository;
     private final TicketHistoryService ticketHistoryService;
     private final ApplicationEventPublisher eventPublisher;
+    private final GroupRepository groupRepository;
+    private final UserRepository userRepository;
 
     public TransferService(TransferRepository transferRepository,
                            TicketRepository ticketRepository,
                            TicketHistoryService ticketHistoryService,
-                           ApplicationEventPublisher eventPublisher) {
+                           ApplicationEventPublisher eventPublisher,
+                           GroupRepository groupRepository,
+                           UserRepository userRepository) {
         this.transferRepository = transferRepository;
         this.ticketRepository = ticketRepository;
         this.ticketHistoryService = ticketHistoryService;
         this.eventPublisher = eventPublisher;
+        this.groupRepository = groupRepository;
+        this.userRepository = userRepository;
     }
 
+    /**
+     * Transfers the ticket to the target group.
+     * Always clears the current assignee and moves status to TRIAGED so the receiving
+     * group can triage and re-assign from a clean state.
+     * The {@code clearAssignee} parameter is accepted for backwards compatibility but ignored —
+     * assignee is always cleared on transfer.
+     */
     @Transactional
-    public Transfer transfer(Long ticketId, Long fromGroupId, Long toGroupId,
-                             Long transferredBy, String reason, boolean clearAssignee) {
-        log.info("Transferring ticket {} — fromGroupId: {}, toGroupId: {}, clearAssignee: {}, transferredBy: {}",
-                ticketId, fromGroupId, toGroupId, clearAssignee, transferredBy);
+    public TransferResponse transfer(Long ticketId, Long fromGroupId, Long toGroupId,
+                                     Long transferredBy, String reason, boolean clearAssignee) {
+        log.info("Transferring ticket {} — fromGroupId: {}, toGroupId: {}, transferredBy: {}",
+                ticketId, fromGroupId, toGroupId, transferredBy);
         Ticket ticket = ticketRepository.findById(ticketId)
                 .orElseThrow(() -> new TicketNotFoundException(ticketId));
 
         ticket.setAssignedGroupId(toGroupId);
-        if (clearAssignee) {
-            log.info("Clearing assignee on ticket {} as part of transfer", ticketId);
-            ticket.setAssignedUserId(null);
-        }
+        ticket.setAssignedUserId(null);
+        ticket.setStatus(TicketStatus.TRIAGED);
         ticketRepository.save(ticket);
 
         Transfer transfer = new Transfer();
@@ -64,7 +79,15 @@ public class TransferService {
                 NotificationEventType.TICKET_TRANSFERRED, transferredBy,
                 ticket.getCustomerId(), ticket.getAssignedGroupId()));
         log.info("Ticket {} transferred — fromGroupId: {} -> toGroupId: {}", ticketId, fromGroupId, toGroupId);
-        return saved;
+
+        String fromGroupName = groupRepository.findById(fromGroupId).map(g -> g.getName()).orElse(null);
+        String toGroupName   = groupRepository.findById(toGroupId).map(g -> g.getName()).orElse(null);
+        String transferredByName = userRepository.findById(transferredBy).map(u -> u.getUsername()).orElse(null);
+
+        return new TransferResponse(
+                saved.getId(), ticketId, fromGroupId, toGroupId,
+                fromGroupName, toGroupName, transferredBy, transferredByName,
+                saved.getTransferredAt(), reason);
     }
 
     @Transactional(readOnly = true)

@@ -59,6 +59,7 @@ class AssignmentServiceTest {
         ticket.setSubject("Test");
         ticket.setStatus(TicketStatus.ASSIGNED);
         ticket.setPriority(TicketPriority.MEDIUM);
+        ticket.setAssignedGroupId(20L);
     }
 
     @Test
@@ -102,7 +103,10 @@ class AssignmentServiceTest {
     }
 
     @Test
-    void unassign_closesActiveAssignmentAndClearsTicketFields() {
+    void unassign_closesActiveAssignmentAndClearsUserButPreservesGroup() {
+        ticket.setAssignedUserId(10L);
+        ticket.setAssignedGroupId(20L);
+
         Assignment active = new Assignment();
         active.setTicketId(1L);
         when(assignmentRepository.findByTicketIdAndUnassignedAtIsNull(1L)).thenReturn(Optional.of(active));
@@ -114,7 +118,8 @@ class AssignmentServiceTest {
 
         assertThat(active.getUnassignedAt()).isNotNull();
         assertThat(ticket.getAssignedUserId()).isNull();
-        assertThat(ticket.getAssignedGroupId()).isNull();
+        // Group is intentionally preserved — ticket stays visible in group queue
+        assertThat(ticket.getAssignedGroupId()).isEqualTo(20L);
         verify(ticketHistoryService).recordUnassigned(eq(1L), eq(5L));
     }
 
@@ -145,5 +150,99 @@ class AssignmentServiceTest {
 
         Optional<Assignment> result = assignmentService.getActiveAssignment(1L);
         assertThat(result).isEmpty();
+    }
+
+    // ── Group preservation ────────────────────────────────────────────────────
+
+    @Test
+    void assign_doesNotOverwriteExistingGroup_whenGroupIdIsNull() {
+        ticket.setStatus(TicketStatus.NEW);
+        ticket.setAssignedGroupId(99L); // pre-existing group
+
+        when(assignmentRepository.findByTicketIdAndUnassignedAtIsNull(1L)).thenReturn(Optional.empty());
+        when(ticketRepository.findById(1L)).thenReturn(Optional.of(ticket));
+        when(assignmentRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(ticketRepository.save(any())).thenReturn(ticket);
+
+        // Assign only a user, no groupId provided (null)
+        assignmentService.assign(1L, 10L, null, 5L);
+
+        // Existing group must be preserved
+        assertThat(ticket.getAssignedGroupId()).isEqualTo(99L);
+    }
+
+    @Test
+    void reassign_doesNotOverwriteExistingGroup_whenGroupIdIsNull() {
+        ticket.setStatus(TicketStatus.IN_PROGRESS);
+        ticket.setAssignedGroupId(99L);
+
+        Assignment existing = new Assignment();
+        existing.setTicketId(1L);
+        when(assignmentRepository.findByTicketIdAndUnassignedAtIsNull(1L)).thenReturn(Optional.of(existing));
+        when(ticketRepository.findById(1L)).thenReturn(Optional.of(ticket));
+        when(assignmentRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(ticketRepository.save(any())).thenReturn(ticket);
+
+        assignmentService.reassign(1L, 20L, null, 5L);
+
+        assertThat(ticket.getAssignedGroupId()).isEqualTo(99L);
+    }
+
+    // ── Auto-ASSIGNED status transition ───────────────────────────────────────
+
+    @Test
+    void assign_autoTransitionsToAssigned_whenTicketIsNew() {
+        ticket.setStatus(TicketStatus.NEW);
+
+        when(assignmentRepository.findByTicketIdAndUnassignedAtIsNull(1L)).thenReturn(Optional.empty());
+        when(ticketRepository.findById(1L)).thenReturn(Optional.of(ticket));
+        when(assignmentRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(ticketRepository.save(any())).thenReturn(ticket);
+
+        assignmentService.assign(1L, 10L, 20L, 5L);
+
+        assertThat(ticket.getStatus()).isEqualTo(TicketStatus.ASSIGNED);
+    }
+
+    @Test
+    void assign_autoTransitionsToAssigned_whenTicketIsTriaged() {
+        ticket.setStatus(TicketStatus.TRIAGED);
+
+        when(assignmentRepository.findByTicketIdAndUnassignedAtIsNull(1L)).thenReturn(Optional.empty());
+        when(ticketRepository.findById(1L)).thenReturn(Optional.of(ticket));
+        when(assignmentRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(ticketRepository.save(any())).thenReturn(ticket);
+
+        assignmentService.assign(1L, 10L, 20L, 5L);
+
+        assertThat(ticket.getStatus()).isEqualTo(TicketStatus.ASSIGNED);
+    }
+
+    @Test
+    void assign_autoTransitionsToAssigned_whenTicketIsReopened() {
+        ticket.setStatus(TicketStatus.REOPENED);
+
+        when(assignmentRepository.findByTicketIdAndUnassignedAtIsNull(1L)).thenReturn(Optional.empty());
+        when(ticketRepository.findById(1L)).thenReturn(Optional.of(ticket));
+        when(assignmentRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(ticketRepository.save(any())).thenReturn(ticket);
+
+        assignmentService.assign(1L, 10L, 20L, 5L);
+
+        assertThat(ticket.getStatus()).isEqualTo(TicketStatus.ASSIGNED);
+    }
+
+    @Test
+    void assign_doesNotChangeStatus_whenTicketAlreadyInProgress() {
+        ticket.setStatus(TicketStatus.IN_PROGRESS);
+
+        when(assignmentRepository.findByTicketIdAndUnassignedAtIsNull(1L)).thenReturn(Optional.empty());
+        when(ticketRepository.findById(1L)).thenReturn(Optional.of(ticket));
+        when(assignmentRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(ticketRepository.save(any())).thenReturn(ticket);
+
+        assignmentService.assign(1L, 10L, 20L, 5L);
+
+        assertThat(ticket.getStatus()).isEqualTo(TicketStatus.IN_PROGRESS);
     }
 }

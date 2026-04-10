@@ -29,7 +29,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
@@ -60,10 +59,11 @@ class TransferControllerTest {
         when(ticketAuth.canTransferTicket(any(Authentication.class), anyLong(), anyLong()))
                 .thenReturn(true);
 
-        TransferResponse response = new TransferResponse(10L, 5L, 1L, 2L, 1L, Instant.now(), "Escalating");
+        TransferResponse response = new TransferResponse(
+                10L, 5L, 1L, 2L, "Support Team", "Escalation Team",
+                1L, "agent1", Instant.now(), "Escalating");
         when(transferService.transfer(anyLong(), anyLong(), anyLong(), anyLong(), anyString(), anyBoolean()))
-                .thenReturn(new Transfer());
-        when(transferMapper.toResponse(any())).thenReturn(response);
+                .thenReturn(response);
 
         TransferTicketRequest request = new TransferTicketRequest(5L, 1L, 2L, "Escalating", false);
 
@@ -77,6 +77,9 @@ class TransferControllerTest {
                 .andExpect(jsonPath("$.ticketId").value(5))
                 .andExpect(jsonPath("$.fromGroupId").value(1))
                 .andExpect(jsonPath("$.toGroupId").value(2))
+                .andExpect(jsonPath("$.fromGroupName").value("Support Team"))
+                .andExpect(jsonPath("$.toGroupName").value("Escalation Team"))
+                .andExpect(jsonPath("$.transferredByName").value("agent1"))
                 .andExpect(jsonPath("$.reason").value("Escalating"));
     }
 

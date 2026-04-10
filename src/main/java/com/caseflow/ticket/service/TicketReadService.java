@@ -73,10 +73,12 @@ public class TicketReadService {
                                               Long assignedUserId, Long assignedGroupId,
                                               Long customerId, String searchText,
                                               Instant from, Instant to,
+                                              Boolean openOnly, Boolean unassignedOnly,
+                                              Long tagId, String tagCode,
                                               Specification<Ticket> scopeSpec, Pageable pageable) {
         Page<Ticket> page = ticketQueryService.search(
                 status, priority, assignedUserId, assignedGroupId, customerId, searchText, from, to,
-                scopeSpec, pageable);
+                openOnly, unassignedOnly, tagId, tagCode, scopeSpec, pageable);
         return enrichPage(page);
     }
 

@@ -71,11 +71,17 @@ public class TicketQueryService {
     /**
      * Composable search with optional scope enforcement.
      * {@code scopeSpec} is ANDed in when non-null; pass null for no scope restriction.
+     *
+     * <p>{@code openOnly} restricts to non-terminal statuses (matches dashboard open definition).
+     * {@code unassignedOnly} restricts to tickets with no assigned user.
+     * {@code tagId}/{@code tagCode} filter to tickets carrying the given tag.
      */
     @Transactional(readOnly = true)
     public Page<Ticket> search(TicketStatus status, TicketPriority priority,
                                Long assignedUserId, Long assignedGroupId, Long customerId,
                                String searchText, Instant from, Instant to,
+                               Boolean openOnly, Boolean unassignedOnly,
+                               Long tagId, String tagCode,
                                Specification<Ticket> scopeSpec, Pageable pageable) {
         Specification<Ticket> spec = Specification.where(TicketSpecification.hasStatus(status))
                 .and(TicketSpecification.hasPriority(priority))
@@ -85,6 +91,10 @@ public class TicketQueryService {
                 .and(TicketSpecification.subjectOrTicketNoContains(searchText))
                 .and(TicketSpecification.createdAfter(from))
                 .and(TicketSpecification.createdBefore(to))
+                .and(Boolean.TRUE.equals(openOnly) ? TicketSpecification.isOpen() : null)
+                .and(Boolean.TRUE.equals(unassignedOnly) ? TicketSpecification.isUnassigned() : null)
+                .and(TicketSpecification.hasTagId(tagId))
+                .and(TicketSpecification.hasTagCode(tagCode))
                 .and(scopeSpec);
 
         return ticketRepository.findAll(spec, pageable);

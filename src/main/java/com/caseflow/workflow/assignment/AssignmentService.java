@@ -7,6 +7,7 @@ import com.caseflow.integration.notification.domain.NotificationEventType;
 import com.caseflow.notification.domain.NotificationType;
 import com.caseflow.notification.service.NotificationService;
 import com.caseflow.ticket.domain.Ticket;
+import com.caseflow.ticket.domain.TicketStatus;
 import com.caseflow.ticket.repository.TicketRepository;
 import com.caseflow.workflow.domain.Assignment;
 import com.caseflow.workflow.history.TicketHistoryService;
@@ -62,10 +63,23 @@ public class AssignmentService {
 
         Ticket ticket = findTicketOrThrow(ticketId);
         ticket.setAssignedUserId(userId);
-        ticket.setAssignedGroupId(groupId);
+        // Only update group when explicitly provided — never null-out an existing group assignment
+        if (groupId != null) {
+            ticket.setAssignedGroupId(groupId);
+        }
+        // Auto-transition to ASSIGNED when assigning a user to an unstarted ticket
+        if (userId != null) {
+            TicketStatus current = ticket.getStatus();
+            if (current == TicketStatus.NEW
+                    || current == TicketStatus.TRIAGED
+                    || current == TicketStatus.REOPENED) {
+                ticket.setStatus(TicketStatus.ASSIGNED);
+            }
+        }
         ticketRepository.save(ticket);
 
-        Assignment assignment = buildAssignment(ticketId, userId, groupId, assignedBy);
+        Long effectiveGroupId = groupId != null ? groupId : ticket.getAssignedGroupId();
+        Assignment assignment = buildAssignment(ticketId, userId, effectiveGroupId, assignedBy);
         Assignment saved = assignmentRepository.save(assignment);
 
         ticketHistoryService.recordAssigned(ticketId, assignedBy, userId, groupId);
@@ -104,7 +118,19 @@ public class AssignmentService {
         });
 
         ticket.setAssignedUserId(newUserId);
-        ticket.setAssignedGroupId(newGroupId);
+        // Only update group when explicitly provided — never null-out an existing group assignment
+        if (newGroupId != null) {
+            ticket.setAssignedGroupId(newGroupId);
+        }
+        // Auto-transition to ASSIGNED when assigning a user to an unstarted ticket
+        if (newUserId != null) {
+            TicketStatus current = ticket.getStatus();
+            if (current == TicketStatus.NEW
+                    || current == TicketStatus.TRIAGED
+                    || current == TicketStatus.REOPENED) {
+                ticket.setStatus(TicketStatus.ASSIGNED);
+            }
+        }
         ticketRepository.save(ticket);
 
         Assignment assignment = buildAssignment(ticketId, newUserId, newGroupId, reassignedBy);
@@ -136,7 +162,8 @@ public class AssignmentService {
 
         Ticket ticket = findTicketOrThrow(ticketId);
         ticket.setAssignedUserId(null);
-        ticket.setAssignedGroupId(null);
+        // Group assignment is deliberately preserved on unassign — only the user link is removed.
+        // The group retains ownership so the ticket stays visible in the group queue.
         ticketRepository.save(ticket);
 
         ticketHistoryService.recordUnassigned(ticketId, performedBy);

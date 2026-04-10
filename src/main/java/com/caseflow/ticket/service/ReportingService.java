@@ -182,6 +182,7 @@ public class ReportingService {
                     return new AdminCustomerReportRow(
                             customer.getId(),
                             customer.getName(),
+                            customer.getColorHex(),
                             counts.total(),
                             counts.open(),
                             counts.newCount(),
@@ -250,7 +251,7 @@ public class ReportingService {
             Tag tag = tagMap.get(tagId);
             if (tag != null) {
                 result.add(new CustomerTicketReportResponse.TagCount(
-                        tag.getId(), tag.getCode(), tag.getName(), tagCount));
+                        tag.getId(), tag.getCode(), tag.getName(), tag.getColor(), tagCount));
             }
         }
         return result;

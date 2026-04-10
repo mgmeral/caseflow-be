@@ -24,6 +24,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import com.fasterxml.jackson.core.JsonParseException;
+import com.fasterxml.jackson.databind.exc.InvalidFormatException;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -169,14 +171,34 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<ErrorResponse> handleUnreadableBody(HttpMessageNotReadableException ex,
                                                               HttpServletRequest request) {
+        String detail = resolveUnreadableBodyMessage(ex);
         ErrorResponse body = ErrorResponse.of(
                 HttpStatus.BAD_REQUEST.value(),
                 HttpStatus.BAD_REQUEST.getReasonPhrase(),
                 "MALFORMED_REQUEST",
-                "Request body is missing or malformed",
+                detail,
                 request.getRequestURI()
         );
         return ResponseEntity.badRequest().body(body);
+    }
+
+    private String resolveUnreadableBodyMessage(HttpMessageNotReadableException ex) {
+        String msg = ex.getMessage();
+        if (msg != null && msg.contains("Required request body is missing")) {
+            return "Request body is required but was not provided";
+        }
+        Throwable cause = ex.getCause();
+        if (cause instanceof InvalidFormatException ife) {
+            String path = ife.getPath().stream()
+                    .map(ref -> ref.getFieldName() != null ? ref.getFieldName() : "[" + ref.getIndex() + "]")
+                    .reduce((a, b) -> a + "." + b)
+                    .orElse("unknown");
+            return "Invalid value for field '" + path + "': cannot parse '" + ife.getValue() + "'";
+        }
+        if (cause instanceof JsonParseException jpe) {
+            return "Request body contains malformed JSON: " + jpe.getOriginalMessage();
+        }
+        return "Request body is missing or malformed";
     }
 
     @ExceptionHandler(MissingServletRequestParameterException.class)

@@ -4,6 +4,7 @@ import com.caseflow.customer.domain.Customer;
 import com.caseflow.customer.repository.CustomerRepository;
 import com.caseflow.ticket.api.dto.AdminCustomerReportRow;
 import com.caseflow.ticket.api.dto.CustomerTicketReportResponse;
+import com.caseflow.ticket.domain.Tag;
 import com.caseflow.ticket.domain.TicketStatus;
 import com.caseflow.ticket.repository.TagRepository;
 import com.caseflow.ticket.repository.TicketRepository;
@@ -218,6 +219,51 @@ class ReportingServiceTest {
     }
 
     @Test
+    void customerReport_tagBreakdown_includesTagColor() {
+        Customer customer = customer(1L, "Acme Corp");
+        when(customerRepository.findById(1L)).thenReturn(Optional.of(customer));
+        when(ticketRepository.countByStatusForCustomer(eq(1L), any(), any()))
+                .thenReturn(new ArrayList<>());
+
+        // countTagsByCustomerAndDateRange returns (tagId, count) pairs
+        List<Object[]> tagCounts = List.of(new Object[]{10L, 3L});
+        when(ticketTagRepository.countTagsByCustomerAndDateRange(eq(1L), any(), any()))
+                .thenReturn(tagCounts);
+
+        Tag tag = new Tag();
+        tag.setCode("BUG");
+        tag.setName("Bug");
+        tag.setColor("#FF5733");
+        setTagId(tag, 10L);
+        when(tagRepository.findAllById(List.of(10L))).thenReturn(List.of(tag));
+
+        CustomerTicketReportResponse report = reportingService.customerReport(1L, null, null);
+
+        assertThat(report.byTag()).hasSize(1);
+        CustomerTicketReportResponse.TagCount tc = report.byTag().get(0);
+        assertThat(tc.tagId()).isEqualTo(10L);
+        assertThat(tc.tagCode()).isEqualTo("BUG");
+        assertThat(tc.tagColor()).isEqualTo("#FF5733");
+        assertThat(tc.count()).isEqualTo(3L);
+    }
+
+    @Test
+    void adminAggregateReport_includesCustomerColorHex() {
+        Customer c = customer(1L, "Acme");
+        c.setColorHex("#3B82F6");
+        Page<Customer> page = new PageImpl<>(List.of(c), PageRequest.of(0, 20), 1);
+        when(customerRepository.findAll(any(Pageable.class))).thenReturn(page);
+        when(ticketRepository.countByStatusForCustomers(eq(List.of(1L)), any(), any()))
+                .thenReturn(new ArrayList<>());
+
+        Page<AdminCustomerReportRow> result =
+                reportingService.adminAggregateReport(null, null, PageRequest.of(0, 20));
+
+        assertThat(result.getContent()).hasSize(1);
+        assertThat(result.getContent().get(0).customerColorHex()).isEqualTo("#3B82F6");
+    }
+
+    @Test
     void statusBucketSet_openStatusesAreNonFinal() {
         assertThat(ReportingService.OPEN_STATUSES).containsExactlyInAnyOrder(
                 TicketStatus.NEW, TicketStatus.TRIAGED, TicketStatus.ASSIGNED,
@@ -248,6 +294,16 @@ class ReportingServiceTest {
     /** (customerId, status, count) row for admin aggregate queries. */
     private static Object[] row3(long customerId, TicketStatus status, long count) {
         return new Object[]{customerId, status, count};
+    }
+
+    private static void setTagId(Tag tag, Long id) {
+        try {
+            var f = Tag.class.getDeclaredField("id");
+            f.setAccessible(true);
+            f.set(tag, id);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 
     private Customer customer(Long id, String name) {

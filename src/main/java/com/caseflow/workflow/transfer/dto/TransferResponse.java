@@ -7,7 +7,10 @@ public record TransferResponse(
         Long ticketId,
         Long fromGroupId,
         Long toGroupId,
+        String fromGroupName,
+        String toGroupName,
         Long transferredBy,
+        String transferredByName,
         Instant transferredAt,
         String reason
 ) {}

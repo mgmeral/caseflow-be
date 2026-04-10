@@ -144,6 +144,10 @@ public class TicketController {
             @RequestParam(required = false) String search,
             @RequestParam(required = false) String from,
             @RequestParam(required = false) String to,
+            @RequestParam(required = false) Boolean openOnly,
+            @RequestParam(required = false) Boolean unassignedOnly,
+            @RequestParam(required = false) Long tagId,
+            @RequestParam(required = false) String tagCode,
             @RequestParam(defaultValue = "0")   int page,
             @RequestParam(defaultValue = "20")  int size,
             @RequestParam(defaultValue = "createdAt") String sort,
@@ -160,7 +164,9 @@ public class TicketController {
 
         return ResponseEntity.ok(PagedResponse.from(
                 ticketReadService.search(status, priority, userId, groupId, customerId,
-                        search, fromInstant, toInstant, scopeSpec, pageRequest)));
+                        search, fromInstant, toInstant,
+                        openOnly, unassignedOnly, tagId, tagCode,
+                        scopeSpec, pageRequest)));
     }
 
     @GetMapping("/admin-pool")

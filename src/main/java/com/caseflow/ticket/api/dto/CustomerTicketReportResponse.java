@@ -47,5 +47,5 @@ public record CustomerTicketReportResponse(
         List<TagCount> byTag
 
 ) {
-    public record TagCount(Long tagId, String tagCode, String tagName, long count) {}
+    public record TagCount(Long tagId, String tagCode, String tagName, String tagColor, long count) {}
 }

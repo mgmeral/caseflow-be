@@ -127,7 +127,8 @@ class TicketControllerTest {
     void listTickets_returns200_withPagedResponse() throws Exception {
         TicketSummaryResponse summary = makeTicketSummary(1L, "TKT-001");
 
-        when(ticketReadService.search(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(Pageable.class)))
+        when(ticketReadService.search(any(), any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(summary)));
 
         mockMvc.perform(get("/api/tickets"))
@@ -141,7 +142,8 @@ class TicketControllerTest {
     void listTickets_acceptsStatusChangedAtSort() throws Exception {
         // statusChangedAt is a supported sort field — must not fall back to createdAt
         TicketSummaryResponse summary = makeTicketSummary(1L, "TKT-001");
-        when(ticketReadService.search(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(Pageable.class)))
+        when(ticketReadService.search(any(), any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(summary)));
 
         mockMvc.perform(get("/api/tickets").param("sort", "statusChangedAt").param("direction", "asc"))
@@ -153,12 +155,50 @@ class TicketControllerTest {
     void listTickets_singleValueFilterContract_acceptsOneStatusValue() throws Exception {
         // Single-value filter contract: one status value must work cleanly
         TicketSummaryResponse summary = makeTicketSummary(1L, "TKT-001");
-        when(ticketReadService.search(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(Pageable.class)))
+        when(ticketReadService.search(any(), any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(summary)));
 
         mockMvc.perform(get("/api/tickets").param("status", "NEW"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements").value(1));
+    }
+
+    @Test
+    @WithMockUser(authorities = "PERM_TICKET_READ")
+    void listTickets_openOnlyFilter_returns200() throws Exception {
+        TicketSummaryResponse summary = makeTicketSummary(1L, "TKT-001");
+        when(ticketReadService.search(any(), any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(summary)));
+
+        mockMvc.perform(get("/api/tickets").param("openOnly", "true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1));
+    }
+
+    @Test
+    @WithMockUser(authorities = "PERM_TICKET_READ")
+    void listTickets_tagIdFilter_returns200() throws Exception {
+        TicketSummaryResponse summary = makeTicketSummary(1L, "TKT-001");
+        when(ticketReadService.search(any(), any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(summary)));
+
+        mockMvc.perform(get("/api/tickets").param("tagId", "5"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithMockUser(authorities = "PERM_TICKET_READ")
+    void listTickets_tagCodeFilter_returns200() throws Exception {
+        TicketSummaryResponse summary = makeTicketSummary(1L, "TKT-001");
+        when(ticketReadService.search(any(), any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(summary)));
+
+        mockMvc.perform(get("/api/tickets").param("tagCode", "BUG"))
+                .andExpect(status().isOk());
     }
 
     // ── POST /api/tickets ─────────────────────────────────────────────────────

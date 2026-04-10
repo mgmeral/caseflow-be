@@ -9,6 +9,7 @@ package com.caseflow.ticket.api.dto;
 public record AdminCustomerReportRow(
         Long customerId,
         String customerName,
+        String customerColorHex,
         long totalCount,
         long openCount,
         long newCount,

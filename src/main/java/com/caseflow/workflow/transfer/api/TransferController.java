@@ -43,12 +43,11 @@ public class TransferController {
     @PreAuthorize("@ticketAuth.canTransferTicket(authentication, #request.ticketId, #request.toGroupId)")
     public ResponseEntity<TransferResponse> transfer(@Valid @RequestBody TransferTicketRequest request) {
         Long userId = SecurityContextHelper.requireCurrentUserId();
-        log.info("POST /transfers — ticketId: {}, fromGroupId: {}, toGroupId: {}, clearAssignee: {}, by: {}",
-                request.ticketId(), request.fromGroupId(), request.toGroupId(), request.clearAssignee(), userId);
-        TransferResponse response = transferMapper.toResponse(
-                transferService.transfer(
-                        request.ticketId(), request.fromGroupId(), request.toGroupId(),
-                        userId, request.reason(), request.clearAssignee()));
+        log.info("POST /transfers — ticketId: {}, fromGroupId: {}, toGroupId: {}, by: {}",
+                request.ticketId(), request.fromGroupId(), request.toGroupId(), userId);
+        TransferResponse response = transferService.transfer(
+                request.ticketId(), request.fromGroupId(), request.toGroupId(),
+                userId, request.reason(), request.clearAssignee());
         log.info("POST /transfers succeeded — ticketId: {}", request.ticketId());
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
