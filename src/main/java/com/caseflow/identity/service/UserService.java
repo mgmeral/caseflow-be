@@ -2,7 +2,10 @@ package com.caseflow.identity.service;
 
 import com.caseflow.common.exception.RoleNotFoundException;
 import com.caseflow.common.exception.UserNotFoundException;
+import com.caseflow.common.exception.UserProfileException;
+import com.caseflow.identity.api.dto.ChangePasswordRequest;
 import com.caseflow.identity.api.dto.CreateUserRequest;
+import com.caseflow.identity.api.dto.UpdateProfileRequest;
 import com.caseflow.identity.api.dto.UpdateUserRequest;
 import com.caseflow.identity.domain.Group;
 import com.caseflow.identity.domain.Role;
@@ -127,6 +130,57 @@ public class UserService {
     @Transactional(readOnly = true)
     public List<User> findAll() {
         return userRepository.findAllWithRole();
+    }
+
+    // ── Self-service profile ──────────────────────────────────────────────────
+
+    @Transactional(readOnly = true)
+    public User getMyProfile(Long userId) {
+        return userRepository.findByIdWithRoleAndGroups(userId)
+                .orElseThrow(() -> new UserNotFoundException(userId));
+    }
+
+    @Transactional
+    public User updateMyProfile(Long userId, UpdateProfileRequest request) {
+        log.info("Updating profile for user {}", userId);
+        User user = userRepository.findByIdWithRoleAndGroups(userId)
+                .orElseThrow(() -> new UserNotFoundException(userId));
+        user.setDisplayName(request.displayName());
+        user.setFirstName(request.firstName());
+        user.setLastName(request.lastName());
+        user.setLocale(request.locale());
+        User saved = userRepository.save(user);
+        log.info("Profile updated for user {}", userId);
+        return saved;
+    }
+
+    @Transactional
+    public void changePassword(Long userId, ChangePasswordRequest request) {
+        log.info("Password change requested for user {}", userId);
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new UserNotFoundException(userId));
+
+        if (!passwordEncoder.matches(request.currentPassword(), user.getPasswordHash())) {
+            throw new UserProfileException("CURRENT_PASSWORD_INVALID",
+                    "Current password is incorrect");
+        }
+
+        String newPwd = request.newPassword();
+        if (!isPasswordPolicyMet(newPwd)) {
+            throw new UserProfileException("NEW_PASSWORD_POLICY_VIOLATION",
+                    "New password must be at least 8 characters and contain at least one letter and one digit");
+        }
+
+        user.setPasswordHash(passwordEncoder.encode(newPwd));
+        userRepository.save(user);
+        log.info("Password changed for user {}", userId);
+    }
+
+    private boolean isPasswordPolicyMet(String password) {
+        if (password == null || password.length() < 8) return false;
+        boolean hasLetter = password.chars().anyMatch(Character::isLetter);
+        boolean hasDigit  = password.chars().anyMatch(Character::isDigit);
+        return hasLetter && hasDigit;
     }
 
     // ── Private ───────────────────────────────────────────────────────────────

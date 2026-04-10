@@ -4,7 +4,9 @@ import com.caseflow.common.exception.ActiveAssignmentAlreadyExistsException;
 import com.caseflow.common.exception.CustomerDeleteBlockedException;
 import com.caseflow.common.exception.DispatchNotFoundException;
 import com.caseflow.common.exception.EmailOperationException;
+import com.caseflow.common.exception.InvalidDateRangeException;
 import com.caseflow.common.exception.InvalidMailboxConfigException;
+import com.caseflow.common.exception.UserProfileException;
 import com.caseflow.common.exception.DuplicateEmailException;
 import com.caseflow.common.exception.AttachmentNotFoundException;
 import com.caseflow.common.exception.ContactNotFoundException;
@@ -253,6 +255,37 @@ public class GlobalExceptionHandler {
                     -> HttpStatus.UNPROCESSABLE_ENTITY;
             default -> HttpStatus.BAD_REQUEST;
         };
+    }
+
+    // ── 400 Invalid date range ────────────────────────────────────────────────
+
+    @ExceptionHandler(InvalidDateRangeException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidDateRange(InvalidDateRangeException ex,
+                                                                HttpServletRequest request) {
+        ErrorResponse body = ErrorResponse.of(
+                HttpStatus.BAD_REQUEST.value(),
+                HttpStatus.BAD_REQUEST.getReasonPhrase(),
+                "INVALID_DATE_RANGE",
+                ex.getMessage(),
+                request.getRequestURI()
+        );
+        return ResponseEntity.badRequest().body(body);
+    }
+
+    // ── 422 User profile errors ───────────────────────────────────────────────
+
+    @ExceptionHandler(UserProfileException.class)
+    public ResponseEntity<ErrorResponse> handleUserProfile(UserProfileException ex,
+                                                           HttpServletRequest request) {
+        log.warn("User profile error [{}]: {}", ex.getCode(), ex.getMessage());
+        ErrorResponse body = ErrorResponse.of(
+                HttpStatus.UNPROCESSABLE_ENTITY.value(),
+                "Unprocessable Entity",
+                ex.getCode(),
+                ex.getMessage(),
+                request.getRequestURI()
+        );
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(body);
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

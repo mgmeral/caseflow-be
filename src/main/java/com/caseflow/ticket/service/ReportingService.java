@@ -1,6 +1,7 @@
 package com.caseflow.ticket.service;
 
 import com.caseflow.common.exception.CustomerNotFoundException;
+import com.caseflow.common.exception.InvalidDateRangeException;
 import com.caseflow.customer.domain.Customer;
 import com.caseflow.customer.repository.CustomerRepository;
 import com.caseflow.ticket.api.dto.AdminCustomerReportRow;
@@ -109,6 +110,7 @@ public class ReportingService {
      */
     @Transactional(readOnly = true)
     public CustomerTicketReportResponse customerReport(Long customerId, Instant from, Instant to) {
+        validateDateRange(from, to);
         Customer customer = customerRepository.findById(customerId)
                 .orElseThrow(() -> new CustomerNotFoundException(customerId));
 
@@ -153,6 +155,7 @@ public class ReportingService {
     @Transactional(readOnly = true)
     public Page<AdminCustomerReportRow> adminAggregateReport(Instant from, Instant to,
                                                               Pageable pageable) {
+        validateDateRange(from, to);
         Page<Customer> customerPage = customerRepository.findAll(pageable);
         List<Customer> customers = customerPage.getContent();
 
@@ -255,6 +258,12 @@ public class ReportingService {
             }
         }
         return result;
+    }
+
+    private void validateDateRange(Instant from, Instant to) {
+        if (from != null && to != null && from.isAfter(to)) {
+            throw new InvalidDateRangeException("dateFrom must not be after dateTo");
+        }
     }
 
     /** Immutable holder for computed status bucket values. */

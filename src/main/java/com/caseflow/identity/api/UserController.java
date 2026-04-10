@@ -1,7 +1,11 @@
 package com.caseflow.identity.api;
 
+import com.caseflow.auth.CaseFlowUserDetails;
+import com.caseflow.identity.api.dto.ChangePasswordRequest;
 import com.caseflow.identity.api.dto.CreateUserRequest;
+import com.caseflow.identity.api.dto.UpdateProfileRequest;
 import com.caseflow.identity.api.dto.UpdateUserRequest;
+import com.caseflow.identity.api.dto.UserProfileResponse;
 import com.caseflow.identity.api.dto.UserResponse;
 import com.caseflow.identity.api.dto.UserSummaryResponse;
 import com.caseflow.identity.api.mapper.UserMapper;
@@ -13,6 +17,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -100,6 +105,34 @@ public class UserController {
     public ResponseEntity<Void> deactivate(@PathVariable Long id) {
         log.info("PATCH /users/{}/deactivate", id);
         userService.deactivate(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    // ── Self-service profile (/me) ────────────────────────────────────────────
+
+    @GetMapping("/me")
+    public ResponseEntity<UserProfileResponse> getMyProfile(
+            @AuthenticationPrincipal CaseFlowUserDetails principal) {
+        log.info("GET /users/me — userId: {}", principal.getUserId());
+        return ResponseEntity.ok(
+                userMapper.toProfileResponse(userService.getMyProfile(principal.getUserId())));
+    }
+
+    @PutMapping("/me")
+    public ResponseEntity<UserProfileResponse> updateMyProfile(
+            @AuthenticationPrincipal CaseFlowUserDetails principal,
+            @Valid @RequestBody UpdateProfileRequest request) {
+        log.info("PUT /users/me — userId: {}", principal.getUserId());
+        return ResponseEntity.ok(
+                userMapper.toProfileResponse(userService.updateMyProfile(principal.getUserId(), request)));
+    }
+
+    @PostMapping("/me/change-password")
+    public ResponseEntity<Void> changePassword(
+            @AuthenticationPrincipal CaseFlowUserDetails principal,
+            @Valid @RequestBody ChangePasswordRequest request) {
+        log.info("POST /users/me/change-password — userId: {}", principal.getUserId());
+        userService.changePassword(principal.getUserId(), request);
         return ResponseEntity.noContent().build();
     }
 }

@@ -1,5 +1,6 @@
 package com.caseflow.ticket.service;
 
+import com.caseflow.common.exception.InvalidDateRangeException;
 import com.caseflow.customer.domain.Customer;
 import com.caseflow.customer.repository.CustomerRepository;
 import com.caseflow.ticket.api.dto.AdminCustomerReportRow;
@@ -25,6 +26,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
@@ -261,6 +263,44 @@ class ReportingServiceTest {
 
         assertThat(result.getContent()).hasSize(1);
         assertThat(result.getContent().get(0).customerColorHex()).isEqualTo("#3B82F6");
+    }
+
+    // ── Date range validation ─────────────────────────────────────────────────
+
+    @Test
+    void customerReport_throwsInvalidDateRange_whenFromAfterTo() {
+        Instant from = Instant.parse("2026-06-01T00:00:00Z");
+        Instant to   = Instant.parse("2026-01-01T00:00:00Z");
+
+        assertThatThrownBy(() -> reportingService.customerReport(1L, from, to))
+                .isInstanceOf(InvalidDateRangeException.class)
+                .hasMessageContaining("dateFrom");
+    }
+
+    @Test
+    void adminAggregateReport_throwsInvalidDateRange_whenFromAfterTo() {
+        Instant from = Instant.parse("2026-12-31T00:00:00Z");
+        Instant to   = Instant.parse("2026-01-01T00:00:00Z");
+
+        assertThatThrownBy(() ->
+                reportingService.adminAggregateReport(from, to, PageRequest.of(0, 20)))
+                .isInstanceOf(InvalidDateRangeException.class)
+                .hasMessageContaining("dateFrom");
+    }
+
+    @Test
+    void customerReport_allowsSameFromAndTo() {
+        Customer customer = customer(1L, "Acme");
+        when(customerRepository.findById(1L)).thenReturn(Optional.of(customer));
+        Instant same = Instant.parse("2026-06-15T12:00:00Z");
+        when(ticketRepository.countByStatusForCustomer(eq(1L), eq(same), eq(same)))
+                .thenReturn(new ArrayList<>());
+        when(ticketTagRepository.countTagsByCustomerAndDateRange(eq(1L), eq(same), eq(same)))
+                .thenReturn(new ArrayList<>());
+
+        CustomerTicketReportResponse report = reportingService.customerReport(1L, same, same);
+
+        assertThat(report.totalCount()).isZero();
     }
 
     @Test

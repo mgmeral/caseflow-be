@@ -2,6 +2,7 @@ package com.caseflow.ticket.api;
 
 import com.caseflow.auth.CaseFlowUserDetailsService;
 import com.caseflow.auth.JwtTokenService;
+import com.caseflow.common.exception.InvalidDateRangeException;
 import com.caseflow.common.security.SecurityConfig;
 import com.caseflow.ticket.api.dto.CustomerTicketReportResponse;
 import com.caseflow.ticket.security.TicketAuthorizationService;
@@ -20,6 +21,7 @@ import java.util.List;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.doThrow;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -106,6 +108,19 @@ class CustomerReportControllerTest {
                         .param("to", "2026-03-31T23:59:59Z"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(7));
+    }
+
+    @Test
+    @WithMockUser(authorities = "PERM_REPORT_VIEW")
+    void ticketReport_returns400_whenFromAfterTo() throws Exception {
+        when(reportingService.customerReport(anyLong(), any(), any()))
+                .thenThrow(new InvalidDateRangeException("dateFrom must not be after dateTo"));
+
+        mockMvc.perform(get("/api/customers/1/reports/tickets")
+                        .param("from", "2026-12-01T00:00:00Z")
+                        .param("to", "2026-01-01T00:00:00Z"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_DATE_RANGE"));
     }
 
     @Test
