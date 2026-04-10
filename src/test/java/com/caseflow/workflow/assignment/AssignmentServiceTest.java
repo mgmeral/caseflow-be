@@ -1,7 +1,13 @@
 package com.caseflow.workflow.assignment;
 
 import com.caseflow.common.exception.ActiveAssignmentAlreadyExistsException;
+import com.caseflow.common.exception.ActiveAssignmentNotFoundException;
+import com.caseflow.common.exception.ReassignTargetSameAsCurrentException;
+import com.caseflow.common.exception.ReassignTargetUserInactiveException;
+import com.caseflow.common.exception.ReassignTargetUserNotFoundException;
 import com.caseflow.common.exception.TicketNotFoundException;
+import com.caseflow.identity.domain.User;
+import com.caseflow.identity.repository.UserRepository;
 import com.caseflow.notification.service.NotificationService;
 import com.caseflow.ticket.domain.Ticket;
 import com.caseflow.ticket.domain.TicketPriority;
@@ -25,6 +31,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -37,6 +44,9 @@ class AssignmentServiceTest {
 
     @Mock
     private TicketRepository ticketRepository;
+
+    @Mock
+    private UserRepository userRepository;
 
     @Mock
     private TicketHistoryService ticketHistoryService;
@@ -128,7 +138,10 @@ class AssignmentServiceTest {
         Assignment existing = new Assignment();
         existing.setTicketId(1L);
         existing.setAssignedUserId(10L);
+        existing.setAssignedGroupId(20L);
 
+        User newUser = activeUser(20L);
+        when(userRepository.findById(20L)).thenReturn(Optional.of(newUser));
         when(assignmentRepository.findByTicketIdAndUnassignedAtIsNull(1L)).thenReturn(Optional.of(existing));
         when(ticketRepository.findById(1L)).thenReturn(Optional.of(ticket));
 
@@ -141,7 +154,31 @@ class AssignmentServiceTest {
         Assignment result = assignmentService.reassign(1L, 20L, 30L, 5L);
 
         assertThat(existing.getUnassignedAt()).isNotNull();
+        // effective group is 30L (explicitly provided)
         verify(ticketHistoryService).recordReassigned(eq(1L), eq(5L), eq(20L), eq(30L));
+    }
+
+    @Test
+    void reassign_flushesBeforeInsert_toPreventUniqueConstraintViolation() {
+        Assignment existing = new Assignment();
+        existing.setTicketId(1L);
+        existing.setAssignedUserId(10L);
+        existing.setAssignedGroupId(20L);
+
+        User newUser = activeUser(99L);
+        when(userRepository.findById(99L)).thenReturn(Optional.of(newUser));
+        when(assignmentRepository.findByTicketIdAndUnassignedAtIsNull(1L)).thenReturn(Optional.of(existing));
+        when(ticketRepository.findById(1L)).thenReturn(Optional.of(ticket));
+        when(assignmentRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(ticketRepository.save(any())).thenReturn(ticket);
+
+        assignmentService.reassign(1L, 99L, null, 5L);
+
+        // flush must be called after save(existing) and before save(newAssignment)
+        var order = inOrder(assignmentRepository);
+        order.verify(assignmentRepository).save(existing);
+        order.verify(assignmentRepository).flush();
+        order.verify(assignmentRepository).save(any(Assignment.class));
     }
 
     @Test
@@ -178,14 +215,23 @@ class AssignmentServiceTest {
 
         Assignment existing = new Assignment();
         existing.setTicketId(1L);
+        existing.setAssignedGroupId(99L);
+
+        User newUser = activeUser(20L);
+        when(userRepository.findById(20L)).thenReturn(Optional.of(newUser));
         when(assignmentRepository.findByTicketIdAndUnassignedAtIsNull(1L)).thenReturn(Optional.of(existing));
         when(ticketRepository.findById(1L)).thenReturn(Optional.of(ticket));
         when(assignmentRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(ticketRepository.save(any())).thenReturn(ticket);
 
-        assignmentService.reassign(1L, 20L, null, 5L);
+        Assignment result = assignmentService.reassign(1L, 20L, null, 5L);
 
+        // Ticket group must be preserved
         assertThat(ticket.getAssignedGroupId()).isEqualTo(99L);
+        // Effective group derived from active assignment's group must flow into history
+        verify(ticketHistoryService).recordReassigned(eq(1L), eq(5L), eq(20L), eq(99L));
+        // New assignment row uses effective group
+        assertThat(result.getAssignedGroupId()).isEqualTo(99L);
     }
 
     // ── Auto-ASSIGNED status transition ───────────────────────────────────────
@@ -244,5 +290,137 @@ class AssignmentServiceTest {
         assignmentService.assign(1L, 10L, 20L, 5L);
 
         assertThat(ticket.getStatus()).isEqualTo(TicketStatus.IN_PROGRESS);
+    }
+
+    // ── Reassign guards ───────────────────────────────────────────────────────
+
+    @Test
+    void reassign_throwsActiveAssignmentNotFound_whenNoActiveAssignment() {
+        when(ticketRepository.findById(1L)).thenReturn(Optional.of(ticket));
+        when(assignmentRepository.findByTicketIdAndUnassignedAtIsNull(1L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> assignmentService.reassign(1L, 20L, 30L, 5L))
+                .isInstanceOf(ActiveAssignmentNotFoundException.class)
+                .hasMessageContaining("1");
+
+        verify(assignmentRepository, never()).save(any());
+    }
+
+    @Test
+    void reassign_throwsReassignTargetUserNotFoundException_whenUserNotFound() {
+        Assignment existing = new Assignment();
+        existing.setTicketId(1L);
+        existing.setAssignedUserId(10L);
+        existing.setAssignedGroupId(20L);
+
+        when(ticketRepository.findById(1L)).thenReturn(Optional.of(ticket));
+        when(assignmentRepository.findByTicketIdAndUnassignedAtIsNull(1L)).thenReturn(Optional.of(existing));
+        when(userRepository.findById(99L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> assignmentService.reassign(1L, 99L, null, 5L))
+                .isInstanceOf(ReassignTargetUserNotFoundException.class)
+                .hasMessageContaining("99");
+
+        verify(assignmentRepository, never()).flush();
+    }
+
+    @Test
+    void reassign_throwsReassignTargetUserInactiveException_whenUserInactive() {
+        Assignment existing = new Assignment();
+        existing.setTicketId(1L);
+        existing.setAssignedUserId(10L);
+        existing.setAssignedGroupId(20L);
+
+        User inactive = new User();
+        inactive.setIsActive(false);
+        when(ticketRepository.findById(1L)).thenReturn(Optional.of(ticket));
+        when(assignmentRepository.findByTicketIdAndUnassignedAtIsNull(1L)).thenReturn(Optional.of(existing));
+        when(userRepository.findById(55L)).thenReturn(Optional.of(inactive));
+
+        assertThatThrownBy(() -> assignmentService.reassign(1L, 55L, null, 5L))
+                .isInstanceOf(ReassignTargetUserInactiveException.class)
+                .hasMessageContaining("55");
+
+        verify(assignmentRepository, never()).flush();
+    }
+
+    @Test
+    void reassign_throwsSameAsCurrentException_whenTargetIdenticalToCurrentAssignment() {
+        ticket.setAssignedGroupId(20L);
+
+        Assignment existing = new Assignment();
+        existing.setTicketId(1L);
+        existing.setAssignedUserId(10L);
+        existing.setAssignedGroupId(20L);
+
+        User user = activeUser(10L);
+        when(ticketRepository.findById(1L)).thenReturn(Optional.of(ticket));
+        when(assignmentRepository.findByTicketIdAndUnassignedAtIsNull(1L)).thenReturn(Optional.of(existing));
+        when(userRepository.findById(10L)).thenReturn(Optional.of(user));
+
+        // same user, same group → no-op
+        assertThatThrownBy(() -> assignmentService.reassign(1L, 10L, 20L, 5L))
+                .isInstanceOf(ReassignTargetSameAsCurrentException.class);
+
+        verify(assignmentRepository, never()).flush();
+        verify(ticketHistoryService, never()).recordReassigned(any(), any(), any(), any());
+    }
+
+    @Test
+    void reassign_effectiveGroupFallsBackToTicketGroup_whenBothActiveAndRequestGroupAreNull() {
+        ticket.setAssignedGroupId(77L);
+
+        Assignment existing = new Assignment();
+        existing.setTicketId(1L);
+        existing.setAssignedUserId(10L);
+        // active assignment has no group stored
+        existing.setAssignedGroupId(null);
+
+        User newUser = activeUser(20L);
+        when(userRepository.findById(20L)).thenReturn(Optional.of(newUser));
+        when(assignmentRepository.findByTicketIdAndUnassignedAtIsNull(1L)).thenReturn(Optional.of(existing));
+        when(ticketRepository.findById(1L)).thenReturn(Optional.of(ticket));
+        when(assignmentRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(ticketRepository.save(any())).thenReturn(ticket);
+
+        Assignment result = assignmentService.reassign(1L, 20L, null, 5L);
+
+        // effective group must fall back to ticket's group
+        assertThat(result.getAssignedGroupId()).isEqualTo(77L);
+        verify(ticketHistoryService).recordReassigned(eq(1L), eq(5L), eq(20L), eq(77L));
+    }
+
+    @Test
+    void reassign_secondActiveRowIsNeverInserted() {
+        // Verifies old row is closed (unassignedAt set) and only one new active row is created
+        Assignment existing = new Assignment();
+        existing.setTicketId(1L);
+        existing.setAssignedUserId(10L);
+        existing.setAssignedGroupId(20L);
+
+        User newUser = activeUser(30L);
+        when(userRepository.findById(30L)).thenReturn(Optional.of(newUser));
+        when(assignmentRepository.findByTicketIdAndUnassignedAtIsNull(1L)).thenReturn(Optional.of(existing));
+        when(ticketRepository.findById(1L)).thenReturn(Optional.of(ticket));
+        when(assignmentRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(ticketRepository.save(any())).thenReturn(ticket);
+
+        assignmentService.reassign(1L, 30L, null, 5L);
+
+        // Old row must have unassignedAt set before new row insert
+        assertThat(existing.getUnassignedAt()).isNotNull();
+        // save called twice on assignmentRepository: once to close old, once to insert new
+        var order = inOrder(assignmentRepository);
+        order.verify(assignmentRepository).save(existing);
+        order.verify(assignmentRepository).flush();
+        order.verify(assignmentRepository).save(any(Assignment.class));
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private User activeUser(Long id) {
+        User u = new User();
+        u.setIsActive(true);
+        return u;
     }
 }

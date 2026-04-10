@@ -1,7 +1,13 @@
 package com.caseflow.workflow.assignment;
 
 import com.caseflow.common.exception.ActiveAssignmentAlreadyExistsException;
+import com.caseflow.common.exception.ActiveAssignmentNotFoundException;
+import com.caseflow.common.exception.ReassignTargetSameAsCurrentException;
+import com.caseflow.common.exception.ReassignTargetUserInactiveException;
+import com.caseflow.common.exception.ReassignTargetUserNotFoundException;
 import com.caseflow.common.exception.TicketNotFoundException;
+import com.caseflow.identity.domain.User;
+import com.caseflow.identity.repository.UserRepository;
 import com.caseflow.integration.domain.TicketDomainEvent;
 import com.caseflow.integration.notification.domain.NotificationEventType;
 import com.caseflow.notification.domain.NotificationType;
@@ -34,17 +40,20 @@ public class AssignmentService {
 
     private final AssignmentRepository assignmentRepository;
     private final TicketRepository ticketRepository;
+    private final UserRepository userRepository;
     private final TicketHistoryService ticketHistoryService;
     private final NotificationService notificationService;
     private final ApplicationEventPublisher eventPublisher;
 
     public AssignmentService(AssignmentRepository assignmentRepository,
                              TicketRepository ticketRepository,
+                             UserRepository userRepository,
                              TicketHistoryService ticketHistoryService,
                              NotificationService notificationService,
                              ApplicationEventPublisher eventPublisher) {
         this.assignmentRepository = assignmentRepository;
         this.ticketRepository = ticketRepository;
+        this.userRepository = userRepository;
         this.ticketHistoryService = ticketHistoryService;
         this.notificationService = notificationService;
         this.eventPublisher = eventPublisher;
@@ -107,16 +116,55 @@ public class AssignmentService {
         if (newUserId == null && newGroupId == null) {
             throw new IllegalArgumentException("Reassignment must target at least one of: newUserId, newGroupId");
         }
-        log.info("Reassigning ticket {} — newUserId: {}, newGroupId: {}, reassignedBy: {}", ticketId, newUserId, newGroupId, reassignedBy);
+        log.info("Reassigning ticket {} — newUserId: {}, requestedNewGroupId: {}, reassignedBy: {}",
+                ticketId, newUserId, newGroupId, reassignedBy);
 
+        // Guard: ticket must exist
         Ticket ticket = findTicketOrThrow(ticketId);
-        Long previousUserId = ticket.getAssignedUserId();
 
-        assignmentRepository.findByTicketIdAndUnassignedAtIsNull(ticketId).ifPresent(active -> {
-            active.setUnassignedAt(Instant.now());
-            assignmentRepository.save(active);
-        });
+        // Guard: active assignment must exist — reassign without a current assignment is a logic error
+        Assignment active = assignmentRepository.findByTicketIdAndUnassignedAtIsNull(ticketId)
+                .orElseThrow(() -> {
+                    log.warn("Reassign failed — no active assignment for ticket {}", ticketId);
+                    return new ActiveAssignmentNotFoundException(ticketId);
+                });
 
+        // Guard: validate new target user when provided
+        if (newUserId != null) {
+            User newUser = userRepository.findById(newUserId)
+                    .orElseThrow(() -> new ReassignTargetUserNotFoundException(newUserId));
+            if (!Boolean.TRUE.equals(newUser.getIsActive())) {
+                throw new ReassignTargetUserInactiveException(newUserId);
+            }
+        }
+
+        // Compute effective group: explicit request wins; fall back to active assignment's group,
+        // then ticket's group — never null-out group context.
+        Long effectiveGroupId = newGroupId != null ? newGroupId
+                : active.getAssignedGroupId() != null ? active.getAssignedGroupId()
+                : ticket.getAssignedGroupId();
+
+        // Guard: same-target reassign is a no-op — reject before touching DB
+        if (Objects.equals(active.getAssignedUserId(), newUserId)
+                && Objects.equals(active.getAssignedGroupId(), effectiveGroupId)) {
+            log.warn("Reassign rejected — ticket {} already assigned to userId={}, groupId={}",
+                    ticketId, newUserId, effectiveGroupId);
+            throw new ReassignTargetSameAsCurrentException(ticketId);
+        }
+
+        log.debug("Reassign ticket {} — currentAssignmentId: {}, currentUserId: {}, newUserId: {}, requestedGroupId: {}, effectiveGroupId: {}",
+                ticketId, active.getId(), active.getAssignedUserId(), newUserId, newGroupId, effectiveGroupId);
+
+        Long previousUserId = active.getAssignedUserId();
+
+        // Close current active row and flush to DB BEFORE inserting the new active row.
+        // Without flush(), Hibernate defers the UPDATE until transaction commit; the subsequent
+        // INSERT would find two active rows for the same ticket, violating the partial unique index.
+        active.setUnassignedAt(Instant.now());
+        assignmentRepository.save(active);
+        assignmentRepository.flush();
+
+        // Update ticket fields
         ticket.setAssignedUserId(newUserId);
         // Only update group when explicitly provided — never null-out an existing group assignment
         if (newGroupId != null) {
@@ -133,19 +181,21 @@ public class AssignmentService {
         }
         ticketRepository.save(ticket);
 
-        Assignment assignment = buildAssignment(ticketId, newUserId, newGroupId, reassignedBy);
+        // Insert new active assignment row using effective group
+        Assignment assignment = buildAssignment(ticketId, newUserId, effectiveGroupId, reassignedBy);
         Assignment saved = assignmentRepository.save(assignment);
 
-        ticketHistoryService.recordReassigned(ticketId, reassignedBy, newUserId, newGroupId);
+        // History and notification use the same effective group
+        ticketHistoryService.recordReassigned(ticketId, reassignedBy, newUserId, effectiveGroupId);
 
-        // Notifications: only notify if user actually changed (avoid no-op spam)
+        // Notify only when the assigned user actually changed
         if (newUserId != null && !Objects.equals(previousUserId, newUserId)) {
             notificationService.notifyUserAssigned(
                     ticketId, ticket.getPublicId(), ticket.getTicketNo(),
                     newUserId, NotificationType.TICKET_REASSIGNED_TO_USER, reassignedBy);
         }
 
-        log.info("Ticket {} reassigned — newUserId: {}, newGroupId: {}", ticketId, newUserId, newGroupId);
+        log.info("Ticket {} reassigned — newUserId: {}, effectiveGroupId: {}", ticketId, newUserId, effectiveGroupId);
         return saved;
     }
 

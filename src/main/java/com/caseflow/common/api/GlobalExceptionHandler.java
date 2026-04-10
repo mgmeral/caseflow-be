@@ -1,7 +1,11 @@
 package com.caseflow.common.api;
 
 import com.caseflow.common.exception.ActiveAssignmentAlreadyExistsException;
+import com.caseflow.common.exception.ActiveAssignmentNotFoundException;
 import com.caseflow.common.exception.CustomerDeleteBlockedException;
+import com.caseflow.common.exception.ReassignTargetSameAsCurrentException;
+import com.caseflow.common.exception.ReassignTargetUserInactiveException;
+import com.caseflow.common.exception.ReassignTargetUserNotFoundException;
 import com.caseflow.common.exception.DispatchNotFoundException;
 import com.caseflow.common.exception.EmailOperationException;
 import com.caseflow.common.exception.InvalidDateRangeException;
@@ -64,7 +68,9 @@ public class GlobalExceptionHandler {
             MailboxNotFoundException.class,
             MailTemplateNotFoundException.class,
             RoutingRuleNotFoundException.class,
-            DispatchNotFoundException.class
+            DispatchNotFoundException.class,
+            ActiveAssignmentNotFoundException.class,
+            ReassignTargetUserNotFoundException.class
     })
     public ResponseEntity<ErrorResponse> handleNotFound(RuntimeException ex,
                                                         HttpServletRequest request) {
@@ -77,6 +83,28 @@ public class GlobalExceptionHandler {
                 request.getRequestURI()
         );
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(body);
+    }
+
+    // ── 409 Reassign same target ──────────────────────────────────────────────
+
+    @ExceptionHandler(ReassignTargetSameAsCurrentException.class)
+    public ResponseEntity<ErrorResponse> handleReassignSameTarget(ReassignTargetSameAsCurrentException ex,
+                                                                   HttpServletRequest request) {
+        ErrorResponse body = ErrorResponse.of(
+                HttpStatus.CONFLICT.value(), HttpStatus.CONFLICT.getReasonPhrase(),
+                "REASSIGN_TARGET_SAME_AS_CURRENT", ex.getMessage(), request.getRequestURI());
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(body);
+    }
+
+    // ── 422 Reassign target user inactive ─────────────────────────────────────
+
+    @ExceptionHandler(ReassignTargetUserInactiveException.class)
+    public ResponseEntity<ErrorResponse> handleReassignTargetUserInactive(ReassignTargetUserInactiveException ex,
+                                                                           HttpServletRequest request) {
+        ErrorResponse body = ErrorResponse.of(
+                HttpStatus.UNPROCESSABLE_ENTITY.value(), "Unprocessable Entity",
+                "REASSIGN_TARGET_USER_INACTIVE", ex.getMessage(), request.getRequestURI());
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(body);
     }
 
     // ── 409 Customer Delete Blocked ───────────────────────────────────────────
