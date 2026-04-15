@@ -8,12 +8,14 @@ import com.caseflow.email.repository.EmailDocumentRepository;
 import com.caseflow.email.repository.EmailIngressEventRepository;
 import com.caseflow.email.repository.EmailMailboxRepository;
 import com.caseflow.notification.service.NotificationService;
+import com.caseflow.sla.service.SlaService;
 import com.caseflow.storage.service.AttachmentService;
 import com.caseflow.ticket.domain.Ticket;
 import com.caseflow.ticket.repository.TicketRepository;
 import com.caseflow.workflow.history.TicketHistoryService;
 import com.caseflow.workflow.state.TicketSystemTransitionService;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -21,16 +23,19 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -50,11 +55,19 @@ class EmailIngressServiceTest {
     @Mock private TicketSystemTransitionService systemTransitionService;
     @Mock private AttachmentService attachmentService;
     @Mock private NotificationService notificationService;
+    @Mock private SlaService slaService;
     @Mock private EmailMetrics metrics;
     @Mock private ObjectMapper objectMapper;
 
     @InjectMocks
     private EmailIngressServiceImpl ingressService;
+
+    @BeforeEach
+    void setUp() {
+        // Default: no SLA policy — computeDueDates returns null dates (ticket creation unaffected)
+        lenient().when(slaService.computeDueDates(any(Ticket.class), any()))
+                .thenReturn(new Instant[]{null, null});
+    }
 
     // ── Stage 1: receiveEvent ─────────────────────────────────────────────────
 
@@ -255,6 +268,44 @@ class EmailIngressServiceTest {
 
         verify(ticketRepository).save(any());
         verify(metrics).inboundProcessed();
+    }
+
+    @Test
+    void processEvent_stampsSlaDueDates_whenPolicyConfigured() {
+        // Regression test: email-ingested tickets must receive SLA due dates,
+        // not bypass SLA stamping like they did before the EmailIngressServiceImpl fix.
+        EmailIngressEvent event = eventWithStatus(IngressEventStatus.RECEIVED);
+
+        when(eventRepository.findById(1L)).thenReturn(Optional.of(event));
+        when(loopDetectionService.isLoop(any(), any(), any())).thenReturn(false);
+        when(routingService.route(any())).thenReturn(RoutingResult.createTicket(42L));
+        when(eventRepository.save(any())).thenReturn(event);
+        when(documentRepository.findByMessageId(anyString())).thenReturn(Optional.empty());
+
+        EmailDocument savedDoc = new EmailDocument();
+        setField(savedDoc, "id", "doc-sla");
+        when(documentRepository.save(any())).thenReturn(savedDoc);
+
+        when(ticketRepository.nextTicketSeq()).thenReturn(2L);
+        Ticket newTicket = new Ticket();
+        setField(newTicket, "id", 77L);
+        setField(newTicket, "publicId", UUID.randomUUID());
+        when(ticketRepository.save(any())).thenReturn(newTicket);
+        when(ticketRepository.findById(77L)).thenReturn(Optional.of(newTicket));
+
+        // Policy resolves → SLA dates will be set
+        Instant firstResponse = Instant.now().plus(60, ChronoUnit.MINUTES);
+        Instant resolution    = Instant.now().plus(480, ChronoUnit.MINUTES);
+        when(slaService.computeDueDates(any(Ticket.class), any()))
+                .thenReturn(new Instant[]{firstResponse, resolution});
+
+        ingressService.processEvent(1L);
+
+        // Due dates must be written onto the ticket entity
+        assertThat(newTicket.getFirstResponseDueAt()).isEqualTo(firstResponse);
+        assertThat(newTicket.getResolutionDueAt()).isEqualTo(resolution);
+        // ticketRepository.save called at least twice: initial creation + SLA stamp
+        verify(ticketRepository, atLeastOnce()).save(any(Ticket.class));
     }
 
     // ── quarantineEvent ───────────────────────────────────────────────────────

@@ -17,6 +17,7 @@ import com.caseflow.identity.repository.UserRepository;
 import com.caseflow.note.domain.Note;
 import com.caseflow.note.domain.NoteType;
 import com.caseflow.note.repository.NoteRepository;
+import com.caseflow.sla.service.SlaService;
 import com.caseflow.ticket.domain.Ticket;
 import com.caseflow.ticket.domain.TicketPriority;
 import com.caseflow.ticket.domain.TicketStatus;
@@ -58,6 +59,7 @@ public class DevDataLoader implements ApplicationRunner {
     private final NoteRepository noteRepository;
     private final TicketHistoryService ticketHistoryService;
     private final EmailDocumentRepository emailDocumentRepository;
+    private final SlaService slaService;
     private final PasswordEncoder passwordEncoder;
 
     public DevDataLoader(GroupRepository groupRepository,
@@ -70,6 +72,7 @@ public class DevDataLoader implements ApplicationRunner {
                          NoteRepository noteRepository,
                          TicketHistoryService ticketHistoryService,
                          EmailDocumentRepository emailDocumentRepository,
+                         SlaService slaService,
                          PasswordEncoder passwordEncoder) {
         this.groupRepository = groupRepository;
         this.groupTypeRepository = groupTypeRepository;
@@ -81,6 +84,7 @@ public class DevDataLoader implements ApplicationRunner {
         this.noteRepository = noteRepository;
         this.ticketHistoryService = ticketHistoryService;
         this.emailDocumentRepository = emailDocumentRepository;
+        this.slaService = slaService;
         this.passwordEncoder = passwordEncoder;
     }
 
@@ -205,7 +209,19 @@ public class DevDataLoader implements ApplicationRunner {
         t.setStatus(status);
         t.setPriority(priority);
         t.setCustomerId(customerId);
-        return ticketRepository.save(t);
+        Ticket saved = ticketRepository.save(t);
+        // Stamp SLA due dates so dev seed data has realistic SLA fields
+        try {
+            java.time.Instant[] dueDates = slaService.computeDueDates(saved, saved.getCreatedAt());
+            if (dueDates[0] != null || dueDates[1] != null) {
+                saved.setFirstResponseDueAt(dueDates[0]);
+                saved.setResolutionDueAt(dueDates[1]);
+                ticketRepository.save(saved);
+            }
+        } catch (Exception e) {
+            log.warn("[Dev] SLA_STAMP skipped for {} — {}", ticketNo, e.getMessage());
+        }
+        return saved;
     }
 
     private void createNote(Long ticketId, Long createdBy, NoteType type, String content) {

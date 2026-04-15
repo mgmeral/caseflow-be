@@ -3,6 +3,7 @@ package com.caseflow.ticket.service;
 import com.caseflow.customer.repository.CustomerRepository;
 import com.caseflow.ticket.api.dto.DashboardStatsResponse;
 import com.caseflow.ticket.domain.Ticket;
+import com.caseflow.ticket.domain.TicketSlaFilter;
 import com.caseflow.ticket.domain.TicketStatus;
 import com.caseflow.ticket.repository.TicketRepository;
 import com.caseflow.ticket.repository.TicketSpecification;
@@ -31,6 +32,9 @@ import java.util.stream.Collectors;
  *   <li><b>closedTickets</b> — status = CLOSED</li>
  *   <li><b>unassignedTickets</b> — assignedUserId IS NULL AND status NOT IN (RESOLVED, CLOSED)</li>
  *   <li><b>waitingOver24h</b> — COALESCE(statusChangedAt, createdAt) &lt; now-24h AND status NOT IN (RESOLVED, CLOSED)</li>
+ *   <li><b>breachedSlaCount</b> — resolutionDueAt &lt; now AND status NOT IN (RESOLVED, CLOSED)</li>
+ *   <li><b>atRiskSlaCount</b> — resolutionDueAt IS NOT NULL AND resolutionDueAt BETWEEN now AND now+4h AND status NOT terminal.
+ *       Fixed 4-hour warning window; per-policy thresholds are available in the SLA detail view.</li>
  *   <li><b>myActionRequired</b> — assignedUserId = caller AND status NOT IN (RESOLVED, CLOSED)</li>
  * </ul>
  */
@@ -54,7 +58,10 @@ public class DashboardService {
      */
     @Transactional(readOnly = true)
     public DashboardStatsResponse getStats(Long currentUserId) {
-        Instant threshold24h = Instant.now().minus(24, ChronoUnit.HOURS);
+        Instant now = Instant.now();
+        Instant threshold24h = now.minus(24, ChronoUnit.HOURS);
+        // AT_RISK_WINDOW is the shared constant — same value used by TicketSlaFilter.AT_RISK for list drill-down
+        Instant atRiskThreshold = now.plus(TicketSlaFilter.AT_RISK_WINDOW);
 
         Specification<Ticket> activeSpec = notTerminal();
         Specification<Ticket> resolvedSpec = TicketSpecification.hasStatus(TicketStatus.RESOLVED);
@@ -68,6 +75,8 @@ public class DashboardService {
         long closed     = ticketRepository.count(closedSpec);
         long unassigned = ticketRepository.count(unassignedSpec);
         long waiting    = ticketRepository.count(waitingSpec);
+        long breached   = ticketRepository.countBreachedResolutionSla(null);
+        long atRisk     = ticketRepository.countAtRiskResolutionSla(null, atRiskThreshold);
 
         Long myActionRequiredCount = null;
         List<DashboardStatsResponse.MyActionRequiredItem> myItems = List.of();
@@ -80,7 +89,7 @@ public class DashboardService {
         }
 
         return new DashboardStatsResponse(
-                total, active, resolved, closed, unassigned, waiting,
+                total, active, resolved, closed, unassigned, waiting, breached, atRisk,
                 myActionRequiredCount, myItems);
     }
 

@@ -17,10 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
-import java.util.List;
-import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * Queue service — authoritative triage/assignment workspace dataset.
@@ -42,14 +39,6 @@ public class QueueService {
 
     private static final Set<TicketPriority> HIGH_OR_CRITICAL =
             Set.of(TicketPriority.HIGH, TicketPriority.CRITICAL);
-
-    /**
-     * Proxy SLA threshold for HIGH/CRITICAL tickets (hours).
-     * A HIGH or CRITICAL ticket is considered SLA-breached when it has been in its
-     * current status for longer than this threshold with no workflow action taken.
-     * This is a conservative proxy — explicit per-priority SLA config can replace it later.
-     */
-    private static final long SLA_BREACHED_HOURS = 4L;
 
     private final TicketRepository ticketRepository;
     private final CustomerRepository customerRepository;
@@ -90,19 +79,17 @@ public class QueueService {
      */
     @Transactional(readOnly = true)
     public QueueStatsResponse getStats(Specification<Ticket> scopeSpec) {
-        Instant threshold8h  = Instant.now().minus(8, ChronoUnit.HOURS);
-        Instant thresholdSla = Instant.now().minus(SLA_BREACHED_HOURS, ChronoUnit.HOURS);
+        Instant threshold8h = Instant.now().minus(8, ChronoUnit.HOURS);
 
-        Specification<Ticket> base        = queueMembership().and(scopeSpec);
+        Specification<Ticket> base         = queueMembership().and(scopeSpec);
         Specification<Ticket> highCritical = base.and(priorityIn(HIGH_OR_CRITICAL));
         Specification<Ticket> waiting8h    = base.and(statusChangedBefore(threshold8h));
-        Specification<Ticket> slaBreached  = base.and(priorityIn(HIGH_OR_CRITICAL))
-                                                  .and(statusChangedBefore(thresholdSla));
+        Specification<Ticket> slaBreached  = base.and(resolutionDueDateBreached());
 
-        long all          = ticketRepository.count(base);
-        long highCrit     = ticketRepository.count(highCritical);
-        long waiting      = ticketRepository.count(waiting8h);
-        long breached     = ticketRepository.count(slaBreached);
+        long all      = ticketRepository.count(base);
+        long highCrit = ticketRepository.count(highCritical);
+        long waiting  = ticketRepository.count(waiting8h);
+        long breached = ticketRepository.count(slaBreached);
 
         return new QueueStatsResponse(all, highCrit, waiting, breached);
     }
@@ -132,5 +119,17 @@ public class QueueService {
         return (root, query, cb) -> cb.lessThan(
                 cb.coalesce(root.<Instant>get("statusChangedAt"), root.get("createdAt")),
                 threshold);
+    }
+
+    /**
+     * resolutionDueAt IS NOT NULL AND resolutionDueAt &lt; now.
+     * Identifies tickets that have missed their SLA resolution deadline.
+     */
+    private static Specification<Ticket> resolutionDueDateBreached() {
+        Instant now = Instant.now();
+        return (root, query, cb) -> cb.and(
+                cb.isNotNull(root.get("resolutionDueAt")),
+                cb.lessThan(root.get("resolutionDueAt"), now)
+        );
     }
 }

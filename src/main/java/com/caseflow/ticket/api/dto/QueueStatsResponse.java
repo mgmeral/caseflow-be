@@ -23,9 +23,8 @@ public record QueueStatsResponse(
          */
         long waitingOver8h,
         /**
-         * Subset of HIGH/CRITICAL tickets where COALESCE(statusChangedAt, createdAt) exceeds
-         * the proxy SLA threshold (currently 4 hours). This is a conservative proxy metric;
-         * explicit per-priority SLA configuration will replace it when implemented.
+         * Unassigned tickets whose {@code resolutionDueAt} has passed — real SLA breach count.
+         * Uses the SLA model's {@code resolutionDueAt} field set at ticket creation.
          */
         long slaBreached
 ) {}

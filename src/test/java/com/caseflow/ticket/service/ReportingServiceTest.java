@@ -3,13 +3,24 @@ package com.caseflow.ticket.service;
 import com.caseflow.common.exception.InvalidDateRangeException;
 import com.caseflow.customer.domain.Customer;
 import com.caseflow.customer.repository.CustomerRepository;
+import com.caseflow.identity.domain.Group;
+import com.caseflow.identity.domain.User;
+import com.caseflow.identity.repository.GroupRepository;
+import com.caseflow.identity.repository.UserRepository;
 import com.caseflow.ticket.api.dto.AdminCustomerReportRow;
+import com.caseflow.ticket.api.dto.AgingBucketsResponse;
+import com.caseflow.ticket.api.dto.CustomerHealthSummary;
 import com.caseflow.ticket.api.dto.CustomerTicketReportResponse;
+import com.caseflow.ticket.api.dto.TrendDataPoint;
+import com.caseflow.ticket.api.dto.WorkloadSummaryResponse;
 import com.caseflow.ticket.domain.Tag;
+import com.caseflow.ticket.domain.Ticket;
+import com.caseflow.ticket.domain.TicketPriority;
 import com.caseflow.ticket.domain.TicketStatus;
 import com.caseflow.ticket.repository.TagRepository;
 import com.caseflow.ticket.repository.TicketRepository;
 import com.caseflow.ticket.repository.TicketTagRepository;
+import com.caseflow.workflow.repository.TransferRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -19,8 +30,10 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -38,6 +51,9 @@ class ReportingServiceTest {
     @Mock CustomerRepository customerRepository;
     @Mock TagRepository tagRepository;
     @Mock TicketTagRepository ticketTagRepository;
+    @Mock UserRepository userRepository;
+    @Mock GroupRepository groupRepository;
+    @Mock TransferRepository transferRepository;
 
     @InjectMocks ReportingService reportingService;
 
@@ -314,6 +330,199 @@ class ReportingServiceTest {
         );
     }
 
+    // ── agingBuckets ──────────────────────────────────────────────────────────
+
+    @Test
+    void agingBuckets_bucketsTicketsByCreatedAtAge() {
+        Ticket under4h  = ticketAgedHours(2);
+        Ticket h4to24   = ticketAgedHours(10);
+        Ticket d1to3    = ticketAgedHours(48);
+        Ticket d3to7    = ticketAgedHours(120);
+        Ticket over7d   = ticketAgedHours(200);
+
+        when(ticketRepository.findAll(any(Specification.class)))
+                .thenReturn(List.of(under4h, h4to24, d1to3, d3to7, over7d));
+
+        AgingBucketsResponse result = reportingService.agingBuckets(null);
+
+        assertThat(result.under4h()).isEqualTo(1);
+        assertThat(result.h4to24()).isEqualTo(1);
+        assertThat(result.d1to3()).isEqualTo(1);
+        assertThat(result.d3to7()).isEqualTo(1);
+        assertThat(result.over7d()).isEqualTo(1);
+        assertThat(result.total()).isEqualTo(5);
+    }
+
+    @Test
+    void agingBuckets_returnsAllZeros_whenNoOpenTickets() {
+        when(ticketRepository.findAll(any(Specification.class))).thenReturn(List.of());
+
+        AgingBucketsResponse result = reportingService.agingBuckets(null);
+
+        assertThat(result.total()).isZero();
+        assertThat(result.under4h()).isZero();
+        assertThat(result.over7d()).isZero();
+    }
+
+    // ── workloadSummary ───────────────────────────────────────────────────────
+
+    @Test
+    void workloadSummary_returnsAssigneeAndGroupWorkload() {
+        // [assignedUserId, status, count]
+        List<Object[]> assigneeRows = statusCounts(
+                new Object[]{10L, TicketStatus.IN_PROGRESS, 3L},
+                new Object[]{10L, TicketStatus.WAITING_CUSTOMER, 1L}
+        );
+        // [groupId, isUnassigned, status, count]
+        List<Object[]> groupRows = statusCounts(
+                new Object[]{20L, 0, TicketStatus.IN_PROGRESS, 5L}
+        );
+
+        when(ticketRepository.countActiveByAssignedUser()).thenReturn(assigneeRows);
+        when(ticketRepository.countActiveByGroup()).thenReturn(groupRows);
+        when(userRepository.findAllById(any())).thenReturn(List.of(user(10L, "alice")));
+        when(groupRepository.findAllById(any())).thenReturn(List.of(group(20L, "Support")));
+
+        WorkloadSummaryResponse result = reportingService.workloadSummary();
+
+        assertThat(result.byAssignee()).hasSize(1);
+        WorkloadSummaryResponse.AssigneeWorkload aw = result.byAssignee().get(0);
+        assertThat(aw.userId()).isEqualTo(10L);
+        assertThat(aw.username()).isEqualTo("alice");
+        assertThat(aw.activeCount()).isEqualTo(4);  // IN_PROGRESS(3) + WAITING_CUSTOMER(1)
+        assertThat(aw.waitingCustomerCount()).isEqualTo(1);
+
+        assertThat(result.byGroup()).hasSize(1);
+        assertThat(result.byGroup().get(0).groupName()).isEqualTo("Support");
+        assertThat(result.byGroup().get(0).activeCount()).isEqualTo(5);
+    }
+
+    // ── dailyTrend ────────────────────────────────────────────────────────────
+
+    @Test
+    void dailyTrend_mapsDbRowsToDataPoints() {
+        Instant from = Instant.parse("2026-01-01T00:00:00Z");
+        Instant to   = Instant.parse("2026-01-03T23:59:59Z");
+
+        List<Object[]> rows = List.of(
+                new Object[]{"2026-01-01", 5L, 2L, 1L},
+                new Object[]{"2026-01-02", 3L, 1L, 0L}
+        );
+        when(ticketRepository.dailyVolumeTrend(null, from, to)).thenReturn(rows);
+
+        List<TrendDataPoint> result = reportingService.dailyTrend(null, from, to);
+
+        assertThat(result).hasSize(2);
+        assertThat(result.get(0).date()).isEqualTo("2026-01-01");
+        assertThat(result.get(0).created()).isEqualTo(5L);
+        assertThat(result.get(0).resolved()).isEqualTo(2L);
+        assertThat(result.get(0).closed()).isEqualTo(1L);
+    }
+
+    @Test
+    void dailyTrend_throwsInvalidDateRange_whenFromAfterTo() {
+        Instant from = Instant.parse("2026-06-01T00:00:00Z");
+        Instant to   = Instant.parse("2026-01-01T00:00:00Z");
+
+        assertThatThrownBy(() -> reportingService.dailyTrend(null, from, to))
+                .isInstanceOf(InvalidDateRangeException.class);
+    }
+
+    // ── executiveSummary ──────────────────────────────────────────────────────
+
+    @Test
+    void executiveSummary_returnsCorrectCountsAndRates() {
+        Instant from = Instant.parse("2026-01-01T00:00:00Z");
+        Instant to   = Instant.parse("2026-12-31T23:59:59Z");
+
+        when(ticketRepository.countByStatusForCustomer(eq(1L), any(), any()))
+                .thenReturn(statusCounts(
+                        row(TicketStatus.NEW, 5L),
+                        row(TicketStatus.IN_PROGRESS, 3L),
+                        row(TicketStatus.RESOLVED, 4L),
+                        row(TicketStatus.CLOSED, 2L)
+                ));
+        when(ticketRepository.countBreachedResolutionSla(1L)).thenReturn(1L);
+        when(ticketRepository.avgFirstResponseMinutes(eq(1L), any(), any())).thenReturn(45.0);
+        when(ticketRepository.avgResolutionMinutes(eq(1L), any(), any())).thenReturn(300.0);
+        when(transferRepository.countDistinctTransferredTickets(eq(1L), any(), any())).thenReturn(2L);
+
+        var result = reportingService.executiveSummary(1L, from, to);
+
+        assertThat(result.totalTickets()).isEqualTo(14);
+        assertThat(result.activeTickets()).isEqualTo(8); // NEW(5) + IN_PROGRESS(3)
+        assertThat(result.resolvedTickets()).isEqualTo(4);
+        assertThat(result.closedTickets()).isEqualTo(2);
+        assertThat(result.breachedTickets()).isEqualTo(1);
+        assertThat(result.avgFirstResponseMinutes()).isEqualTo(45L);
+        assertThat(result.avgResolutionMinutes()).isEqualTo(300L);
+    }
+
+    @Test
+    void executiveSummary_usesGlobalCounts_whenCustomerIdNull() {
+        Instant from = Instant.parse("2026-01-01T00:00:00Z");
+        Instant to   = Instant.parse("2026-12-31T23:59:59Z");
+
+        when(ticketRepository.countByStatusGlobal(any(), any()))
+                .thenReturn(statusCounts(row(TicketStatus.NEW, 10L)));
+        when(ticketRepository.countBreachedResolutionSla(null)).thenReturn(0L);
+        when(ticketRepository.avgFirstResponseMinutes(eq(null), any(), any())).thenReturn(null);
+        when(ticketRepository.avgResolutionMinutes(eq(null), any(), any())).thenReturn(null);
+        when(transferRepository.countDistinctTransferredTickets(eq(null), any(), any())).thenReturn(0L);
+
+        var result = reportingService.executiveSummary(null, from, to);
+
+        assertThat(result.totalTickets()).isEqualTo(10);
+        assertThat(result.avgFirstResponseMinutes()).isNull();
+        assertThat(result.breachedTickets()).isZero();
+    }
+
+    // ── customerHealthSummaries ───────────────────────────────────────────────
+
+    @Test
+    void customerHealthSummaries_returnsStable_whenNoBreaches() {
+        Customer c = customer(1L, "Acme");
+        when(customerRepository.findAll()).thenReturn(List.of(c));
+        when(ticketRepository.countByStatusForCustomers(eq(List.of(1L)), eq(null), eq(null)))
+                .thenReturn(statusCounts(row3(1L, TicketStatus.IN_PROGRESS, 3L)));
+        when(ticketRepository.countBreachedResolutionSla(1L)).thenReturn(0L);
+        when(ticketRepository.avgFirstResponseMinutes(eq(1L), eq(null), eq(null))).thenReturn(30.0);
+        when(ticketRepository.avgResolutionMinutes(eq(1L), eq(null), eq(null))).thenReturn(180.0);
+
+        List<CustomerHealthSummary> result = reportingService.customerHealthSummaries();
+
+        assertThat(result).hasSize(1);
+        CustomerHealthSummary summary = result.get(0);
+        assertThat(summary.customerId()).isEqualTo(1L);
+        assertThat(summary.openTickets()).isEqualTo(3);
+        assertThat(summary.healthScore()).isEqualTo(CustomerHealthSummary.HealthScore.STABLE);
+    }
+
+    @Test
+    void customerHealthSummaries_returnsAtRisk_whenBreachedSlaPresent() {
+        Customer c = customer(1L, "Acme");
+        when(customerRepository.findAll()).thenReturn(List.of(c));
+        when(ticketRepository.countByStatusForCustomers(any(), any(), any()))
+                .thenReturn(statusCounts(row3(1L, TicketStatus.IN_PROGRESS, 5L)));
+        when(ticketRepository.countBreachedResolutionSla(1L)).thenReturn(2L);
+        when(ticketRepository.avgFirstResponseMinutes(any(), any(), any())).thenReturn(null);
+        when(ticketRepository.avgResolutionMinutes(any(), any(), any())).thenReturn(null);
+
+        List<CustomerHealthSummary> result = reportingService.customerHealthSummaries();
+
+        assertThat(result.get(0).healthScore()).isEqualTo(CustomerHealthSummary.HealthScore.AT_RISK);
+        assertThat(result.get(0).breachedSlaCount()).isEqualTo(2);
+    }
+
+    @Test
+    void customerHealthSummaries_returnsEmptyList_whenNoCustomers() {
+        when(customerRepository.findAll()).thenReturn(List.of());
+
+        List<CustomerHealthSummary> result = reportingService.customerHealthSummaries();
+
+        assertThat(result).isEmpty();
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     /** Builds a typed List<Object[]> from individual rows — avoids List.of(Object...) type erasure. */
@@ -364,5 +573,45 @@ class ReportingServiceTest {
             throw new RuntimeException(e);
         }
         return c;
+    }
+
+    private Ticket ticketAgedHours(long hoursAgo) {
+        Ticket t = new Ticket();
+        t.setStatus(TicketStatus.IN_PROGRESS);
+        t.setPriority(TicketPriority.MEDIUM);
+        try {
+            var f = Ticket.class.getDeclaredField("createdAt");
+            f.setAccessible(true);
+            f.set(t, Instant.now().minus(hoursAgo, ChronoUnit.HOURS));
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        return t;
+    }
+
+    private User user(Long id, String username) {
+        User u = new User();
+        u.setUsername(username);
+        try {
+            var f = User.class.getDeclaredField("id");
+            f.setAccessible(true);
+            f.set(u, id);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        return u;
+    }
+
+    private Group group(Long id, String name) {
+        Group g = new Group();
+        g.setName(name);
+        try {
+            var f = Group.class.getDeclaredField("id");
+            f.setAccessible(true);
+            f.set(g, id);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        return g;
     }
 }

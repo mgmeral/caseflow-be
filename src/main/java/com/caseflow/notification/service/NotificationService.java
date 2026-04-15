@@ -204,6 +204,55 @@ public class NotificationService {
         return count;
     }
 
+    /**
+     * Creates an SLA warning in-app notification for the assigned user of a ticket.
+     */
+    @Transactional
+    public void notifySlaWarning(Long userId, Long ticketId, UUID ticketPublicId, String ticketNo) {
+        if (notificationRepository.existsByUserIdAndTicketIdAndTypeAndIsReadFalse(
+                userId, ticketId, NotificationType.SLA_WARNING)) {
+            return; // already has an unread SLA warning for this ticket
+        }
+        UserNotification n = build(userId, NotificationType.SLA_WARNING,
+                "SLA warning: " + ticketNo,
+                "Ticket " + ticketNo + " is approaching its SLA deadline",
+                ticketId, ticketPublicId, ticketNo, null, null);
+        notificationRepository.save(n);
+        log.info("NOTIFICATION_CREATED type: SLA_WARNING, ticketId: {}, userId: {}", ticketId, userId);
+    }
+
+    /**
+     * Creates an SLA breach in-app notification for the assigned user of a ticket.
+     */
+    @Transactional
+    public void notifySlaBreached(Long userId, Long ticketId, UUID ticketPublicId, String ticketNo) {
+        if (notificationRepository.existsByUserIdAndTicketIdAndTypeAndIsReadFalse(
+                userId, ticketId, NotificationType.SLA_BREACHED)) {
+            return; // already has an unread SLA breach for this ticket
+        }
+        UserNotification n = build(userId, NotificationType.SLA_BREACHED,
+                "SLA breached: " + ticketNo,
+                "Ticket " + ticketNo + " has breached its SLA target",
+                ticketId, ticketPublicId, ticketNo, null, null);
+        notificationRepository.save(n);
+        log.info("NOTIFICATION_CREATED type: SLA_BREACHED, ticketId: {}, userId: {}", ticketId, userId);
+    }
+
+    /**
+     * Creates an SLA recovery in-app notification for the assigned user of a ticket.
+     * Emitted once when a ticket that was at WARNING or BREACHED state reaches a terminal status.
+     * No duplicate guard needed — recovery is a one-shot event per SLA cycle.
+     */
+    @Transactional
+    public void notifySlaRecovered(Long userId, Long ticketId, UUID ticketPublicId, String ticketNo) {
+        UserNotification n = build(userId, NotificationType.SLA_RECOVERED,
+                "SLA resolved: " + ticketNo,
+                "Ticket " + ticketNo + " has been resolved — SLA tracking stopped",
+                ticketId, ticketPublicId, ticketNo, null, null);
+        notificationRepository.save(n);
+        log.info("NOTIFICATION_CREATED type: SLA_RECOVERED, ticketId: {}, userId: {}", ticketId, userId);
+    }
+
     // ── Private helpers ───────────────────────────────────────────────────────
 
     private UserNotification build(Long userId, NotificationType type,

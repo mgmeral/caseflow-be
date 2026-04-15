@@ -2,6 +2,7 @@ package com.caseflow.ticket.service;
 
 import com.caseflow.common.exception.InvalidTicketStateException;
 import com.caseflow.common.exception.TicketNotFoundException;
+import com.caseflow.sla.service.SlaService;
 import com.caseflow.ticket.domain.Ticket;
 import com.caseflow.ticket.domain.TicketPriority;
 import com.caseflow.ticket.domain.TicketStatus;
@@ -17,12 +18,16 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
 
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -41,6 +46,9 @@ class TicketServiceTest {
     @Mock
     private ApplicationEventPublisher eventPublisher;
 
+    @Mock
+    private SlaService slaService;
+
     @InjectMocks
     private TicketService ticketService;
 
@@ -53,6 +61,10 @@ class TicketServiceTest {
         savedTicket.setSubject("Test subject");
         savedTicket.setStatus(TicketStatus.NEW);
         savedTicket.setPriority(TicketPriority.MEDIUM);
+        // Default: no SLA policy → computeDueDates returns nulls.
+        // lenient: only createTicket tests call stampSlaDueDates; other tests trigger UnnecessaryStubbing otherwise.
+        lenient().when(slaService.computeDueDates(any(Ticket.class), any()))
+                .thenReturn(new Instant[]{null, null});
     }
 
     @Test
@@ -72,6 +84,53 @@ class TicketServiceTest {
         assertThat(captor.getValue().getPriority()).isEqualTo(TicketPriority.MEDIUM);
 
         verify(ticketHistoryService).recordCreated(any(), eq(42L));
+    }
+
+    @Test
+    void createTicket_stampsSlaDueDates_whenPolicyConfigured() {
+        Instant now = Instant.now();
+        Instant firstResponseDue = now.plus(60, ChronoUnit.MINUTES);
+        Instant resolutionDue    = now.plus(480, ChronoUnit.MINUTES);
+
+        when(ticketRepository.save(any(Ticket.class))).thenReturn(savedTicket);
+        // Use any() (not any(Instant.class)) because savedTicket.getCreatedAt() is null in this mock context
+        when(slaService.computeDueDates(any(Ticket.class), any()))
+                .thenReturn(new Instant[]{firstResponseDue, resolutionDue});
+
+        ticketService.createTicket("SLA Test", "desc", TicketPriority.HIGH, 1L, 1L);
+
+        // SLA save: ticketRepository.save called at least twice (initial + SLA stamp)
+        verify(ticketRepository, atLeastOnce()).save(any(Ticket.class));
+        // Due dates written onto the entity
+        assertThat(savedTicket.getFirstResponseDueAt()).isEqualTo(firstResponseDue);
+        assertThat(savedTicket.getResolutionDueAt()).isEqualTo(resolutionDue);
+    }
+
+    @Test
+    void createTicket_doesNotStampSla_whenNoPolicyConfigured() {
+        when(ticketRepository.save(any(Ticket.class))).thenReturn(savedTicket);
+        when(slaService.computeDueDates(any(Ticket.class), any()))
+                .thenReturn(new Instant[]{null, null});
+
+        ticketService.createTicket("No SLA", "desc", TicketPriority.LOW, 1L, 1L);
+
+        // Due dates must remain null — no SLA assigned
+        assertThat(savedTicket.getFirstResponseDueAt()).isNull();
+        assertThat(savedTicket.getResolutionDueAt()).isNull();
+    }
+
+    @Test
+    void createTicket_continuesCreation_whenSlaStampThrows() {
+        // SLA failure must not block ticket creation (non-critical)
+        when(ticketRepository.save(any(Ticket.class))).thenReturn(savedTicket);
+        when(slaService.computeDueDates(any(Ticket.class), any()))
+                .thenThrow(new RuntimeException("DB unavailable"));
+
+        Ticket result = ticketService.createTicket("Test", "desc", TicketPriority.MEDIUM, 1L, 1L);
+
+        assertThat(result).isNotNull();
+        assertThat(result.getStatus()).isEqualTo(TicketStatus.NEW);
+        verify(ticketHistoryService).recordCreated(any(), eq(1L));
     }
 
     @Test

@@ -1,5 +1,7 @@
 package com.caseflow.email.service;
 
+import com.caseflow.common.exception.IngressEventNotFoundException;
+import com.caseflow.common.exception.InvalidIngressEventStateException;
 import com.caseflow.email.domain.EmailIngressEvent;
 import com.caseflow.email.domain.IngressEventStatus;
 import com.caseflow.email.repository.EmailIngressEventRepository;
@@ -62,11 +64,17 @@ public class IngressEventAdminService {
      * Manually triggers Stage-2 processing for the event.
      * Works for events in RECEIVED, FAILED, or QUARANTINED state.
      * QUARANTINED events are released to RECEIVED first, then processed.
+     *
+     * @throws InvalidIngressEventStateException when the event is already PROCESSED (terminal)
      */
     @Transactional
     public void processEvent(Long eventId) {
         EmailIngressEvent event = findOrThrow(eventId);
         log.info("ADMIN_PROCESS eventId: {}, currentStatus: {}", eventId, event.getStatus());
+        if (event.getStatus() == IngressEventStatus.PROCESSED) {
+            throw new InvalidIngressEventStateException(eventId, "processed manually",
+                    event.getStatus());
+        }
         if (event.getStatus() == IngressEventStatus.QUARANTINED) {
             ingressService.releaseEvent(eventId);
         }
@@ -77,15 +85,14 @@ public class IngressEventAdminService {
      * Resets a FAILED event to RECEIVED and triggers immediate processing.
      * Provides an instant retry without waiting for the retry scheduler.
      *
-     * @throws IllegalStateException when the event is not in FAILED state
+     * @throws InvalidIngressEventStateException when the event is not in FAILED state
      */
     @Transactional
     public void retryEvent(Long eventId) {
         EmailIngressEvent event = findOrThrow(eventId);
         if (event.getStatus() != IngressEventStatus.FAILED) {
-            throw new IllegalStateException(
-                    "Event " + eventId + " cannot be retried: status is " + event.getStatus()
-                            + " (expected FAILED)");
+            throw new InvalidIngressEventStateException(eventId, "retried",
+                    event.getStatus(), IngressEventStatus.FAILED);
         }
         log.info("ADMIN_RETRY eventId: {}", eventId);
         ingressService.processEvent(eventId);
@@ -95,14 +102,14 @@ public class IngressEventAdminService {
      * Moves an event to QUARANTINED with an explicit reason.
      * Quarantined events are not picked up by the retry scheduler.
      *
-     * @throws IllegalStateException when the event is already in a terminal state (PROCESSED)
+     * @throws InvalidIngressEventStateException when the event is already PROCESSED (terminal)
      */
     @Transactional
     public void quarantineEvent(Long eventId, String reason) {
         EmailIngressEvent event = findOrThrow(eventId);
         if (event.getStatus() == IngressEventStatus.PROCESSED) {
-            throw new IllegalStateException(
-                    "Event " + eventId + " is already PROCESSED and cannot be quarantined");
+            throw new InvalidIngressEventStateException(eventId, "quarantined",
+                    event.getStatus());
         }
         log.info("ADMIN_QUARANTINE eventId: {}, reason: '{}'", eventId, reason);
         ingressService.quarantineEvent(eventId, reason);
@@ -111,15 +118,14 @@ public class IngressEventAdminService {
     /**
      * Releases a QUARANTINED event back to RECEIVED so the retry scheduler picks it up.
      *
-     * @throws IllegalStateException when the event is not in QUARANTINED state
+     * @throws InvalidIngressEventStateException when the event is not in QUARANTINED state
      */
     @Transactional
     public void releaseEvent(Long eventId) {
         EmailIngressEvent event = findOrThrow(eventId);
         if (event.getStatus() != IngressEventStatus.QUARANTINED) {
-            throw new IllegalStateException(
-                    "Event " + eventId + " cannot be released: status is " + event.getStatus()
-                            + " (expected QUARANTINED)");
+            throw new InvalidIngressEventStateException(eventId, "released",
+                    event.getStatus(), IngressEventStatus.QUARANTINED);
         }
         log.info("ADMIN_RELEASE eventId: {}", eventId);
         ingressService.releaseEvent(eventId);
@@ -127,6 +133,6 @@ public class IngressEventAdminService {
 
     private EmailIngressEvent findOrThrow(Long id) {
         return eventRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("Ingress event not found: " + id));
+                .orElseThrow(() -> new IngressEventNotFoundException(id));
     }
 }

@@ -1,7 +1,10 @@
 package com.caseflow.common.api;
 
 import com.caseflow.common.exception.ActiveAssignmentAlreadyExistsException;
+import com.caseflow.common.exception.SlaPolicyNotFoundException;
 import com.caseflow.common.exception.ActiveAssignmentNotFoundException;
+import com.caseflow.common.exception.IngressEventNotFoundException;
+import com.caseflow.common.exception.InvalidIngressEventStateException;
 import com.caseflow.common.exception.CustomerDeleteBlockedException;
 import com.caseflow.common.exception.ReassignTargetSameAsCurrentException;
 import com.caseflow.common.exception.ReassignTargetUserInactiveException;
@@ -70,7 +73,9 @@ public class GlobalExceptionHandler {
             RoutingRuleNotFoundException.class,
             DispatchNotFoundException.class,
             ActiveAssignmentNotFoundException.class,
-            ReassignTargetUserNotFoundException.class
+            ReassignTargetUserNotFoundException.class,
+            SlaPolicyNotFoundException.class,
+            IngressEventNotFoundException.class
     })
     public ResponseEntity<ErrorResponse> handleNotFound(RuntimeException ex,
                                                         HttpServletRequest request) {
@@ -142,6 +147,21 @@ public class GlobalExceptionHandler {
                 request.getRequestURI()
         );
         return ResponseEntity.status(HttpStatus.CONFLICT).body(body);
+    }
+
+    // ── 422 Invalid ingress event state transition ────────────────────────────
+
+    @ExceptionHandler(InvalidIngressEventStateException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidIngressEventState(InvalidIngressEventStateException ex,
+                                                                         HttpServletRequest request) {
+        ErrorResponse body = ErrorResponse.of(
+                HttpStatus.UNPROCESSABLE_ENTITY.value(),
+                "Unprocessable Entity",
+                "INVALID_INGRESS_EVENT_STATE",
+                ex.getMessage(),
+                request.getRequestURI()
+        );
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(body);
     }
 
     // ── 422 Unprocessable / Invalid State ──────────────────────────────────────

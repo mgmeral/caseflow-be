@@ -73,6 +73,41 @@ public class Ticket {
     @Column(name = "status_changed_at")
     private Instant statusChangedAt;
 
+    // ── SLA tracking ──────────────────────────────────────────────────────────
+
+    /**
+     * When the first-response SLA target expires for this ticket.
+     * Stamped at ticket creation from the applicable SLA policy.
+     * Null when no SLA policy is configured.
+     */
+    @Column(name = "first_response_due_at")
+    private Instant firstResponseDueAt;
+
+    /**
+     * When the resolution SLA target expires for this ticket.
+     * Stamped at ticket creation from the applicable SLA policy.
+     * Null when no SLA policy is configured.
+     */
+    @Column(name = "resolution_due_at")
+    private Instant resolutionDueAt;
+
+    /**
+     * When the first customer-visible outbound reply was confirmed sent (SMTP success).
+     * Set by {@link com.caseflow.email.scheduler.OutboundDispatchScheduler} on the first
+     * successfully dispatched outbound email for this ticket.
+     * Null until the first reply is sent.
+     */
+    @Column(name = "first_response_responded_at")
+    private Instant firstResponseRespondedAt;
+
+    /**
+     * When the ticket reached RESOLVED status.
+     * Set by the state machine when a RESOLVED transition occurs.
+     * Null for open or CLOSED tickets.
+     */
+    @Column(name = "resolved_at")
+    private Instant resolvedAt;
+
     @PrePersist
     private void onCreate() {
         if (publicId == null) publicId = UUID.randomUUID();
@@ -180,4 +215,22 @@ public class Ticket {
     public Instant getStatusChangedAt() {
         return statusChangedAt;
     }
+
+    public Instant getFirstResponseDueAt() { return firstResponseDueAt; }
+    public void setFirstResponseDueAt(Instant firstResponseDueAt) {
+        this.firstResponseDueAt = firstResponseDueAt;
+    }
+
+    public Instant getResolutionDueAt() { return resolutionDueAt; }
+    public void setResolutionDueAt(Instant resolutionDueAt) {
+        this.resolutionDueAt = resolutionDueAt;
+    }
+
+    public Instant getFirstResponseRespondedAt() { return firstResponseRespondedAt; }
+    public void setFirstResponseRespondedAt(Instant firstResponseRespondedAt) {
+        this.firstResponseRespondedAt = firstResponseRespondedAt;
+    }
+
+    public Instant getResolvedAt() { return resolvedAt; }
+    public void setResolvedAt(Instant resolvedAt) { this.resolvedAt = resolvedAt; }
 }

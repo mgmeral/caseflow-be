@@ -19,6 +19,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -43,12 +44,16 @@ class DashboardServiceTest {
                 .thenReturn(1L)  // closedTickets
                 .thenReturn(3L)  // unassignedTickets
                 .thenReturn(2L); // waitingOver24h
+        when(ticketRepository.countBreachedResolutionSla(isNull())).thenReturn(1L);
+        when(ticketRepository.countAtRiskResolutionSla(isNull(), any(Instant.class))).thenReturn(2L);
 
         when(ticketRepository.findAll(any(Specification.class))).thenReturn(List.of());
 
         DashboardStatsResponse stats = dashboardService.getStats(1L);
 
         assertThat(stats.totalTickets()).isEqualTo(10L);
+        assertThat(stats.breachedSlaCount()).isEqualTo(1L);
+        assertThat(stats.atRiskSlaCount()).isEqualTo(2L);
         assertThat(stats.myActionRequired()).isNotNull();
     }
 
@@ -56,11 +61,26 @@ class DashboardServiceTest {
     void getStats_omitsMyActionRequired_whenUserIdIsNull() {
         when(ticketRepository.count()).thenReturn(5L);
         when(ticketRepository.count(any(Specification.class))).thenReturn(3L);
+        when(ticketRepository.countBreachedResolutionSla(isNull())).thenReturn(0L);
+        when(ticketRepository.countAtRiskResolutionSla(isNull(), any(Instant.class))).thenReturn(0L);
 
         DashboardStatsResponse stats = dashboardService.getStats(null);
 
         assertThat(stats.myActionRequired()).isNull();
         assertThat(stats.myActionRequiredItems()).isEmpty();
+    }
+
+    @Test
+    void atRiskSlaCount_isIncludedInResponse() {
+        when(ticketRepository.count()).thenReturn(5L);
+        when(ticketRepository.count(any(Specification.class))).thenReturn(3L);
+        when(ticketRepository.countBreachedResolutionSla(isNull())).thenReturn(1L);
+        when(ticketRepository.countAtRiskResolutionSla(isNull(), any(Instant.class))).thenReturn(3L);
+        when(ticketRepository.findAll(any(Specification.class))).thenReturn(List.of());
+
+        DashboardStatsResponse stats = dashboardService.getStats(1L);
+
+        assertThat(stats.atRiskSlaCount()).isEqualTo(3L);
     }
 
     @Test
@@ -75,6 +95,8 @@ class DashboardServiceTest {
                 .thenReturn(0L)  // closed
                 .thenReturn(1L)  // unassigned
                 .thenReturn(1L); // waitingOver24h
+        when(ticketRepository.countBreachedResolutionSla(isNull())).thenReturn(0L);
+        when(ticketRepository.countAtRiskResolutionSla(isNull(), any(Instant.class))).thenReturn(0L);
         when(ticketRepository.findAll(any(Specification.class))).thenReturn(List.of());
 
         DashboardStatsResponse stats = dashboardService.getStats(1L);
@@ -103,6 +125,8 @@ class DashboardServiceTest {
     void getStats_myActionRequiredItems_includesCustomerName() {
         when(ticketRepository.count()).thenReturn(1L);
         when(ticketRepository.count(any(Specification.class))).thenReturn(1L);
+        when(ticketRepository.countBreachedResolutionSla(isNull())).thenReturn(0L);
+        when(ticketRepository.countAtRiskResolutionSla(isNull(), any(Instant.class))).thenReturn(0L);
 
         Ticket t = buildTicket(1L, "TKT-000001", 10L);
         when(ticketRepository.findAll(any(Specification.class))).thenReturn(List.of(t));

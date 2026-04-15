@@ -11,6 +11,7 @@ import com.caseflow.email.repository.EmailDocumentRepository;
 import com.caseflow.email.repository.EmailIngressEventRepository;
 import com.caseflow.email.repository.EmailMailboxRepository;
 import com.caseflow.notification.service.NotificationService;
+import com.caseflow.sla.service.SlaService;
 import com.caseflow.storage.service.AttachmentService;
 import com.caseflow.ticket.domain.AttachmentMetadata;
 import com.caseflow.ticket.domain.Ticket;
@@ -54,6 +55,7 @@ public class EmailIngressServiceImpl implements EmailIngressService {
     private final TicketSystemTransitionService systemTransitionService;
     private final AttachmentService attachmentService;
     private final NotificationService notificationService;
+    private final SlaService slaService;
     private final EmailMetrics metrics;
     private final ObjectMapper objectMapper;
 
@@ -69,6 +71,7 @@ public class EmailIngressServiceImpl implements EmailIngressService {
                                    TicketSystemTransitionService systemTransitionService,
                                    AttachmentService attachmentService,
                                    NotificationService notificationService,
+                                   SlaService slaService,
                                    EmailMetrics metrics,
                                    ObjectMapper objectMapper) {
         this.eventRepository = eventRepository;
@@ -83,6 +86,7 @@ public class EmailIngressServiceImpl implements EmailIngressService {
         this.systemTransitionService = systemTransitionService;
         this.attachmentService = attachmentService;
         this.notificationService = notificationService;
+        this.slaService = slaService;
         this.metrics = metrics;
         this.objectMapper = objectMapper;
     }
@@ -363,6 +367,7 @@ public class EmailIngressServiceImpl implements EmailIngressService {
         applyCustomerDefaults(ticket, customerId);
 
         Ticket saved = ticketRepository.save(ticket);
+        stampSlaDueDates(saved);
         historyService.recordCreated(saved.getId(), null);
         log.info("Ticket {} created from ingress event {} — customerId: {}",
                 saved.getId(), event.getId(), customerId);
@@ -375,6 +380,26 @@ public class EmailIngressServiceImpl implements EmailIngressService {
         }
 
         return saved.getId();
+    }
+
+    /**
+     * Stamps SLA due dates on a newly created ticket using the applicable policy.
+     * Non-critical: exceptions are caught and logged; ticket creation still succeeds.
+     * Mirrors the same pattern in {@code TicketService.stampSlaDueDates}.
+     */
+    private void stampSlaDueDates(Ticket ticket) {
+        try {
+            java.time.Instant[] dueDates = slaService.computeDueDates(ticket, ticket.getCreatedAt());
+            if (dueDates[0] != null || dueDates[1] != null) {
+                ticket.setFirstResponseDueAt(dueDates[0]);
+                ticket.setResolutionDueAt(dueDates[1]);
+                ticketRepository.save(ticket);
+                log.info("SLA_STAMP ticketId: {}, firstResponseDue: {}, resolutionDue: {}",
+                        ticket.getId(), dueDates[0], dueDates[1]);
+            }
+        } catch (Exception e) {
+            log.warn("SLA_STAMP failed for ticketId: {} — {}", ticket.getId(), e.getMessage());
+        }
     }
 
     private void applyCustomerDefaults(Ticket ticket, Long customerId) {

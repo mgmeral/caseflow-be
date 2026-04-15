@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -35,10 +36,20 @@ public class MailTemplateController {
         this.templateService = templateService;
     }
 
+    /**
+     * Lists all templates. Supports optional filtering for the agent macro picker.
+     *
+     * @param usageType  optional usage type filter (e.g. CUSTOMER_REPLY, FOLLOW_UP)
+     * @param activeOnly when true, only active templates are returned (default false)
+     * @param search     optional text search on name, code, or subject
+     */
     @GetMapping
     @PreAuthorize("hasAuthority('PERM_EMAIL_CONFIG_VIEW')")
-    public List<MailTemplateResponse> list() {
-        return templateService.findAll().stream()
+    public List<MailTemplateResponse> list(
+            @RequestParam(required = false) String usageType,
+            @RequestParam(defaultValue = "false") boolean activeOnly,
+            @RequestParam(required = false) String search) {
+        return templateService.search(usageType, activeOnly, search).stream()
                 .map(MailTemplateResponse::from)
                 .toList();
     }
@@ -98,11 +109,12 @@ public class MailTemplateController {
                                "description", "Optional agent signature block")
                 ),
                 "usageTypes", List.of(
-                        Map.of("value", "CUSTOMER_REPLY",   "label", "Direct reply to a customer inquiry"),
-                        Map.of("value", "ACKNOWLEDGEMENT",  "label", "Acknowledge receipt of a new ticket"),
-                        Map.of("value", "FOLLOW_UP",        "label", "Follow up when awaiting customer response"),
-                        Map.of("value", "RESOLUTION",       "label", "Notify customer the ticket has been resolved"),
-                        Map.of("value", "NEED_MORE_INFO",   "label", "Request additional information from customer")
+                        Map.of("value", "CUSTOMER_REPLY",   "label", "Direct reply to a customer inquiry", "customerVisible", true),
+                        Map.of("value", "ACKNOWLEDGEMENT",  "label", "Acknowledge receipt of a new ticket", "customerVisible", true),
+                        Map.of("value", "FOLLOW_UP",        "label", "Follow up when awaiting customer response", "customerVisible", true),
+                        Map.of("value", "RESOLUTION",       "label", "Notify customer the ticket has been resolved", "customerVisible", true),
+                        Map.of("value", "NEED_MORE_INFO",   "label", "Request additional information from customer", "customerVisible", true),
+                        Map.of("value", "INTERNAL_UPDATE",  "label", "Internal team update — not sent to customer", "customerVisible", false)
                 )
         );
     }

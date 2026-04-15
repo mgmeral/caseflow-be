@@ -52,9 +52,9 @@ class MailTemplateControllerTest {
 
     @Test
     void list_returnsAllTemplates() {
-        when(templateService.findAll()).thenReturn(List.of(template));
+        when(templateService.search(null, false, null)).thenReturn(List.of(template));
 
-        List<MailTemplateResponse> result = sut.list();
+        List<MailTemplateResponse> result = sut.list(null, false, null);
 
         assertThat(result).hasSize(1);
         assertThat(result.get(0).code()).isEqualTo("CUSTOMER_REPLY");
@@ -82,7 +82,7 @@ class MailTemplateControllerTest {
     void create_returns201_withCreatedTemplate() {
         MailTemplateRequest request = new MailTemplateRequest(
                 "NEW_TMPL", "New Template", null,
-                "<html>x</html>", "x", true, "CUSTOMER_REPLY", null);
+                "<html>x</html>", "x", true, "CUSTOMER_REPLY", null, null, null, null);
         when(templateService.create(any())).thenReturn(template);
 
         ResponseEntity<MailTemplateResponse> result = sut.create(request);
@@ -95,7 +95,7 @@ class MailTemplateControllerTest {
     void update_returnsUpdatedTemplate() {
         MailTemplateRequest request = new MailTemplateRequest(
                 "CUSTOMER_REPLY", "Updated", null,
-                "<html>new</html>", "new", true, null, null);
+                "<html>new</html>", "new", true, null, null, null, null, null);
         when(templateService.update(eq(1L), any())).thenReturn(template);
 
         MailTemplateResponse result = sut.update(1L, request);
@@ -125,9 +125,9 @@ class MailTemplateControllerTest {
     void response_includesUsageType_whenSet() {
         template.setUsageType("CUSTOMER_REPLY");
         template.setDescription("Standard customer reply template");
-        when(templateService.findAll()).thenReturn(List.of(template));
+        when(templateService.search(null, false, null)).thenReturn(List.of(template));
 
-        List<MailTemplateResponse> result = sut.list();
+        List<MailTemplateResponse> result = sut.list(null, false, null);
 
         assertThat(result.get(0).usageType()).isEqualTo("CUSTOMER_REPLY");
         assertThat(result.get(0).description()).isEqualTo("Standard customer reply template");

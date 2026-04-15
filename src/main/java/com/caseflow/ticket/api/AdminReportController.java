@@ -2,6 +2,11 @@ package com.caseflow.ticket.api;
 
 import com.caseflow.common.api.PagedResponse;
 import com.caseflow.ticket.api.dto.AdminCustomerReportRow;
+import com.caseflow.ticket.api.dto.AdminReportSummaryResponse;
+import com.caseflow.ticket.api.dto.AgingBucketsResponse;
+import com.caseflow.ticket.api.dto.CustomerHealthSummary;
+import com.caseflow.ticket.api.dto.TrendDataPoint;
+import com.caseflow.ticket.api.dto.WorkloadSummaryResponse;
 import com.caseflow.ticket.service.ReportingService;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -20,6 +25,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Instant;
+import java.util.List;
 
 /**
  * Admin cross-customer aggregate ticket reporting.
@@ -72,12 +78,92 @@ public class AdminReportController {
                 from, to, page, size);
 
         Sort.Direction direction = "desc".equalsIgnoreCase(sortDir) ? Sort.Direction.DESC : Sort.Direction.ASC;
-        // Map sortBy to entity field — default to 'name' for customerName
-        String entityField = "customerName".equalsIgnoreCase(sortBy) ? "name" : "name";
+        // totalCount is a computed field and cannot be sorted at DB level.
+        // customerName maps to the JPA 'name' field. All other values fall back to 'name'.
+        String entityField = "name";
         Pageable pageable = PageRequest.of(page, size, Sort.by(direction, entityField));
 
         Page<AdminCustomerReportRow> result = reportingService.adminAggregateReport(from, to, pageable);
 
         return ResponseEntity.ok(PagedResponse.from(result));
+    }
+
+    /**
+     * Executive summary — single-customer or global ticket KPI block.
+     *
+     * @param customerId optional; omit for global (all-customer) summary
+     * @param from       start of window (ISO-8601), inclusive; omit for unbounded
+     * @param to         end of window (ISO-8601), inclusive; omit for unbounded
+     */
+    @GetMapping("/summary")
+    @PreAuthorize("hasAuthority('PERM_REPORT_VIEW')")
+    public ResponseEntity<AdminReportSummaryResponse> executiveSummary(
+            @RequestParam(required = false) Long customerId,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
+            Instant from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
+            Instant to) {
+
+        log.info("GET /admin/reports/summary — customerId: {}, from: {}, to: {}", customerId, from, to);
+        return ResponseEntity.ok(reportingService.executiveSummary(customerId, from, to));
+    }
+
+    /**
+     * Daily ticket volume trend — created, resolved, and closed counts per calendar day.
+     *
+     * @param customerId optional customer filter; omit for global
+     * @param from       start of window; omit for last 30 days (server default)
+     * @param to         end of window; omit for today
+     */
+    @GetMapping("/trend")
+    @PreAuthorize("hasAuthority('PERM_REPORT_VIEW')")
+    public ResponseEntity<List<TrendDataPoint>> dailyTrend(
+            @RequestParam(required = false) Long customerId,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
+            Instant from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
+            Instant to) {
+
+        log.info("GET /admin/reports/trend — customerId: {}, from: {}, to: {}", customerId, from, to);
+        return ResponseEntity.ok(reportingService.dailyTrend(customerId, from, to));
+    }
+
+    /**
+     * Backlog aging distribution — open ticket counts bucketed by age from creation.
+     * Buckets: &lt;4h, 4–24h, 1–3d, 3–7d, &gt;7d.
+     *
+     * @param customerId optional customer filter; omit for global
+     */
+    @GetMapping("/aging")
+    @PreAuthorize("hasAuthority('PERM_REPORT_VIEW')")
+    public ResponseEntity<AgingBucketsResponse> agingBuckets(
+            @RequestParam(required = false) Long customerId) {
+
+        log.info("GET /admin/reports/aging — customerId: {}", customerId);
+        return ResponseEntity.ok(reportingService.agingBuckets(customerId));
+    }
+
+    /**
+     * Workload summary — active ticket counts per assignee and per group.
+     * Includes unassigned and waiting-customer breakdowns.
+     */
+    @GetMapping("/workload")
+    @PreAuthorize("hasAuthority('PERM_REPORT_VIEW')")
+    public ResponseEntity<WorkloadSummaryResponse> workloadSummary() {
+        log.info("GET /admin/reports/workload");
+        return ResponseEntity.ok(reportingService.workloadSummary());
+    }
+
+    /**
+     * Customer health summary — per-customer open count, breached SLA, avg response times,
+     * and a health score (STABLE / WATCH / AT_RISK).
+     *
+     * <p>Returns all customers in a single response. Suitable for management overview dashboards.
+     */
+    @GetMapping("/health")
+    @PreAuthorize("hasAuthority('PERM_REPORT_VIEW')")
+    public ResponseEntity<List<CustomerHealthSummary>> customerHealth() {
+        log.info("GET /admin/reports/health");
+        return ResponseEntity.ok(reportingService.customerHealthSummaries());
     }
 }

@@ -205,7 +205,7 @@ public class AssignmentService {
         Assignment active = assignmentRepository.findByTicketIdAndUnassignedAtIsNull(ticketId)
                 .orElseThrow(() -> {
                     log.warn("Unassign failed — no active assignment for ticket {}", ticketId);
-                    return new IllegalStateException("No active assignment found for ticket: " + ticketId);
+                    return new ActiveAssignmentNotFoundException(ticketId);
                 });
         active.setUnassignedAt(Instant.now());
         assignmentRepository.save(active);

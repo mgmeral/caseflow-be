@@ -3,6 +3,8 @@ package com.caseflow.ticket.service;
 import com.caseflow.customer.repository.CustomerRepository;
 import com.caseflow.identity.repository.GroupRepository;
 import com.caseflow.identity.repository.UserRepository;
+import com.caseflow.sla.api.dto.SlaSummary;
+import com.caseflow.sla.service.SlaService;
 import com.caseflow.storage.service.AttachmentService;
 import com.caseflow.ticket.api.dto.AttachmentMetadataResponse;
 import com.caseflow.ticket.api.dto.HistorySummaryResponse;
@@ -14,6 +16,7 @@ import com.caseflow.ticket.api.mapper.HistoryMapper;
 import com.caseflow.ticket.domain.History;
 import com.caseflow.ticket.domain.Ticket;
 import com.caseflow.ticket.domain.TicketPriority;
+import com.caseflow.ticket.domain.TicketSlaFilter;
 import com.caseflow.ticket.domain.TicketStatus;
 import com.caseflow.ticket.repository.HistoryRepository;
 import org.springframework.data.domain.Page;
@@ -39,6 +42,7 @@ public class TicketReadService {
     private final AttachmentMetadataMapper attachmentMetadataMapper;
     private final HistoryRepository historyRepository;
     private final HistoryMapper historyMapper;
+    private final SlaService slaService;
 
     public TicketReadService(TicketQueryService ticketQueryService,
                              CustomerRepository customerRepository,
@@ -47,7 +51,8 @@ public class TicketReadService {
                              AttachmentService attachmentService,
                              AttachmentMetadataMapper attachmentMetadataMapper,
                              HistoryRepository historyRepository,
-                             HistoryMapper historyMapper) {
+                             HistoryMapper historyMapper,
+                             SlaService slaService) {
         this.ticketQueryService = ticketQueryService;
         this.customerRepository = customerRepository;
         this.userRepository = userRepository;
@@ -56,6 +61,7 @@ public class TicketReadService {
         this.attachmentMetadataMapper = attachmentMetadataMapper;
         this.historyRepository = historyRepository;
         this.historyMapper = historyMapper;
+        this.slaService = slaService;
     }
 
     @Transactional(readOnly = true)
@@ -75,10 +81,12 @@ public class TicketReadService {
                                               Instant from, Instant to,
                                               Boolean openOnly, Boolean unassignedOnly,
                                               Long tagId, String tagCode,
+                                              Instant staleOpenThreshold,
+                                              TicketSlaFilter slaFilter,
                                               Specification<Ticket> scopeSpec, Pageable pageable) {
         Page<Ticket> page = ticketQueryService.search(
                 status, priority, assignedUserId, assignedGroupId, customerId, searchText, from, to,
-                openOnly, unassignedOnly, tagId, tagCode, scopeSpec, pageable);
+                openOnly, unassignedOnly, tagId, tagCode, staleOpenThreshold, slaFilter, scopeSpec, pageable);
         return enrichPage(page);
     }
 
@@ -116,6 +124,8 @@ public class TicketReadService {
                 })
                 .toList();
 
+        SlaSummary slaSummary = computeSlaSummary(ticket);
+
         return new TicketDetailResponse(
                 ticket.getId(),
                 ticket.getPublicId(),
@@ -134,6 +144,7 @@ public class TicketReadService {
                 ticket.getUpdatedAt(),
                 ticket.getClosedAt(),
                 ticket.getStatusChangedAt(),
+                slaSummary,
                 attachments,
                 history
         );
@@ -183,23 +194,36 @@ public class TicketReadService {
         Map<Long, String> userNames = batchFetchUserNames(userIds);
         Map<Long, String> groupNames = batchFetchGroupNames(groupIds);
 
-        return page.map(t -> new TicketSummaryResponse(
-                t.getId(),
-                t.getPublicId(),
-                t.getTicketNo(),
-                t.getSubject(),
-                t.getStatus(),
-                t.getPriority(),
-                t.getCustomerId(),
-                t.getCustomerId() != null ? customerNames.get(t.getCustomerId()) : null,
-                t.getAssignedUserId(),
-                t.getAssignedUserId() != null ? userNames.get(t.getAssignedUserId()) : null,
-                t.getAssignedGroupId(),
-                t.getAssignedGroupId() != null ? groupNames.get(t.getAssignedGroupId()) : null,
-                t.getCreatedAt(),
-                t.getUpdatedAt(),
-                t.getStatusChangedAt()
-        ));
+        return page.map(t -> {
+            SlaSummary sla = computeSlaSummary(t);
+            return new TicketSummaryResponse(
+                    t.getId(),
+                    t.getPublicId(),
+                    t.getTicketNo(),
+                    t.getSubject(),
+                    t.getStatus(),
+                    t.getPriority(),
+                    t.getCustomerId(),
+                    t.getCustomerId() != null ? customerNames.get(t.getCustomerId()) : null,
+                    t.getAssignedUserId(),
+                    t.getAssignedUserId() != null ? userNames.get(t.getAssignedUserId()) : null,
+                    t.getAssignedGroupId(),
+                    t.getAssignedGroupId() != null ? groupNames.get(t.getAssignedGroupId()) : null,
+                    t.getCreatedAt(),
+                    t.getUpdatedAt(),
+                    t.getStatusChangedAt(),
+                    sla != null ? sla.slaState() : null,
+                    t.getFirstResponseDueAt(),
+                    t.getResolutionDueAt()
+            );
+        });
+    }
+
+    private SlaSummary computeSlaSummary(Ticket ticket) {
+        if (ticket.getFirstResponseDueAt() == null && ticket.getResolutionDueAt() == null) {
+            return null;
+        }
+        return slaService.computeSummary(ticket);
     }
 
     private Map<Long, String> batchFetchCustomerNames(Set<Long> ids) {

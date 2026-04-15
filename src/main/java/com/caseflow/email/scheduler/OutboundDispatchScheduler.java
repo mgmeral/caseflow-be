@@ -138,11 +138,18 @@ public class OutboundDispatchScheduler {
             // Record successful send event in ticket history
             if (dispatch.getTicketId() != null) {
                 historyService.recordOutboundReplySent(dispatch.getTicketId(), dispatch.getId());
-                if (Boolean.TRUE.equals(dispatch.getIsScheduledSend())) {
-                    Ticket t = ticketRepository.findById(dispatch.getTicketId()).orElse(null);
-                    if (t != null) {
+                Ticket sentTicket = ticketRepository.findById(dispatch.getTicketId()).orElse(null);
+                if (sentTicket != null) {
+                    // Stamp first-response time on the ticket if this is the first outbound reply
+                    if (sentTicket.getFirstResponseRespondedAt() == null) {
+                        sentTicket.setFirstResponseRespondedAt(Instant.now());
+                        ticketRepository.save(sentTicket);
+                        log.info("SLA_FIRST_RESPONSE stamped — ticketId: {}, dispatchId: {}",
+                                sentTicket.getId(), dispatch.getId());
+                    }
+                    if (Boolean.TRUE.equals(dispatch.getIsScheduledSend())) {
                         historyService.recordScheduledEmailSent(
-                                t.getId(), t.getPublicId(), dispatch.getId());
+                                sentTicket.getId(), sentTicket.getPublicId(), dispatch.getId());
                     }
                 }
             }

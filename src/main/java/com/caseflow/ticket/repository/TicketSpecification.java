@@ -10,6 +10,8 @@ import jakarta.persistence.criteria.Subquery;
 import org.springframework.data.jpa.domain.Specification;
 
 import java.time.Instant;
+import java.util.EnumSet;
+import java.util.Set;
 
 public final class TicketSpecification {
 
@@ -69,6 +71,62 @@ public final class TicketSpecification {
      */
     public static Specification<Ticket> isUnassigned() {
         return (root, query, cb) -> cb.isNull(root.get("assignedUserId"));
+    }
+
+    /**
+     * Tickets where COALESCE(statusChangedAt, createdAt) is strictly before the given threshold.
+     *
+     * <p>Uses {@code statusChangedAt} (set on every workflow transition) rather than
+     * {@code updatedAt}, which can be bumped by non-workflow events like note creation or
+     * tag changes. Falls back to {@code createdAt} for older tickets.
+     *
+     * <p>Callers should AND this with {@link #isOpen()} to reproduce the dashboard
+     * {@code waitingOver24h} predicate:
+     * <pre>isOpen().and(statusChangedBefore(Instant.now().minus(24, HOURS)))</pre>
+     */
+    public static Specification<Ticket> statusChangedBefore(Instant threshold) {
+        return (root, query, cb) -> threshold == null ? null :
+                cb.lessThan(
+                        cb.coalesce(root.<Instant>get("statusChangedAt"), root.get("createdAt")),
+                        threshold);
+    }
+
+    private static final Set<TicketStatus> TERMINAL_STATUSES =
+            EnumSet.of(TicketStatus.RESOLVED, TicketStatus.CLOSED);
+
+    /**
+     * Tickets whose resolution SLA has already been breached — exact predicate used by the
+     * dashboard {@code breachedSlaCount} metric.
+     *
+     * <p>Semantics: {@code resolutionDueAt IS NOT NULL AND resolutionDueAt < now AND status NOT terminal}.
+     *
+     * <p>Pass the same {@code now} used for any companion {@link #hasSlaAtRisk} call so both
+     * specs are evaluated at the same point in time within a single request.
+     */
+    public static Specification<Ticket> hasSlaBreached(Instant now) {
+        return (root, query, cb) ->
+                cb.and(
+                        cb.isNotNull(root.get("resolutionDueAt")),
+                        cb.lessThan(root.get("resolutionDueAt"), now),
+                        cb.not(root.get("status").in(TERMINAL_STATUSES)));
+    }
+
+    /**
+     * Tickets whose resolution SLA has NOT yet breached but will breach before
+     * {@code atRiskThreshold} — exact predicate used by the dashboard {@code atRiskSlaCount} metric.
+     *
+     * <p>Semantics: {@code resolutionDueAt IS NOT NULL AND resolutionDueAt > now
+     * AND resolutionDueAt <= atRiskThreshold AND status NOT terminal}.
+     *
+     * <p>For count/list parity, {@code atRiskThreshold} must equal {@code now + TicketSlaFilter.AT_RISK_WINDOW}.
+     */
+    public static Specification<Ticket> hasSlaAtRisk(Instant now, Instant atRiskThreshold) {
+        return (root, query, cb) ->
+                cb.and(
+                        cb.isNotNull(root.get("resolutionDueAt")),
+                        cb.greaterThan(root.get("resolutionDueAt"), now),
+                        cb.lessThanOrEqualTo(root.get("resolutionDueAt"), atRiskThreshold),
+                        cb.not(root.get("status").in(TERMINAL_STATUSES)));
     }
 
     /**

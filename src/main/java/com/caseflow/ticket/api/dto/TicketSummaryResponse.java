@@ -1,5 +1,6 @@
 package com.caseflow.ticket.api.dto;
 
+import com.caseflow.sla.domain.SlaState;
 import com.caseflow.ticket.domain.TicketPriority;
 import com.caseflow.ticket.domain.TicketStatus;
 
@@ -22,5 +23,11 @@ public record TicketSummaryResponse(
         Instant createdAt,
         Instant updatedAt,
         /** When the current status was entered. Null for tickets pre-dating V28 migration. */
-        Instant statusChangedAt
+        Instant statusChangedAt,
+        /** Lightweight SLA state for list/queue views. Null when no policy is configured. */
+        SlaState slaState,
+        /** When first-response SLA target expires. Null when no policy is configured. */
+        Instant firstResponseDueAt,
+        /** When resolution SLA target expires. Null when no policy is configured. */
+        Instant resolutionDueAt
 ) {}

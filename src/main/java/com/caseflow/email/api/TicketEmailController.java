@@ -195,6 +195,46 @@ public class TicketEmailController {
                 dispatchMapper.toResponseList(dispatchService.findByTicketId(ticketId)));
     }
 
+    /**
+     * Retries a failed outbound dispatch.
+     *
+     * <p>Resets the dispatch to PENDING so the next scheduler tick will attempt delivery.
+     * Only FAILED or PERMANENTLY_FAILED dispatches may be retried.
+     */
+    @PostMapping("/outbound/{dispatchId}/retry")
+    @PreAuthorize("@ticketAuth.canSendTicketEmailReply(authentication, #ticketId)")
+    public ResponseEntity<DispatchResponse> retryDispatch(@PathVariable Long ticketId,
+                                                          @PathVariable Long dispatchId) {
+        log.info("POST /tickets/{}/email/outbound/{}/retry", ticketId, dispatchId);
+        OutboundEmailDispatch dispatch = dispatchService.getById(dispatchId);
+        if (!ticketId.equals(dispatch.getTicketId())) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND,
+                    "Outbound dispatch " + dispatchId + " not found under ticket " + ticketId);
+        }
+        dispatchService.retryDispatch(dispatch);
+        return ResponseEntity.ok(dispatchMapper.toResponse(dispatchService.getById(dispatchId)));
+    }
+
+    /**
+     * Cancels a pending outbound dispatch.
+     *
+     * <p>Only PENDING dispatches may be canceled. Typically used to cancel a scheduled send
+     * before it fires.
+     */
+    @PostMapping("/outbound/{dispatchId}/cancel")
+    @PreAuthorize("@ticketAuth.canSendTicketEmailReply(authentication, #ticketId)")
+    public ResponseEntity<DispatchResponse> cancelDispatch(@PathVariable Long ticketId,
+                                                           @PathVariable Long dispatchId) {
+        log.info("POST /tickets/{}/email/outbound/{}/cancel", ticketId, dispatchId);
+        OutboundEmailDispatch dispatch = dispatchService.getById(dispatchId);
+        if (!ticketId.equals(dispatch.getTicketId())) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND,
+                    "Outbound dispatch " + dispatchId + " not found under ticket " + ticketId);
+        }
+        dispatchService.markCanceled(dispatch);
+        return ResponseEntity.ok(dispatchMapper.toResponse(dispatchService.getById(dispatchId)));
+    }
+
     @PostMapping("/reply")
     @PreAuthorize("@ticketAuth.canSendTicketEmailReply(authentication, #ticketId)")
     public ResponseEntity<ReplyEnqueuedResponse> sendReply(

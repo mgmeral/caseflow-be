@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 
 /**
@@ -37,6 +38,33 @@ public class MailTemplateService {
     @Transactional(readOnly = true)
     public List<MailTemplate> findAll() {
         return templateRepository.findAllByOrderByCodeAsc();
+    }
+
+    /**
+     * Filtered search across templates.
+     *
+     * @param usageType optional usage type filter; null = all
+     * @param activeOnly when true, only active templates are returned
+     * @param search     optional substring to match against name, code, or subject template; null = no filter
+     * @return matching templates ordered by code
+     */
+    @Transactional(readOnly = true)
+    public List<MailTemplate> search(String usageType, boolean activeOnly, String search) {
+        List<MailTemplate> all = activeOnly
+                ? templateRepository.findByIsActiveTrueOrderByCodeAsc()
+                : templateRepository.findAllByOrderByCodeAsc();
+
+        return all.stream()
+                .filter(t -> usageType == null || usageType.equalsIgnoreCase(t.getUsageType()))
+                .filter(t -> {
+                    if (search == null || search.isBlank()) return true;
+                    String lower = search.toLowerCase(Locale.ROOT);
+                    return (t.getName() != null && t.getName().toLowerCase(Locale.ROOT).contains(lower))
+                            || (t.getCode() != null && t.getCode().toLowerCase(Locale.ROOT).contains(lower))
+                            || (t.getSubjectTemplate() != null
+                                && t.getSubjectTemplate().toLowerCase(Locale.ROOT).contains(lower));
+                })
+                .toList();
     }
 
     @Transactional(readOnly = true)
@@ -67,6 +95,9 @@ public class MailTemplateService {
         template.setIsActive(request.isActive() != null ? request.isActive() : true);
         template.setUsageType(request.usageType());
         template.setDescription(request.description());
+        template.setSupportedPlaceholders(request.supportedPlaceholders());
+        template.setCustomerVisible(request.customerVisible() != null ? request.customerVisible() : Boolean.TRUE);
+        template.setDefaultStatusAfterSend(request.defaultStatusAfterSend());
         template.setIsBuiltIn(false);
         MailTemplate saved = templateRepository.save(template);
         log.info("TEMPLATE_CRUD create — templateId: {}, code: '{}'", saved.getId(), saved.getCode());
@@ -89,6 +120,15 @@ public class MailTemplateService {
         }
         if (request.description() != null) {
             template.setDescription(request.description());
+        }
+        if (request.supportedPlaceholders() != null) {
+            template.setSupportedPlaceholders(request.supportedPlaceholders());
+        }
+        if (request.customerVisible() != null) {
+            template.setCustomerVisible(request.customerVisible());
+        }
+        if (request.defaultStatusAfterSend() != null) {
+            template.setDefaultStatusAfterSend(request.defaultStatusAfterSend());
         }
         // code is immutable after creation to preserve cross-system references
         MailTemplate saved = templateRepository.save(template);

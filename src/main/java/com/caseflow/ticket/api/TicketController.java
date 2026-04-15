@@ -16,6 +16,7 @@ import com.caseflow.ticket.api.dto.TicketSummaryResponse;
 import com.caseflow.ticket.api.dto.UpdateTicketRequest;
 import com.caseflow.ticket.domain.Ticket;
 import com.caseflow.ticket.domain.TicketPriority;
+import com.caseflow.ticket.domain.TicketSlaFilter;
 import com.caseflow.ticket.domain.TicketStatus;
 import com.caseflow.ticket.repository.TicketScopeSpecification;
 import com.caseflow.ticket.service.TicketQueryService;
@@ -44,6 +45,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 
 @Tag(name = "Tickets", description = "Ticket lifecycle management")
@@ -128,6 +130,23 @@ public class TicketController {
      * value. Passing repeated params for the same key is not supported and the framework will
      * reject or use only the last value. FE must send at most one value per filter key.
      *
+     * <p><b>Dashboard drill-down filters:</b>
+     * <ul>
+     *   <li>{@code openOnly=true} → matches {@code activeTickets} dashboard metric</li>
+     *   <li>{@code openOnly=true&unassignedOnly=true} → matches {@code unassignedTickets} metric</li>
+     *   <li>{@code openOnly=true&staleOpenOverHours=24} → matches {@code waitingOver24h} metric.
+     *       Filters to open tickets where COALESCE(statusChangedAt, createdAt) is older than N hours.
+     *       This is the canonical drill-down for the waiting-over-24h dashboard card.</li>
+     *   <li>{@code slaState=BREACHED} → matches {@code breachedSlaCount} dashboard metric.
+     *       Exact predicate: resolutionDueAt IS NOT NULL AND resolutionDueAt &lt; NOW AND non-terminal.</li>
+     *   <li>{@code slaState=AT_RISK} → matches {@code atRiskSlaCount} dashboard metric.
+     *       Exact predicate: resolutionDueAt IS NOT NULL AND resolutionDueAt &gt; NOW
+     *       AND resolutionDueAt &le; NOW + 4h AND non-terminal. Fixed 4-hour window shared with
+     *       {@link com.caseflow.ticket.domain.TicketSlaFilter#AT_RISK_WINDOW}.</li>
+     *   <li>{@code status=RESOLVED} → matches {@code resolvedTickets} metric</li>
+     *   <li>{@code status=CLOSED} → matches {@code closedTickets} metric</li>
+     * </ul>
+     *
      * <p><b>Supported sort fields:</b> {@code createdAt}, {@code updatedAt}, {@code statusChangedAt},
      * {@code priority}, {@code status}, {@code ticketNo}, {@code subject}, {@code closedAt}.
      * Unknown sort fields fall back silently to {@code createdAt}.
@@ -148,6 +167,8 @@ public class TicketController {
             @RequestParam(required = false) Boolean unassignedOnly,
             @RequestParam(required = false) Long tagId,
             @RequestParam(required = false) String tagCode,
+            @RequestParam(required = false) Integer staleOpenOverHours,
+            @RequestParam(required = false) TicketSlaFilter slaState,
             @RequestParam(defaultValue = "0")   int page,
             @RequestParam(defaultValue = "20")  int size,
             @RequestParam(defaultValue = "createdAt") String sort,
@@ -159,6 +180,10 @@ public class TicketController {
 
         Instant fromInstant = from != null ? Instant.parse(from) : null;
         Instant toInstant   = to   != null ? Instant.parse(to)   : null;
+        // Compute the threshold once — stale = COALESCE(statusChangedAt, createdAt) < threshold
+        Instant staleOpenThreshold = staleOpenOverHours != null
+                ? Instant.now().minus(staleOpenOverHours, ChronoUnit.HOURS)
+                : null;
 
         Specification<Ticket> scopeSpec = buildScopeSpec(user);
 
@@ -166,7 +191,7 @@ public class TicketController {
                 ticketReadService.search(status, priority, userId, groupId, customerId,
                         search, fromInstant, toInstant,
                         openOnly, unassignedOnly, tagId, tagCode,
-                        scopeSpec, pageRequest)));
+                        staleOpenThreshold, slaState, scopeSpec, pageRequest)));
     }
 
     @GetMapping("/admin-pool")

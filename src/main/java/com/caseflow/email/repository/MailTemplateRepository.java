@@ -13,4 +13,6 @@ public interface MailTemplateRepository extends JpaRepository<MailTemplate, Long
     Optional<MailTemplate> findByCodeAndIsActiveTrue(String code);
 
     List<MailTemplate> findAllByOrderByCodeAsc();
+
+    List<MailTemplate> findByIsActiveTrueOrderByCodeAsc();
 }

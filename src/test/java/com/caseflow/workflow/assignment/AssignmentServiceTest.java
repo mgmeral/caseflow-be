@@ -113,6 +113,15 @@ class AssignmentServiceTest {
     }
 
     @Test
+    void unassign_throwsActiveAssignmentNotFoundException_whenNoActiveAssignment() {
+        when(assignmentRepository.findByTicketIdAndUnassignedAtIsNull(1L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> assignmentService.unassign(1L, 5L))
+                .isInstanceOf(ActiveAssignmentNotFoundException.class)
+                .hasMessageContaining("1");
+    }
+
+    @Test
     void unassign_closesActiveAssignmentAndClearsUserButPreservesGroup() {
         ticket.setAssignedUserId(10L);
         ticket.setAssignedGroupId(20L);

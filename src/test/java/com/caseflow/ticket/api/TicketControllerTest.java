@@ -128,7 +128,7 @@ class TicketControllerTest {
         TicketSummaryResponse summary = makeTicketSummary(1L, "TKT-001");
 
         when(ticketReadService.search(any(), any(), any(), any(), any(), any(), any(), any(),
-                any(), any(), any(), any(), any(), any(Pageable.class)))
+                any(), any(), any(), any(), any(), any(), any(), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(summary)));
 
         mockMvc.perform(get("/api/tickets"))
@@ -143,7 +143,7 @@ class TicketControllerTest {
         // statusChangedAt is a supported sort field — must not fall back to createdAt
         TicketSummaryResponse summary = makeTicketSummary(1L, "TKT-001");
         when(ticketReadService.search(any(), any(), any(), any(), any(), any(), any(), any(),
-                any(), any(), any(), any(), any(), any(Pageable.class)))
+                any(), any(), any(), any(), any(), any(), any(), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(summary)));
 
         mockMvc.perform(get("/api/tickets").param("sort", "statusChangedAt").param("direction", "asc"))
@@ -156,7 +156,7 @@ class TicketControllerTest {
         // Single-value filter contract: one status value must work cleanly
         TicketSummaryResponse summary = makeTicketSummary(1L, "TKT-001");
         when(ticketReadService.search(any(), any(), any(), any(), any(), any(), any(), any(),
-                any(), any(), any(), any(), any(), any(Pageable.class)))
+                any(), any(), any(), any(), any(), any(), any(), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(summary)));
 
         mockMvc.perform(get("/api/tickets").param("status", "NEW"))
@@ -169,7 +169,7 @@ class TicketControllerTest {
     void listTickets_openOnlyFilter_returns200() throws Exception {
         TicketSummaryResponse summary = makeTicketSummary(1L, "TKT-001");
         when(ticketReadService.search(any(), any(), any(), any(), any(), any(), any(), any(),
-                any(), any(), any(), any(), any(), any(Pageable.class)))
+                any(), any(), any(), any(), any(), any(), any(), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(summary)));
 
         mockMvc.perform(get("/api/tickets").param("openOnly", "true"))
@@ -182,7 +182,7 @@ class TicketControllerTest {
     void listTickets_tagIdFilter_returns200() throws Exception {
         TicketSummaryResponse summary = makeTicketSummary(1L, "TKT-001");
         when(ticketReadService.search(any(), any(), any(), any(), any(), any(), any(), any(),
-                any(), any(), any(), any(), any(), any(Pageable.class)))
+                any(), any(), any(), any(), any(), any(), any(), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(summary)));
 
         mockMvc.perform(get("/api/tickets").param("tagId", "5"))
@@ -194,11 +194,54 @@ class TicketControllerTest {
     void listTickets_tagCodeFilter_returns200() throws Exception {
         TicketSummaryResponse summary = makeTicketSummary(1L, "TKT-001");
         when(ticketReadService.search(any(), any(), any(), any(), any(), any(), any(), any(),
-                any(), any(), any(), any(), any(), any(Pageable.class)))
+                any(), any(), any(), any(), any(), any(), any(), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(summary)));
 
         mockMvc.perform(get("/api/tickets").param("tagCode", "BUG"))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithMockUser(authorities = "PERM_TICKET_READ")
+    void listTickets_staleOpenOverHoursFilter_returns200() throws Exception {
+        // staleOpenOverHours=24 is the drill-down filter for the dashboard waitingOver24h card
+        TicketSummaryResponse summary = makeTicketSummary(1L, "TKT-001");
+        when(ticketReadService.search(any(), any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any(), any(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(summary)));
+
+        mockMvc.perform(get("/api/tickets")
+                        .param("staleOpenOverHours", "24"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1));
+    }
+
+    @Test
+    @WithMockUser(authorities = "PERM_TICKET_READ")
+    void listTickets_slaStateBreached_returns200() throws Exception {
+        // slaState=BREACHED is the drill-down for the dashboard breachedSlaCount card
+        TicketSummaryResponse summary = makeTicketSummary(1L, "TKT-001");
+        when(ticketReadService.search(any(), any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any(), any(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(summary)));
+
+        mockMvc.perform(get("/api/tickets").param("slaState", "BREACHED"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1));
+    }
+
+    @Test
+    @WithMockUser(authorities = "PERM_TICKET_READ")
+    void listTickets_slaStateAtRisk_returns200() throws Exception {
+        // slaState=AT_RISK is the drill-down for the dashboard atRiskSlaCount card
+        TicketSummaryResponse summary = makeTicketSummary(1L, "TKT-001");
+        when(ticketReadService.search(any(), any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any(), any(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(summary)));
+
+        mockMvc.perform(get("/api/tickets").param("slaState", "AT_RISK"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1));
     }
 
     // ── POST /api/tickets ─────────────────────────────────────────────────────
@@ -268,6 +311,6 @@ class TicketControllerTest {
         return new TicketSummaryResponse(id, null, ticketNo, "Test",
                 TicketStatus.NEW, TicketPriority.MEDIUM,
                 null, null, null, null, null, null,
-                Instant.now(), Instant.now(), null);
+                Instant.now(), Instant.now(), null, null, null, null);
     }
 }

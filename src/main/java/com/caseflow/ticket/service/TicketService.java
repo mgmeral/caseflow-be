@@ -3,6 +3,7 @@ package com.caseflow.ticket.service;
 import com.caseflow.common.exception.TicketNotFoundException;
 import com.caseflow.integration.domain.TicketDomainEvent;
 import com.caseflow.integration.notification.domain.NotificationEventType;
+import com.caseflow.sla.service.SlaService;
 import com.caseflow.ticket.domain.Ticket;
 import com.caseflow.ticket.domain.TicketPriority;
 import com.caseflow.ticket.domain.TicketStatus;
@@ -26,15 +27,18 @@ public class TicketService {
     private final TicketStateMachineService ticketStateMachineService;
     private final TicketHistoryService ticketHistoryService;
     private final ApplicationEventPublisher eventPublisher;
+    private final SlaService slaService;
 
     public TicketService(TicketRepository ticketRepository,
                          TicketStateMachineService ticketStateMachineService,
                          TicketHistoryService ticketHistoryService,
-                         ApplicationEventPublisher eventPublisher) {
+                         ApplicationEventPublisher eventPublisher,
+                         SlaService slaService) {
         this.ticketRepository = ticketRepository;
         this.ticketStateMachineService = ticketStateMachineService;
         this.ticketHistoryService = ticketHistoryService;
         this.eventPublisher = eventPublisher;
+        this.slaService = slaService;
     }
 
     @Transactional
@@ -49,6 +53,8 @@ public class TicketService {
         ticket.setCustomerId(customerId);
         ticket.setStatus(TicketStatus.NEW);
         Ticket saved = ticketRepository.save(ticket);
+        // Stamp SLA due dates immediately after first save (so createdAt is set)
+        stampSlaDueDates(saved);
         ticketHistoryService.recordCreated(saved.getId(), createdBy);
         eventPublisher.publishEvent(new TicketDomainEvent(saved.getId(), saved.getPublicId(),
                 NotificationEventType.TICKET_CREATED, createdBy,
@@ -83,6 +89,9 @@ public class TicketService {
         ticket.setStatus(newStatus);
         if (newStatus == TicketStatus.CLOSED) {
             ticket.setClosedAt(Instant.now());
+        }
+        if (newStatus == TicketStatus.RESOLVED && ticket.getResolvedAt() == null) {
+            ticket.setResolvedAt(Instant.now());
         }
         Ticket saved = ticketRepository.save(ticket);
         ticketHistoryService.recordStatusChanged(ticketId, performedBy,
@@ -135,5 +144,21 @@ public class TicketService {
 
     private String generateTicketNo() {
         return String.format("TKT-%07d", ticketRepository.nextTicketSeq());
+    }
+
+    private void stampSlaDueDates(Ticket ticket) {
+        try {
+            Instant[] dueDates = slaService.computeDueDates(ticket, ticket.getCreatedAt());
+            if (dueDates[0] != null || dueDates[1] != null) {
+                ticket.setFirstResponseDueAt(dueDates[0]);
+                ticket.setResolutionDueAt(dueDates[1]);
+                ticketRepository.save(ticket);
+                log.info("SLA_STAMP ticketId: {}, firstResponseDue: {}, resolutionDue: {}",
+                        ticket.getId(), dueDates[0], dueDates[1]);
+            }
+        } catch (Exception e) {
+            // SLA stamping is non-critical; log and continue
+            log.warn("SLA_STAMP failed for ticketId: {} — {}", ticket.getId(), e.getMessage());
+        }
     }
 }

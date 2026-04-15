@@ -73,6 +73,29 @@ public class MailTemplate {
     @Column(name = "description", length = 1000)
     private String description;
 
+    /**
+     * Comma-separated list of supported placeholder tokens for FE picker.
+     * Example: "{replyBody},{ticketRef},{agentName},{mailboxName},{signatureBlock}"
+     */
+    @Column(name = "supported_placeholders", columnDefinition = "TEXT")
+    private String supportedPlaceholders;
+
+    /**
+     * Whether this template is intended for customer-visible emails.
+     * false = INTERNAL_UPDATE / agent-only context.
+     * Defaults to true.
+     */
+    @Column(name = "customer_visible", nullable = false)
+    private Boolean customerVisible = Boolean.TRUE;
+
+    /**
+     * Optional default ticket status to apply after sending with this template.
+     * E.g. "WAITING_CUSTOMER" for NEED_MORE_INFO, "RESOLVED" for ISSUE_RESOLVED.
+     * Null = no default status change.
+     */
+    @Column(name = "default_status_after_send", length = 50)
+    private String defaultStatusAfterSend;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -118,6 +141,19 @@ public class MailTemplate {
 
     public String getDescription() { return description; }
     public void setDescription(String description) { this.description = description; }
+
+    public String getSupportedPlaceholders() { return supportedPlaceholders; }
+    public void setSupportedPlaceholders(String supportedPlaceholders) {
+        this.supportedPlaceholders = supportedPlaceholders;
+    }
+
+    public Boolean getCustomerVisible() { return customerVisible; }
+    public void setCustomerVisible(Boolean customerVisible) { this.customerVisible = customerVisible; }
+
+    public String getDefaultStatusAfterSend() { return defaultStatusAfterSend; }
+    public void setDefaultStatusAfterSend(String defaultStatusAfterSend) {
+        this.defaultStatusAfterSend = defaultStatusAfterSend;
+    }
 
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }

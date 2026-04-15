@@ -1,5 +1,6 @@
 package com.caseflow.ticket.api.dto;
 
+import com.caseflow.sla.api.dto.SlaSummary;
 import com.caseflow.ticket.domain.TicketPriority;
 import com.caseflow.ticket.domain.TicketStatus;
 
@@ -26,6 +27,8 @@ public record TicketDetailResponse(
         Instant closedAt,
         /** When the current status was entered. Null for tickets pre-dating V28 migration. */
         Instant statusChangedAt,
+        /** Computed SLA summary. Null when no SLA policy is configured. */
+        SlaSummary sla,
         List<AttachmentMetadataResponse> attachments,
         List<HistorySummaryResponse> history
 ) {}

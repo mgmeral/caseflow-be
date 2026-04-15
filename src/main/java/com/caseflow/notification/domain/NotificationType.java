@@ -11,5 +11,11 @@ public enum NotificationType {
     /** Ticket reassigned to this specific user from someone else. */
     TICKET_REASSIGNED_TO_USER,
     /** User was @mentioned in an INTERNAL note on a ticket. */
-    USER_MENTIONED_IN_NOTE
+    USER_MENTIONED_IN_NOTE,
+    /** SLA first-response or resolution target is in its warning window. */
+    SLA_WARNING,
+    /** SLA first-response or resolution target has been breached. */
+    SLA_BREACHED,
+    /** Ticket that had breached or was at-risk has been resolved/closed — SLA clock stopped. */
+    SLA_RECOVERED
 }

@@ -41,7 +41,7 @@ class DashboardControllerTest {
     @WithMockUser(authorities = "PERM_TICKET_READ")
     void getStats_returns200_withStatsPayload() throws Exception {
         DashboardStatsResponse stats = new DashboardStatsResponse(
-                10L, 7L, 2L, 1L, 3L, 2L, 5L, List.of());
+                10L, 7L, 2L, 1L, 3L, 2L, 0L, 1L, 5L, List.of());
 
         when(dashboardService.getStats(any())).thenReturn(stats);
 
@@ -53,6 +53,8 @@ class DashboardControllerTest {
                 .andExpect(jsonPath("$.closedTickets").value(1))
                 .andExpect(jsonPath("$.unassignedTickets").value(3))
                 .andExpect(jsonPath("$.waitingOver24h").value(2))
+                .andExpect(jsonPath("$.breachedSlaCount").value(0))
+                .andExpect(jsonPath("$.atRiskSlaCount").value(1))
                 .andExpect(jsonPath("$.myActionRequired").value(5));
     }
 

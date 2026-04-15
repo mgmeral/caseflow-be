@@ -155,6 +155,34 @@ public class EmailDispatchService {
     }
 
     /**
+     * Re-queues a failed dispatch for retry.
+     *
+     * <p>Resets status to {@link DispatchStatus#PENDING}, clears failure metadata,
+     * and resets {@code scheduledAt} to now so the next scheduler tick picks it up.
+     * Only dispatches in {@code FAILED} or {@code PERMANENTLY_FAILED} state may be retried.
+     *
+     * @param dispatch the dispatch to retry
+     * @throws IllegalStateException if the dispatch is not in a retryable state
+     */
+    @Transactional
+    public void retryDispatch(OutboundEmailDispatch dispatch) {
+        if (dispatch.getStatus() != DispatchStatus.FAILED
+                && dispatch.getStatus() != DispatchStatus.PERMANENTLY_FAILED) {
+            throw new IllegalStateException(
+                    "Cannot retry dispatch " + dispatch.getId()
+                            + " in status " + dispatch.getStatus()
+                            + ". Only FAILED or PERMANENTLY_FAILED dispatches may be retried.");
+        }
+        dispatch.setStatus(DispatchStatus.PENDING);
+        dispatch.setFailureReason(null);
+        dispatch.setFailureCategory(null);
+        dispatch.setScheduledAt(Instant.now());
+        dispatchRepository.save(dispatch);
+        log.info("SMTP_SEND dispatch queued for retry — dispatchId: {}, previousStatus: {}",
+                dispatch.getId(), dispatch.getStatus());
+    }
+
+    /**
      * Enqueues a scheduled outbound email with full thread-aware context.
      *
      * @param sourceIngressEventId inbound event being replied to; null for proactive scheduled sends
