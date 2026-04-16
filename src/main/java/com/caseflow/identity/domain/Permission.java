@@ -32,5 +32,7 @@ public enum Permission {
     // Phase 2 integration permissions
     INTEGRATION_CONFIG_MANAGE,
     INTEGRATION_JOB_VIEW,
-    SCHEDULED_EMAIL_MANAGE
+    SCHEDULED_EMAIL_MANAGE,
+    // AI assist — controls access to all /ai-* ticket endpoints (V37)
+    AI_ASSIST
 }
