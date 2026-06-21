@@ -2,6 +2,7 @@ package com.caseflow.auth;
 
 import com.caseflow.identity.domain.User;
 import com.caseflow.identity.repository.UserRepository;
+import com.caseflow.security.audit.SecurityAuditService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -30,6 +31,7 @@ class AuthServiceTest {
     @Mock private JwtTokenService jwtTokenService;
     @Mock private JwtProperties jwtProperties;
     @Mock private PasswordEncoder passwordEncoder;
+    @Mock private SecurityAuditService auditService;
 
     @InjectMocks private AuthService authService;
 

@@ -2,6 +2,8 @@ package com.caseflow.auth;
 
 import com.caseflow.identity.domain.User;
 import com.caseflow.identity.repository.UserRepository;
+import com.caseflow.security.audit.SecurityAuditEventType;
+import com.caseflow.security.audit.SecurityAuditService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -31,17 +33,20 @@ public class AuthService {
     private final JwtTokenService jwtTokenService;
     private final JwtProperties jwtProperties;
     private final PasswordEncoder passwordEncoder;
+    private final SecurityAuditService auditService;
 
     public AuthService(UserRepository userRepository,
                        RefreshTokenRepository refreshTokenRepository,
                        JwtTokenService jwtTokenService,
                        JwtProperties jwtProperties,
-                       PasswordEncoder passwordEncoder) {
+                       PasswordEncoder passwordEncoder,
+                       SecurityAuditService auditService) {
         this.userRepository = userRepository;
         this.refreshTokenRepository = refreshTokenRepository;
         this.jwtTokenService = jwtTokenService;
         this.jwtProperties = jwtProperties;
         this.passwordEncoder = passwordEncoder;
+        this.auditService = auditService;
     }
 
     @Transactional
@@ -56,18 +61,25 @@ public class AuthService {
 
         if (user.isLocked()) {
             log.warn("Login blocked — account locked until: {}, username: {}", user.getLockedUntil(), username);
+            auditService.record(SecurityAuditEventType.ACCOUNT_LOCKED, user.getId(), username,
+                    null, null, false, "Account locked until " + user.getLockedUntil());
             throw new AccountLockedException(user.getLockedUntil());
         }
 
         if (user.getPasswordHash() == null || !passwordEncoder.matches(password, user.getPasswordHash())) {
             int attempts = user.getFailedLoginAttempts() + 1;
             user.setFailedLoginAttempts(attempts);
-            if (attempts >= MAX_FAILED_ATTEMPTS) {
+            boolean nowLocked = attempts >= MAX_FAILED_ATTEMPTS;
+            if (nowLocked) {
                 user.setLockedUntil(Instant.now().plus(LOCKOUT_DURATION));
                 log.warn("Account locked — too many failed attempts, username: {}, until: {}", username, user.getLockedUntil());
+                auditService.record(SecurityAuditEventType.ACCOUNT_LOCKED, user.getId(), username,
+                        null, null, false, "Locked after " + attempts + " failed attempts");
             }
             userRepository.save(user);
             log.warn("Login failed — invalid password for username: {} (attempt {})", username, attempts);
+            auditService.record(SecurityAuditEventType.LOGIN_FAILURE, user.getId(), username,
+                    null, null, false, "Invalid credentials (attempt " + attempts + ")");
             throw new BadCredentialsException("Invalid credentials");
         }
 
@@ -77,6 +89,8 @@ public class AuthService {
         userRepository.save(user);
 
         log.info("Login successful — username: {}, userId: {}", username, user.getId());
+        auditService.record(SecurityAuditEventType.LOGIN_SUCCESS, user.getId(), username,
+                null, null, true, null);
         return generateTokenPair(user);
     }
 
@@ -90,9 +104,10 @@ public class AuthService {
                 });
 
         if (stored.isRevoked()) {
-            // Token theft detected — revoke all sessions for this user
             log.warn("Refresh token reuse detected (possible theft) — revoking all sessions for userId: {}", stored.getUserId());
             refreshTokenRepository.revokeAllForUser(stored.getUserId());
+            auditService.record(SecurityAuditEventType.TOKEN_THEFT_DETECTED, stored.getUserId(), null,
+                    null, null, false, "Revoked refresh token was reused — all sessions revoked");
             throw new BadCredentialsException("Refresh token already used — all sessions revoked");
         }
 
@@ -118,6 +133,8 @@ public class AuthService {
             rt.setRevoked(true);
             refreshTokenRepository.save(rt);
             log.info("Logout — refresh token revoked for userId: {}", rt.getUserId());
+            auditService.record(SecurityAuditEventType.LOGOUT, rt.getUserId(), null,
+                    null, null, true, null);
         });
     }
 
