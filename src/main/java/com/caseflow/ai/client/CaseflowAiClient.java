@@ -8,6 +8,8 @@ import com.caseflow.ai.client.dto.response.AiRawPolicyGuidanceResponse;
 import com.caseflow.ai.client.dto.response.AiRawReplyDraftResponse;
 import com.caseflow.ai.client.dto.response.AiRawSimilarCasesResponse;
 import com.caseflow.ai.client.dto.response.AiRawSummaryResponse;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -63,6 +65,7 @@ public class CaseflowAiClient {
      * @param ticketId the CaseFlow ticket id, embedded in the downstream path
      * @throws AiServiceUnavailableException on any network, HTTP, or deserialization error
      */
+    @CircuitBreaker(name = "ai-service", fallbackMethod = "fallbackSummary")
     @Retryable(
             retryFor = {AiServiceUnavailableException.class},
             maxAttemptsExpression = "#{@aiClientProperties.retry.maxAttempts}",
@@ -80,6 +83,7 @@ public class CaseflowAiClient {
      * @param ticketId the CaseFlow ticket id, embedded in the downstream path
      * @throws AiServiceUnavailableException on any network, HTTP, or deserialization error
      */
+    @CircuitBreaker(name = "ai-service", fallbackMethod = "fallbackReplyDraft")
     @Retryable(
             retryFor = {AiServiceUnavailableException.class},
             maxAttemptsExpression = "#{@aiClientProperties.retry.maxAttempts}",
@@ -96,6 +100,7 @@ public class CaseflowAiClient {
      *
      * @throws AiServiceUnavailableException on any network, HTTP, or deserialization error
      */
+    @CircuitBreaker(name = "ai-service", fallbackMethod = "fallbackSimilarCases")
     @Retryable(
             retryFor = {AiServiceUnavailableException.class},
             maxAttemptsExpression = "#{@aiClientProperties.retry.maxAttempts}",
@@ -112,6 +117,7 @@ public class CaseflowAiClient {
      *
      * @throws AiServiceUnavailableException on any network, HTTP, or deserialization error
      */
+    @CircuitBreaker(name = "ai-service", fallbackMethod = "fallbackPolicyGuidance")
     @Retryable(
             retryFor = {AiServiceUnavailableException.class},
             maxAttemptsExpression = "#{@aiClientProperties.retry.maxAttempts}",
@@ -121,6 +127,36 @@ public class CaseflowAiClient {
         log.debug("AI policy-guidance request — correlationId={}, ticketNo={}",
                 request.correlationId(), request.ticketNo());
         return post("/api/ai/policy-guidance", request, request.correlationId(), AiRawPolicyGuidanceResponse.class);
+    }
+
+    // ── Circuit-breaker fallbacks ─────────────────────────────────────────────
+
+    private AiRawSummaryResponse fallbackSummary(AiSummaryRequest request, Long ticketId,
+                                                  CallNotPermittedException ex) {
+        log.warn("AI circuit breaker OPEN — summary blocked [ticketId={}]", ticketId);
+        throw new AiServiceUnavailableException("/api/ai/tickets/" + ticketId + "/summary",
+                "Circuit breaker open: " + ex.getMessage());
+    }
+
+    private AiRawReplyDraftResponse fallbackReplyDraft(AiReplyDraftRequest request, Long ticketId,
+                                                        CallNotPermittedException ex) {
+        log.warn("AI circuit breaker OPEN — reply-draft blocked [ticketId={}]", ticketId);
+        throw new AiServiceUnavailableException("/api/ai/tickets/" + ticketId + "/reply-draft",
+                "Circuit breaker open: " + ex.getMessage());
+    }
+
+    private AiRawSimilarCasesResponse fallbackSimilarCases(AiSimilarCasesRequest request,
+                                                            CallNotPermittedException ex) {
+        log.warn("AI circuit breaker OPEN — similar-cases blocked [ticketNo={}]", request.ticketNo());
+        throw new AiServiceUnavailableException("/api/ai/similar-cases",
+                "Circuit breaker open: " + ex.getMessage());
+    }
+
+    private AiRawPolicyGuidanceResponse fallbackPolicyGuidance(AiPolicyGuidanceRequest request,
+                                                                CallNotPermittedException ex) {
+        log.warn("AI circuit breaker OPEN — policy-guidance blocked [ticketNo={}]", request.ticketNo());
+        throw new AiServiceUnavailableException("/api/ai/policy-guidance",
+                "Circuit breaker open: " + ex.getMessage());
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────

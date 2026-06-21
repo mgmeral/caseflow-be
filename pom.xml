@@ -169,6 +169,13 @@
             <artifactId>spring-boot-starter-aop</artifactId>
         </dependency>
 
+        <!-- RESILIENCE4J (circuit breaker for AI client) -->
+        <dependency>
+            <groupId>io.github.resilience4j</groupId>
+            <artifactId>resilience4j-spring-boot3</artifactId>
+            <version>2.2.0</version>
+        </dependency>
+
         <!-- KAFKA (AI async event publishing — optional, guarded by caseflow.ai.async.enabled) -->
         <dependency>
             <groupId>org.springframework.kafka</groupId>
