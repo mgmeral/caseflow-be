@@ -1,5 +1,7 @@
 package com.caseflow.ticket.service;
 
+import com.caseflow.automation.domain.AutomationTriggerType;
+import com.caseflow.automation.engine.AutomationRuleEngine;
 import com.caseflow.common.exception.TicketNotFoundException;
 import com.caseflow.integration.domain.TicketDomainEvent;
 import com.caseflow.integration.notification.domain.NotificationEventType;
@@ -28,17 +30,20 @@ public class TicketService {
     private final TicketHistoryService ticketHistoryService;
     private final ApplicationEventPublisher eventPublisher;
     private final SlaService slaService;
+    private final AutomationRuleEngine automationRuleEngine;
 
     public TicketService(TicketRepository ticketRepository,
                          TicketStateMachineService ticketStateMachineService,
                          TicketHistoryService ticketHistoryService,
                          ApplicationEventPublisher eventPublisher,
-                         SlaService slaService) {
+                         SlaService slaService,
+                         AutomationRuleEngine automationRuleEngine) {
         this.ticketRepository = ticketRepository;
         this.ticketStateMachineService = ticketStateMachineService;
         this.ticketHistoryService = ticketHistoryService;
         this.eventPublisher = eventPublisher;
         this.slaService = slaService;
+        this.automationRuleEngine = automationRuleEngine;
     }
 
     @Transactional
@@ -57,6 +62,7 @@ public class TicketService {
         Ticket saved = ticketRepository.save(ticket);
         // Stamp SLA due dates immediately after first save (so createdAt is set)
         stampSlaDueDates(saved);
+        automationRuleEngine.evaluate(AutomationTriggerType.TICKET_CREATED, saved);
         ticketHistoryService.recordCreated(saved.getId(), createdBy);
         eventPublisher.publishEvent(new TicketDomainEvent(saved.getId(), saved.getPublicId(),
                 NotificationEventType.TICKET_CREATED, createdBy,
@@ -98,6 +104,7 @@ public class TicketService {
             ticket.setResolvedBy(performedBy);
         }
         Ticket saved = ticketRepository.save(ticket);
+        automationRuleEngine.evaluate(AutomationTriggerType.STATUS_CHANGED, saved);
         ticketHistoryService.recordStatusChanged(ticketId, performedBy,
                 previousStatus.name(), newStatus.name());
         if (newStatus == TicketStatus.RESOLVED) {

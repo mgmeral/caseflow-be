@@ -1,5 +1,6 @@
 package com.caseflow.ticket.service;
 
+import com.caseflow.automation.engine.AutomationRuleEngine;
 import com.caseflow.common.exception.InvalidTicketStateException;
 import com.caseflow.common.exception.TicketNotFoundException;
 import com.caseflow.sla.service.SlaService;
@@ -48,6 +49,9 @@ class TicketServiceTest {
 
     @Mock
     private SlaService slaService;
+
+    @Mock
+    private AutomationRuleEngine automationRuleEngine;
 
     @InjectMocks
     private TicketService ticketService;
