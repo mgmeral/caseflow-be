@@ -27,6 +27,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
 
@@ -81,11 +83,12 @@ public class AiAssistService {
         try {
             SummaryContext ctx = contextBuilder.buildSummaryContext(ticket);
             AiSummaryRequest request = toSummaryRequest(ctx, correlationId);
-            AiRawSummaryResponse raw = aiClient.requestSummary(request);
+            AiRawSummaryResponse raw = aiClient.requestSummary(request, ticketId);
 
             return new AiSummaryAssistResponse(
                     ticketId,
                     raw.summary(),
+                    raw.warnings() != null ? raw.warnings() : List.of(),
                     com.caseflow.ai.api.dto.AiAssistMetadata.of(
                             raw.model(), raw.promptVersion(), raw.generatedAt(), correlationId));
 
@@ -114,12 +117,13 @@ public class AiAssistService {
         try {
             ReplyDraftContext ctx = contextBuilder.buildReplyDraftContext(ticket);
             AiReplyDraftRequest request = toReplyDraftRequest(ctx, correlationId, toneHint);
-            AiRawReplyDraftResponse raw = aiClient.requestReplyDraft(request);
+            AiRawReplyDraftResponse raw = aiClient.requestReplyDraft(request, ticketId);
 
             return new AiReplyDraftAssistResponse(
                     ticketId,
-                    raw.draft(),
-                    raw.toneApplied(),
+                    raw.suggestedBody(),
+                    raw.tone(),
+                    raw.warnings() != null ? raw.warnings() : List.of(),
                     com.caseflow.ai.api.dto.AiAssistMetadata.of(
                             raw.model(), raw.promptVersion(), raw.generatedAt(), correlationId));
 
@@ -226,28 +230,51 @@ public class AiAssistService {
     }
 
     private AiSummaryRequest toSummaryRequest(SummaryContext ctx, String correlationId) {
-        List<AiSummaryRequest.MessageSnippet> inbound = ctx.recentInboundMessages().stream()
-                .map(m -> new AiSummaryRequest.MessageSnippet(m.from(), m.preview(), m.receivedAt()))
+        // Build unified timeline: merge inbound + outbound, sort oldest-first
+        List<AiSummaryRequest.LatestMessage> inbound = ctx.recentInboundMessages().stream()
+                .map(m -> new AiSummaryRequest.LatestMessage("inbound", m.from(), m.preview(), m.receivedAt()))
+                .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+        List<AiSummaryRequest.LatestMessage> outbound = ctx.recentOutboundMessages().stream()
+                .map(m -> new AiSummaryRequest.LatestMessage("outbound", m.from(), m.preview(), m.receivedAt()))
                 .toList();
-        List<AiSummaryRequest.MessageSnippet> outbound = ctx.recentOutboundMessages().stream()
-                .map(m -> new AiSummaryRequest.MessageSnippet(m.from(), m.preview(), m.receivedAt()))
-                .toList();
-        return new AiSummaryRequest(correlationId, ctx.ticketNo(), ctx.subject(),
-                ctx.status(), ctx.priority(), ctx.customerName(),
-                ctx.assignedUserName(), ctx.assignedGroupName(),
-                ctx.tags(), ctx.slaState(), inbound, outbound,
-                ctx.recentInternalNotes(), ctx.locale());
+        inbound.addAll(outbound);
+        inbound.sort(Comparator.comparing(
+                m -> m.sentAt() != null ? m.sentAt() : "", Comparator.naturalOrder()));
+
+        return new AiSummaryRequest(
+                correlationId,
+                ctx.customerName(),
+                ctx.status(),               // ticketStatus
+                ctx.priority(),
+                ctx.slaState(),
+                ctx.tags(),
+                inbound,                    // unified latestMessages
+                ctx.recentInternalNotes(),  // internalNotes
+                ctx.locale(),
+                "STANDARD"                  // summaryStyle — safe default
+        );
     }
 
     private AiReplyDraftRequest toReplyDraftRequest(ReplyDraftContext ctx, String correlationId,
                                                      String toneHintOverride) {
         String tone = toneHintOverride != null ? toneHintOverride : ctx.toneHint();
-        List<AiReplyDraftRequest.MessageSnippet> thread = ctx.threadContext().stream()
-                .map(m -> new AiReplyDraftRequest.MessageSnippet(m.direction(), m.preview(), m.sentAt()))
+        List<AiReplyDraftRequest.LatestMessage> latestMessages = ctx.threadContext().stream()
+                .map(m -> new AiReplyDraftRequest.LatestMessage(m.direction(), null, m.preview(), m.sentAt()))
                 .toList();
-        return new AiReplyDraftRequest(correlationId, ctx.ticketNo(), ctx.subject(),
-                ctx.status(), ctx.priority(), ctx.customerName(),
-                ctx.latestInboundMessage(), ctx.latestInboundFrom(), thread,
-                List.of(), ctx.locale(), tone);
+        return new AiReplyDraftRequest(
+                correlationId,
+                ctx.customerName(),
+                ctx.locale(),
+                tone,           // tone (mapped from toneHint/override)
+                ctx.status(),   // ticketStatus
+                ctx.priority(),
+                ctx.tags(),
+                latestMessages,
+                ctx.internalNotes(),
+                List.of(),      // policySnippets — empty for now
+                List.of(),      // constraints — empty for now
+                "RESOLUTION",   // replyGoal — safe default
+                null            // selectedTemplateCode — null for now
+        );
     }
 }

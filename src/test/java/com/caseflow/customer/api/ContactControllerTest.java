@@ -54,7 +54,7 @@ class ContactControllerTest {
     // ── POST /api/contacts ────────────────────────────────────────────────────
 
     @Test
-    @WithMockUser(roles = "AGENT")
+    @WithMockUser(authorities = "PERM_CUSTOMER_MANAGE")
     void create_returns201_withContactResponse() throws Exception {
         CreateContactRequest request = new CreateContactRequest(1L, "alice@example.com", "Alice", false);
         ContactResponse response = makeResponse(10L, 1L, "alice@example.com", "Alice");
@@ -74,7 +74,7 @@ class ContactControllerTest {
     }
 
     @Test
-    @WithMockUser(roles = "AGENT")
+    @WithMockUser(authorities = "PERM_CUSTOMER_MANAGE")
     void create_returns400_whenEmailIsBlank() throws Exception {
         CreateContactRequest request = new CreateContactRequest(1L, "", "Alice", false);
 
@@ -95,7 +95,7 @@ class ContactControllerTest {
     // ── GET /api/contacts/{id} ────────────────────────────────────────────────
 
     @Test
-    @WithMockUser(roles = "VIEWER")
+    @WithMockUser(authorities = "PERM_TICKET_READ")
     void getById_returns200_whenFound() throws Exception {
         ContactResponse response = makeResponse(10L, 1L, "alice@example.com", "Alice");
 
@@ -109,7 +109,7 @@ class ContactControllerTest {
     }
 
     @Test
-    @WithMockUser(roles = "VIEWER")
+    @WithMockUser(authorities = "PERM_TICKET_READ")
     void getById_returns404_whenNotFound() throws Exception {
         when(contactService.getById(99L)).thenThrow(new ContactNotFoundException(99L));
 
@@ -120,7 +120,7 @@ class ContactControllerTest {
     // ── GET /api/contacts ─────────────────────────────────────────────────────
 
     @Test
-    @WithMockUser(roles = "VIEWER")
+    @WithMockUser(authorities = "PERM_TICKET_READ")
     void list_returns200_withSummaryList() throws Exception {
         ContactSummaryResponse summary = new ContactSummaryResponse(10L, 1L, "alice@example.com", "Alice", false);
 
@@ -136,7 +136,7 @@ class ContactControllerTest {
     // ── GET /api/contacts/by-email ────────────────────────────────────────────
 
     @Test
-    @WithMockUser(roles = "VIEWER")
+    @WithMockUser(authorities = "PERM_CUSTOMER_MANAGE")
     void getByEmail_returns200_whenFound() throws Exception {
         ContactResponse response = makeResponse(10L, 1L, "alice@example.com", "Alice");
 
@@ -149,7 +149,7 @@ class ContactControllerTest {
     }
 
     @Test
-    @WithMockUser(roles = "VIEWER")
+    @WithMockUser(authorities = "PERM_CUSTOMER_MANAGE")
     void getByEmail_returns404_whenNotFound() throws Exception {
         when(contactService.findByEmail(anyString())).thenReturn(Optional.empty());
 
@@ -160,7 +160,7 @@ class ContactControllerTest {
     // ── GET /api/contacts/by-customer/{customerId} ────────────────────────────
 
     @Test
-    @WithMockUser(roles = "VIEWER")
+    @WithMockUser(authorities = "PERM_TICKET_READ")
     void getByCustomer_returns200_withList() throws Exception {
         ContactSummaryResponse summary = new ContactSummaryResponse(10L, 1L, "alice@example.com", "Alice", false);
 
@@ -175,7 +175,7 @@ class ContactControllerTest {
     // ── PUT /api/contacts/{id} ────────────────────────────────────────────────
 
     @Test
-    @WithMockUser(roles = "AGENT")
+    @WithMockUser(authorities = "PERM_CUSTOMER_MANAGE")
     void update_returns200() throws Exception {
         UpdateContactRequest request = new UpdateContactRequest("Alice Updated", true, true);
         ContactResponse response = makeResponse(10L, 1L, "alice@example.com", "Alice Updated");

@@ -12,6 +12,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -39,6 +40,7 @@ public class GroupTypeController {
     }
 
     @PostMapping
+    @PreAuthorize("hasAuthority('PERM_GROUP_TYPE_MANAGE')")
     public ResponseEntity<GroupTypeResponse> createGroupType(@Valid @RequestBody CreateGroupTypeRequest request) {
         log.info("POST /group-types — code: '{}', name: '{}'", request.code(), request.name());
         GroupTypeResponse response = groupTypeMapper.toResponse(groupTypeService.createGroupType(request));
@@ -47,12 +49,14 @@ public class GroupTypeController {
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasAnyAuthority('PERM_GROUP_TYPE_MANAGE', 'PERM_GROUP_MANAGE')")
     public ResponseEntity<GroupTypeResponse> getById(@PathVariable Long id) {
         log.info("GET /group-types/{}", id);
         return ResponseEntity.ok(groupTypeMapper.toResponse(groupTypeService.getById(id)));
     }
 
     @GetMapping
+    @PreAuthorize("hasAnyAuthority('PERM_GROUP_TYPE_MANAGE', 'PERM_GROUP_MANAGE')")
     public ResponseEntity<List<GroupTypeSummaryResponse>> listGroupTypes() {
         return ResponseEntity.ok(
                 groupTypeService.findActiveGroupTypes().stream()
@@ -62,6 +66,7 @@ public class GroupTypeController {
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasAuthority('PERM_GROUP_TYPE_MANAGE')")
     public ResponseEntity<GroupTypeResponse> updateGroupType(@PathVariable Long id,
                                                              @Valid @RequestBody UpdateGroupTypeRequest request) {
         log.info("PUT /group-types/{} — code: '{}', name: '{}'", id, request.code(), request.name());
@@ -71,6 +76,7 @@ public class GroupTypeController {
     }
 
     @PatchMapping("/{id}/activate")
+    @PreAuthorize("hasAuthority('PERM_GROUP_TYPE_MANAGE')")
     public ResponseEntity<Void> activate(@PathVariable Long id) {
         log.info("PATCH /group-types/{}/activate", id);
         groupTypeService.activate(id);
@@ -78,6 +84,7 @@ public class GroupTypeController {
     }
 
     @PatchMapping("/{id}/deactivate")
+    @PreAuthorize("hasAuthority('PERM_GROUP_TYPE_MANAGE')")
     public ResponseEntity<Void> deactivate(@PathVariable Long id) {
         log.info("PATCH /group-types/{}/deactivate", id);
         groupTypeService.deactivate(id);

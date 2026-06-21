@@ -62,7 +62,7 @@ class AttachmentControllerTest {
     @Test
     @WithMockUser
     void upload_returns201_withMetadataResponse() throws Exception {
-        when(ticketAuth.canReadTicket(any(Authentication.class), anyLong())).thenReturn(true);
+        when(ticketAuth.canSendCustomerReply(any(Authentication.class), anyLong())).thenReturn(true);
 
         Ticket ticket = new Ticket();
         try {
@@ -113,7 +113,8 @@ class AttachmentControllerTest {
     @Test
     @WithMockUser
     void upload_returns403_whenNotAuthorized() throws Exception {
-        when(ticketAuth.canReadTicket(any(Authentication.class), anyLong())).thenReturn(false);
+        when(ticketAuth.canSendCustomerReply(any(Authentication.class), anyLong())).thenReturn(false);
+        when(ticketAuth.canAddInternalNote(any(Authentication.class), anyLong())).thenReturn(false);
 
         MockMultipartFile file = new MockMultipartFile(
                 "file", "report.pdf", "application/pdf", "PDF content".getBytes());

@@ -61,7 +61,7 @@ class GroupTypeControllerTest {
     // ── POST /api/group-types ─────────────────────────────────────────────────
 
     @Test
-    @WithMockUser(roles = "ADMIN")
+    @WithMockUser(authorities = "PERM_GROUP_TYPE_MANAGE")
     void createGroupType_returns201() throws Exception {
         CreateGroupTypeRequest request = new CreateGroupTypeRequest("SUPPORT", "Support", "Handles support tickets");
         GroupType groupType = new GroupType();
@@ -82,7 +82,7 @@ class GroupTypeControllerTest {
     }
 
     @Test
-    @WithMockUser(roles = "ADMIN")
+    @WithMockUser(authorities = "PERM_GROUP_TYPE_MANAGE")
     void createGroupType_returns400_whenCodeIsBlank() throws Exception {
         CreateGroupTypeRequest request = new CreateGroupTypeRequest("", "Support", null);
 
@@ -95,7 +95,7 @@ class GroupTypeControllerTest {
     }
 
     @Test
-    @WithMockUser(roles = "ADMIN")
+    @WithMockUser(authorities = "PERM_GROUP_TYPE_MANAGE")
     void createGroupType_returns400_whenNameIsBlank() throws Exception {
         CreateGroupTypeRequest request = new CreateGroupTypeRequest("SUPPORT", "", null);
 
@@ -110,7 +110,7 @@ class GroupTypeControllerTest {
     // ── GET /api/group-types/{id} ─────────────────────────────────────────────
 
     @Test
-    @WithMockUser(roles = "AGENT")
+    @WithMockUser(authorities = "PERM_GROUP_TYPE_MANAGE")
     void getById_returns200() throws Exception {
         GroupType groupType = new GroupType();
         GroupTypeResponse response = makeGroupTypeResponse(1L, "SUPPORT", "Support", null);
@@ -125,7 +125,7 @@ class GroupTypeControllerTest {
     }
 
     @Test
-    @WithMockUser(roles = "AGENT")
+    @WithMockUser(authorities = "PERM_GROUP_TYPE_MANAGE")
     void getById_returns404_whenNotFound() throws Exception {
         when(groupTypeService.getById(99L)).thenThrow(new GroupTypeNotFoundException(99L));
 
@@ -137,7 +137,7 @@ class GroupTypeControllerTest {
     // ── GET /api/group-types ──────────────────────────────────────────────────
 
     @Test
-    @WithMockUser(roles = "AGENT")
+    @WithMockUser(authorities = "PERM_GROUP_TYPE_MANAGE")
     void listGroupTypes_returns200_withSummaryList() throws Exception {
         GroupType groupType = new GroupType();
         GroupTypeSummaryResponse summary = new GroupTypeSummaryResponse(1L, "SUPPORT", "Support", true);
@@ -156,7 +156,7 @@ class GroupTypeControllerTest {
     // ── PUT /api/group-types/{id} ─────────────────────────────────────────────
 
     @Test
-    @WithMockUser(roles = "ADMIN")
+    @WithMockUser(authorities = "PERM_GROUP_TYPE_MANAGE")
     void updateGroupType_returns200() throws Exception {
         UpdateGroupTypeRequest request = new UpdateGroupTypeRequest("SUPPORT_V2", "Support v2", "Updated");
         GroupType groupType = new GroupType();
@@ -178,7 +178,7 @@ class GroupTypeControllerTest {
     // ── PATCH activate/deactivate ─────────────────────────────────────────────
 
     @Test
-    @WithMockUser(roles = "ADMIN")
+    @WithMockUser(authorities = "PERM_GROUP_TYPE_MANAGE")
     void activate_returns204() throws Exception {
         mockMvc.perform(patch("/api/group-types/3/activate").with(csrf()))
                 .andExpect(status().isNoContent());
@@ -186,7 +186,7 @@ class GroupTypeControllerTest {
     }
 
     @Test
-    @WithMockUser(roles = "ADMIN")
+    @WithMockUser(authorities = "PERM_GROUP_TYPE_MANAGE")
     void deactivate_returns204() throws Exception {
         mockMvc.perform(patch("/api/group-types/3/deactivate").with(csrf()))
                 .andExpect(status().isNoContent());

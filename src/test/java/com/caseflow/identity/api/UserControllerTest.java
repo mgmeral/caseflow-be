@@ -149,7 +149,7 @@ class UserControllerTest {
     // ── GET /api/users/{id} ───────────────────────────────────────────────────
 
     @Test
-    @WithMockUser
+    @WithMockUser(authorities = "PERM_USER_READ")
     void getById_returns200_withUserResponse() throws Exception {
         User user = new User();
         UserResponse response = makeUserResponse(5L, "alice", 1L, "ADMIN");
@@ -167,7 +167,7 @@ class UserControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(authorities = "PERM_USER_READ")
     void getById_returns404_whenUserNotFound() throws Exception {
         when(userService.getById(999L)).thenThrow(new UserNotFoundException(999L));
 
@@ -185,7 +185,7 @@ class UserControllerTest {
     // ── GET /api/users ────────────────────────────────────────────────────────
 
     @Test
-    @WithMockUser
+    @WithMockUser(authorities = "PERM_USER_READ")
     void listUsers_returns200_withSummaryList() throws Exception {
         User user = new User();
         UserSummaryResponse summary = new UserSummaryResponse(1L, "alice", "Alice Admin", 1L, "ADMIN", true);

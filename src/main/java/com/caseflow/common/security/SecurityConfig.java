@@ -44,8 +44,8 @@ public class SecurityConfig {
             "/actuator/health/**",
             "/actuator/info",
             "/api/auth/login",
-            "/api/auth/refresh",
-            "/api/auth/logout"
+            "/api/auth/refresh"
+            // /api/auth/logout is intentionally NOT public — requires a valid Bearer token
     };
 
     @Value("${caseflow.cors.allowed-origins:http://localhost:3000,http://localhost:5173,http://localhost:8090}")
@@ -66,6 +66,18 @@ public class SecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .headers(headers -> headers
+                        .contentTypeOptions(c -> {})
+                        .frameOptions(f -> f.deny())
+                        .httpStrictTransportSecurity(hsts -> hsts
+                                .includeSubDomains(true)
+                                .maxAgeInSeconds(31536000))
+                        .referrerPolicy(r -> r.policy(
+                                org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter
+                                        .ReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN))
+                        .contentSecurityPolicy(csp -> csp.policyDirectives(
+                                "default-src 'self'; frame-ancestors 'none'"))
+                )
                 .addFilterBefore(new JwtAuthenticationFilter(jwtTokenService, userDetailsService),
                         UsernamePasswordAuthenticationFilter.class)
                 .authorizeHttpRequests(auth -> auth

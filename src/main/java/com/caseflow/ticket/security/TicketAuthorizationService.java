@@ -144,7 +144,7 @@ public class TicketAuthorizationService {
     }
 
     public boolean canDeleteAttachmentById(Authentication auth, Long attachmentId) {
-        if (!hasPermission(auth, Permission.TICKET_PRIORITY_CHANGE)) return false;
+        if (!hasPermission(auth, Permission.ATTACHMENT_DELETE)) return false;
         Long ticketId = attachmentService.getById(attachmentId).getTicketId();
         if (ticketId == null) return false;
         return inScope(auth, ticketQueryService.getById(ticketId));

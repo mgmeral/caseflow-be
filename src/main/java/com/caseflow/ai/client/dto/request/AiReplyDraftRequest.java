@@ -4,23 +4,29 @@ import java.util.List;
 
 /**
  * Request sent to the AI service for reply draft generation.
+ *
+ * <p>Downstream path: {@code POST /api/ai/tickets/{ticketId}/reply-draft}
+ * The ticketId is passed as a path variable by {@link com.caseflow.ai.client.CaseflowAiClient},
+ * not repeated in this body.
  */
 public record AiReplyDraftRequest(
         String correlationId,
-        String ticketNo,
-        String subject,
-        String status,
-        String priority,
         String customerName,
-        /** The latest inbound message content (text). */
-        String latestInboundMessage,
-        String latestInboundFrom,
-        /** Short thread context — last N messages ordered oldest-first. */
-        List<MessageSnippet> threadContext,
-        List<String> policySnippets,
         String locale,
-        /** Tone/goal hint: e.g. "professional", "empathetic", "follow-up". */
-        String toneHint
+        String tone,
+        String ticketStatus,
+        String priority,
+        List<String> tags,
+        List<LatestMessage> latestMessages,
+        List<String> internalNotes,
+        List<String> policySnippets,
+        List<String> constraints,
+        String replyGoal,
+        String selectedTemplateCode
 ) {
-    public record MessageSnippet(String direction, String preview, String sentAt) {}
+    /**
+     * A single message entry in the unified conversation timeline.
+     * Direction is {@code "inbound"} or {@code "outbound"}.
+     */
+    public record LatestMessage(String direction, String from, String preview, String sentAt) {}
 }

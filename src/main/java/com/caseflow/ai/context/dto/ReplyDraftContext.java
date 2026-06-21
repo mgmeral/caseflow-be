@@ -14,6 +14,8 @@ public record ReplyDraftContext(
         String latestInboundMessage,
         String latestInboundFrom,
         List<MessageSnippet> threadContext,
+        List<String> tags,
+        List<String> internalNotes,
         String locale,
         String toneHint
 ) {

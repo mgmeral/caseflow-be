@@ -137,11 +137,14 @@ public class TicketAiContextBuilder {
     @Transactional(readOnly = true)
     public ReplyDraftContext buildReplyDraftContext(Ticket ticket) {
         String customerName = resolveCustomerName(ticket.getCustomerId());
+        List<String> tags = resolveTagCodes(ticket.getId());
 
         List<EmailDocument> emails = new java.util.ArrayList<>(
                 emailDocumentRepository.findByTicketId(ticket.getId()));
         emails.sort(Comparator.comparing(EmailDocument::getReceivedAt,
                 Comparator.nullsFirst(Comparator.naturalOrder())));
+
+        List<Note> notes = noteRepository.findByTicketIdOrderByCreatedAtAsc(ticket.getId());
 
         // Latest inbound message
         EmailDocument latestInbound = emails.stream()
@@ -167,6 +170,13 @@ public class TicketAiContextBuilder {
                 : null;
         String latestFrom = latestInbound != null ? maskEmailAddress(latestInbound.getFrom()) : null;
 
+        List<String> internalNotes = notes.stream()
+                .filter(n -> NoteType.INTERNAL.equals(n.getType()))
+                .sorted(Comparator.comparing(Note::getCreatedAt).reversed())
+                .limit(MAX_NOTES_IN_CONTEXT)
+                .map(n -> truncate(n.getContent()))
+                .toList();
+
         return new ReplyDraftContext(
                 ticket.getTicketNo(),
                 ticket.getSubject(),
@@ -176,6 +186,8 @@ public class TicketAiContextBuilder {
                 latestBody,
                 latestFrom,
                 thread,
+                tags,
+                internalNotes,
                 "en",
                 "professional"
         );

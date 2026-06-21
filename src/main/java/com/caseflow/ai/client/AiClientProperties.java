@@ -1,15 +1,13 @@
 package com.caseflow.ai.client;
 
-import org.springframework.boot.context.properties.ConfigurationProperties;
-
 /**
  * Externalized configuration for the caseflow-ai-service HTTP client.
  *
- * <p>Registered via {@code @EnableConfigurationProperties} in
- * {@link com.caseflow.ai.config.AiClientConfig}. Bean name: {@code aiClientProperties}
- * (used by {@code @Retryable} SpEL expressions on {@link CaseflowAiClient}).
+ * <p>Bound and registered as a named bean ({@code aiClientProperties}) via
+ * {@link com.caseflow.ai.config.AiClientConfig#aiClientProperties()}.
+ * The explicit bean name is required so that {@code @Retryable} SpEL expressions
+ * ({@code #{@aiClientProperties.retry.maxAttempts}}) can resolve it.
  */
-@ConfigurationProperties(prefix = "caseflow.ai.service")
 public class AiClientProperties {
 
     private String baseUrl = "http://localhost:8081";

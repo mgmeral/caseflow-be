@@ -64,7 +64,7 @@ class CustomerControllerTest {
     // ── GET /api/customers/{id} ───────────────────────────────────────────────
 
     @Test
-    @WithMockUser(roles = "VIEWER")
+    @WithMockUser(authorities = "PERM_TICKET_READ")
     void getById_returns200_whenFound() throws Exception {
         Customer c = makeCustomer(1L, "ACME", "#3B82F6");
         CustomerResponse response = new CustomerResponse(1L, "ACME Corp", "ACME", true, "#3B82F6", Instant.now(), Instant.now());
@@ -80,7 +80,7 @@ class CustomerControllerTest {
     }
 
     @Test
-    @WithMockUser(roles = "VIEWER")
+    @WithMockUser(authorities = "PERM_TICKET_READ")
     void getById_returns404_whenNotFound() throws Exception {
         when(customerService.getById(99L)).thenThrow(new CustomerNotFoundException(99L));
 
@@ -92,7 +92,7 @@ class CustomerControllerTest {
     // ── GET /api/customers ────────────────────────────────────────────────────
 
     @Test
-    @WithMockUser(roles = "VIEWER")
+    @WithMockUser(authorities = "PERM_TICKET_READ")
     void listCustomers_summaryIncludesIsActiveAndColorHex() throws Exception {
         Customer c = makeCustomer(1L, "ACME", "#3B82F6");
         CustomerSummaryResponse summary = new CustomerSummaryResponse(1L, "ACME Corp", "ACME", true, "#3B82F6");
@@ -108,7 +108,7 @@ class CustomerControllerTest {
     }
 
     @Test
-    @WithMockUser(roles = "VIEWER")
+    @WithMockUser(authorities = "PERM_TICKET_READ")
     void listCustomers_isActiveFilter_delegatesToService() throws Exception {
         Customer c = makeCustomer(2L, "BETA", null);
         CustomerSummaryResponse summary = new CustomerSummaryResponse(2L, "Beta Ltd", "BETA", false, null);
@@ -122,7 +122,7 @@ class CustomerControllerTest {
     }
 
     @Test
-    @WithMockUser(roles = "VIEWER")
+    @WithMockUser(authorities = "PERM_TICKET_READ")
     void listCustomers_searchFilter_delegatesToService() throws Exception {
         Customer c = makeCustomer(1L, "ACME", null);
         CustomerSummaryResponse summary = new CustomerSummaryResponse(1L, "ACME Corp", "ACME", true, null);
@@ -144,7 +144,7 @@ class CustomerControllerTest {
     // ── POST /api/customers ───────────────────────────────────────────────────
 
     @Test
-    @WithMockUser(roles = "AGENT")
+    @WithMockUser(authorities = "PERM_CUSTOMER_MANAGE")
     void createCustomer_returns201_withColorHex() throws Exception {
         CreateCustomerRequest request = new CreateCustomerRequest("ACME Corp", "ACME", "#3B82F6");
         Customer customer = makeCustomer(1L, "ACME", "#3B82F6");
@@ -163,7 +163,7 @@ class CustomerControllerTest {
     }
 
     @Test
-    @WithMockUser(roles = "AGENT")
+    @WithMockUser(authorities = "PERM_CUSTOMER_MANAGE")
     void createCustomer_returns201_withoutColorHex() throws Exception {
         CreateCustomerRequest request = new CreateCustomerRequest("ACME Corp", "ACME", null);
         Customer customer = makeCustomer(1L, "ACME", null);
@@ -181,7 +181,7 @@ class CustomerControllerTest {
     }
 
     @Test
-    @WithMockUser(roles = "AGENT")
+    @WithMockUser(authorities = "PERM_CUSTOMER_MANAGE")
     void createCustomer_returns400_onInvalidColorHex() throws Exception {
         // Invalid: no '#' prefix
         String body = """
@@ -196,7 +196,7 @@ class CustomerControllerTest {
     }
 
     @Test
-    @WithMockUser(roles = "AGENT")
+    @WithMockUser(authorities = "PERM_CUSTOMER_MANAGE")
     void createCustomer_returns400_onInvalidColorHex_wrongLength() throws Exception {
         String body = """
                 {"name":"ACME Corp","code":"ACME","colorHex":"#3B82"}
@@ -212,7 +212,7 @@ class CustomerControllerTest {
     // ── PUT /api/customers/{id} ───────────────────────────────────────────────
 
     @Test
-    @WithMockUser(roles = "AGENT")
+    @WithMockUser(authorities = "PERM_CUSTOMER_MANAGE")
     void updateCustomer_returns200_withColorHex() throws Exception {
         UpdateCustomerRequest request = new UpdateCustomerRequest("New Name", "NEWCODE", "#FF5733");
         Customer customer = makeCustomer(1L, "NEWCODE", "#FF5733");
@@ -230,7 +230,7 @@ class CustomerControllerTest {
     }
 
     @Test
-    @WithMockUser(roles = "AGENT")
+    @WithMockUser(authorities = "PERM_CUSTOMER_MANAGE")
     void updateCustomer_returns200_withoutColorHex() throws Exception {
         UpdateCustomerRequest request = new UpdateCustomerRequest("New Name", "NEWCODE", null);
         Customer customer = makeCustomer(1L, "NEWCODE", "#3B82F6");
@@ -249,7 +249,7 @@ class CustomerControllerTest {
     }
 
     @Test
-    @WithMockUser(roles = "AGENT")
+    @WithMockUser(authorities = "PERM_CUSTOMER_MANAGE")
     void updateCustomer_returns400_onInvalidColorHex() throws Exception {
         String body = """
                 {"name":"New Name","code":"NEWCODE","colorHex":"not-a-color"}
@@ -265,7 +265,7 @@ class CustomerControllerTest {
     // ── DELETE /api/customers/{id} ────────────────────────────────────────────
 
     @Test
-    @WithMockUser(roles = "AGENT")
+    @WithMockUser(authorities = "PERM_CUSTOMER_MANAGE")
     void deleteCustomer_returns204_whenNoTickets() throws Exception {
         doNothing().when(customerService).deleteCustomer(1L);
 
@@ -274,7 +274,7 @@ class CustomerControllerTest {
     }
 
     @Test
-    @WithMockUser(roles = "AGENT")
+    @WithMockUser(authorities = "PERM_CUSTOMER_MANAGE")
     void deleteCustomer_returns409_whenTicketsExist() throws Exception {
         doThrow(new CustomerDeleteBlockedException(1L, 3L))
                 .when(customerService).deleteCustomer(1L);
@@ -285,7 +285,7 @@ class CustomerControllerTest {
     }
 
     @Test
-    @WithMockUser(roles = "AGENT")
+    @WithMockUser(authorities = "PERM_CUSTOMER_MANAGE")
     void deleteCustomer_returns404_whenCustomerNotFound() throws Exception {
         doThrow(new CustomerNotFoundException(99L)).when(customerService).deleteCustomer(99L);
 

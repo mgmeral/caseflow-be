@@ -12,6 +12,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -39,6 +40,7 @@ public class ContactController {
     }
 
     @PostMapping
+    @PreAuthorize("hasAuthority('PERM_CUSTOMER_MANAGE')")
     public ResponseEntity<ContactResponse> createContact(@Valid @RequestBody CreateContactRequest request) {
         log.info("POST /contacts — customerId: {}, isPrimary: {}", request.customerId(), request.isPrimary());
         ContactResponse response = contactMapper.toResponse(contactService.createContact(
@@ -52,12 +54,14 @@ public class ContactController {
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasAnyAuthority('PERM_CUSTOMER_MANAGE', 'PERM_TICKET_READ')")
     public ResponseEntity<ContactResponse> getById(@PathVariable Long id) {
         log.info("GET /contacts/{}", id);
         return ResponseEntity.ok(contactMapper.toResponse(contactService.getById(id)));
     }
 
     @GetMapping
+    @PreAuthorize("hasAnyAuthority('PERM_CUSTOMER_MANAGE', 'PERM_TICKET_READ')")
     public ResponseEntity<List<ContactSummaryResponse>> listContacts() {
         return ResponseEntity.ok(
                 contactService.findAll().stream().map(contactMapper::toSummaryResponse).toList()
@@ -65,6 +69,7 @@ public class ContactController {
     }
 
     @GetMapping("/by-email")
+    @PreAuthorize("hasAuthority('PERM_CUSTOMER_MANAGE')")
     public ResponseEntity<ContactResponse> getByEmail(@RequestParam String email) {
         return contactService.findByEmail(email)
                 .map(contact -> ResponseEntity.ok(contactMapper.toResponse(contact)))
@@ -72,6 +77,7 @@ public class ContactController {
     }
 
     @GetMapping("/by-customer/{customerId}")
+    @PreAuthorize("hasAnyAuthority('PERM_CUSTOMER_MANAGE', 'PERM_TICKET_READ')")
     public ResponseEntity<List<ContactSummaryResponse>> getByCustomer(@PathVariable Long customerId) {
         List<ContactSummaryResponse> contacts = contactService.findByCustomerId(customerId)
                 .stream()
@@ -81,6 +87,7 @@ public class ContactController {
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasAuthority('PERM_CUSTOMER_MANAGE')")
     public ResponseEntity<ContactResponse> updateContact(@PathVariable Long id,
                                                          @Valid @RequestBody UpdateContactRequest request) {
         log.info("PUT /contacts/{} — isPrimary: {}, isActive: {}", id, request.isPrimary(), request.isActive());

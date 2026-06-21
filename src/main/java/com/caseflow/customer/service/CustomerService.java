@@ -2,6 +2,7 @@ package com.caseflow.customer.service;
 
 import com.caseflow.common.exception.CustomerDeleteBlockedException;
 import com.caseflow.common.exception.CustomerNotFoundException;
+import com.caseflow.common.exception.DuplicateCustomerCodeException;
 import com.caseflow.customer.domain.Customer;
 import com.caseflow.customer.repository.CustomerEmailRoutingRuleRepository;
 import com.caseflow.customer.repository.CustomerEmailSettingsRepository;
@@ -39,6 +40,9 @@ public class CustomerService {
     @Transactional
     public Customer createCustomer(String name, String code, String colorHex) {
         log.info("Creating customer — name: '{}', code: '{}'", name, code);
+        if (customerRepository.existsByCode(code)) {
+            throw new DuplicateCustomerCodeException(code);
+        }
         Customer customer = new Customer();
         customer.setName(name);
         customer.setCode(code);
@@ -53,6 +57,9 @@ public class CustomerService {
     public Customer updateCustomer(Long customerId, String name, String code, String colorHex) {
         log.info("Updating customer {} — name: '{}', code: '{}'", customerId, name, code);
         Customer customer = findOrThrow(customerId);
+        if (!customer.getCode().equals(code) && customerRepository.existsByCode(code)) {
+            throw new DuplicateCustomerCodeException(code);
+        }
         customer.setName(name);
         customer.setCode(code);
         if (colorHex != null) {

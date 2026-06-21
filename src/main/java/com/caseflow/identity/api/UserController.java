@@ -55,12 +55,14 @@ public class UserController {
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasAnyAuthority('PERM_USER_MANAGE', 'PERM_USER_READ')")
     public ResponseEntity<UserResponse> getById(@PathVariable Long id) {
         log.info("GET /users/{}", id);
         return ResponseEntity.ok(userMapper.toResponse(userService.getById(id)));
     }
 
     @GetMapping
+    @PreAuthorize("hasAnyAuthority('PERM_USER_MANAGE', 'PERM_USER_READ')")
     public ResponseEntity<List<UserSummaryResponse>> listUsers() {
         return ResponseEntity.ok(
                 userService.findAll().stream().map(userMapper::toSummaryResponse).toList()
@@ -68,6 +70,7 @@ public class UserController {
     }
 
     @GetMapping("/by-username")
+    @PreAuthorize("hasAnyAuthority('PERM_USER_MANAGE', 'PERM_USER_READ')")
     public ResponseEntity<UserResponse> getByUsername(@RequestParam String username) {
         log.info("GET /users/by-username — username: '{}'", username);
         return userService.findByUsername(username)
@@ -76,6 +79,7 @@ public class UserController {
     }
 
     @GetMapping("/by-email")
+    @PreAuthorize("hasAnyAuthority('PERM_USER_MANAGE', 'PERM_USER_READ')")
     public ResponseEntity<UserResponse> getByEmail(@RequestParam String email) {
         return userService.findByEmail(email)
                 .map(user -> ResponseEntity.ok(userMapper.toResponse(user)))

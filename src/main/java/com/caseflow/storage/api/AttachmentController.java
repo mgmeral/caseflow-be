@@ -64,7 +64,7 @@ public class AttachmentController {
     }
 
     @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    @PreAuthorize("@ticketAuth.canReadTicket(authentication, #ticketId)")
+    @PreAuthorize("@ticketAuth.canSendCustomerReply(authentication, #ticketId) or @ticketAuth.canAddInternalNote(authentication, #ticketId)")
     public ResponseEntity<AttachmentMetadataResponse> upload(
             @RequestParam Long ticketId,
             @RequestParam MultipartFile file) throws IOException {

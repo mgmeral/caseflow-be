@@ -34,5 +34,13 @@ public enum Permission {
     INTEGRATION_JOB_VIEW,
     SCHEDULED_EMAIL_MANAGE,
     // AI assist — controls access to all /ai-* ticket endpoints (V37)
-    AI_ASSIST
+    AI_ASSIST,
+    // Customer & contact data management
+    CUSTOMER_MANAGE,
+    // Group type reference data (admin-level config)
+    GROUP_TYPE_MANAGE,
+    // User directory read (listing/lookup without full USER_MANAGE)
+    USER_READ,
+    // Attachment deletion (separate from ticket write)
+    ATTACHMENT_DELETE
 }

@@ -21,6 +21,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.util.List;
 import java.util.Set;
 
+import org.springframework.security.test.context.support.WithMockUser;
+
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -78,6 +80,7 @@ class AuthControllerTest {
     // ── POST /api/auth/logout ─────────────────────────────────────────────────
 
     @Test
+    @WithMockUser
     void logout_returns204() throws Exception {
         mockMvc.perform(post("/api/auth/logout")
                         .with(csrf())

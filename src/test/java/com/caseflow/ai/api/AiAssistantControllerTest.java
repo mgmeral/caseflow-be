@@ -72,7 +72,7 @@ class AiAssistantControllerTest {
     @WithMockUser(authorities = "PERM_AI_ASSIST")
     void summary_returns200_withSummary() throws Exception {
         when(aiAssistService.summarize(1L)).thenReturn(new AiSummaryAssistResponse(
-                1L, "This is a login issue.", AiAssistMetadata.of("gpt-4o", "v1",
+                1L, "This is a login issue.", List.of(), AiAssistMetadata.of("gpt-4o", "v1",
                         Instant.now().toString(), "corr-abc")));
 
         mockMvc.perform(post("/api/tickets/1/ai-summary"))
@@ -117,7 +117,7 @@ class AiAssistantControllerTest {
     void replyDraft_returns200_withDraft() throws Exception {
         when(aiAssistService.replyDraft(eq(1L), isNull())).thenReturn(
                 new AiReplyDraftAssistResponse(1L, "Dear customer, ...", "professional",
-                        AiAssistMetadata.of("gpt-4o", "v1", Instant.now().toString(), "corr-def")));
+                        List.of(), AiAssistMetadata.of("gpt-4o", "v1", Instant.now().toString(), "corr-def")));
 
         mockMvc.perform(post("/api/tickets/1/ai-reply-draft")
                         .contentType(MediaType.APPLICATION_JSON))
@@ -132,7 +132,7 @@ class AiAssistantControllerTest {
     void replyDraft_returns200_withDraft_withToneHint() throws Exception {
         when(aiAssistService.replyDraft(eq(1L), eq("empathetic"))).thenReturn(
                 new AiReplyDraftAssistResponse(1L, "We understand your frustration...", "empathetic",
-                        AiAssistMetadata.of("gpt-4o", "v1", Instant.now().toString(), "corr-ghi")));
+                        List.of(), AiAssistMetadata.of("gpt-4o", "v1", Instant.now().toString(), "corr-ghi")));
 
         mockMvc.perform(post("/api/tickets/1/ai-reply-draft")
                         .contentType(MediaType.APPLICATION_JSON)
