@@ -1,6 +1,9 @@
 package com.caseflow.ai.event;
 
+import com.caseflow.ai.domain.AiIngestionJob;
+import com.caseflow.ai.domain.AiSyncStatus;
 import com.caseflow.ai.event.dto.AiSyncEvent;
+import com.caseflow.ai.repository.AiIngestionJobRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -24,6 +27,7 @@ public class KafkaAiEventPublisher implements AiEventPublisher {
     private static final Logger log = LoggerFactory.getLogger(KafkaAiEventPublisher.class);
 
     private final KafkaTemplate<String, AiSyncEvent> kafkaTemplate;
+    private final AiIngestionJobRepository jobRepository;
 
     @Value("${caseflow.ai.async.kafka.topic.ticket-sync:ticket-ai-sync-requested}")
     private String ticketSyncTopic;
@@ -34,8 +38,10 @@ public class KafkaAiEventPublisher implements AiEventPublisher {
     @Value("${caseflow.ai.async.kafka.topic.template-ingest:template-ai-ingest-requested}")
     private String templateIngestTopic;
 
-    public KafkaAiEventPublisher(KafkaTemplate<String, AiSyncEvent> kafkaTemplate) {
+    public KafkaAiEventPublisher(KafkaTemplate<String, AiSyncEvent> kafkaTemplate,
+                                  AiIngestionJobRepository jobRepository) {
         this.kafkaTemplate = kafkaTemplate;
+        this.jobRepository = jobRepository;
     }
 
     @Override
@@ -66,6 +72,7 @@ public class KafkaAiEventPublisher implements AiEventPublisher {
                         if (ex != null) {
                             log.error("Failed to publish AI event to topic={} [entityId={}, correlationId={}]: {}",
                                     topic, event.entityId(), event.correlationId(), ex.getMessage());
+                            markJobFailed(event.eventId(), ex.getMessage());
                         } else {
                             log.debug("Published AI event to topic={} [entityId={}, correlationId={}, offset={}]",
                                     topic, event.entityId(), event.correlationId(),
@@ -73,9 +80,22 @@ public class KafkaAiEventPublisher implements AiEventPublisher {
                         }
                     });
         } catch (Exception ex) {
-            // Never let Kafka failures surface to callers
             log.error("Unexpected error publishing AI event to topic={} [entityId={}]: {}",
                     topic, event.entityId(), ex.getMessage());
+            markJobFailed(event.eventId(), ex.getMessage());
+        }
+    }
+
+    private void markJobFailed(String jobId, String errorMessage) {
+        try {
+            jobRepository.findByJobId(jobId).ifPresent(job -> {
+                job.setStatus(AiSyncStatus.FAILED);
+                job.setErrorMessage(errorMessage != null && errorMessage.length() > 500
+                        ? errorMessage.substring(0, 500) : errorMessage);
+                jobRepository.save(job);
+            });
+        } catch (Exception ex) {
+            log.warn("Could not mark AI job as FAILED [jobId={}]: {}", jobId, ex.getMessage());
         }
     }
 }

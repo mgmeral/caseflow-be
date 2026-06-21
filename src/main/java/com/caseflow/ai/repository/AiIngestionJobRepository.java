@@ -16,4 +16,7 @@ public interface AiIngestionJobRepository extends JpaRepository<AiIngestionJob, 
     List<AiIngestionJob> findByEntityTypeAndEntityId(String entityType, Long entityId);
 
     List<AiIngestionJob> findByStatus(AiSyncStatus status);
+
+    List<AiIngestionJob> findByStatusAndEntityTypeAndRetryCountLessThan(
+            AiSyncStatus status, String entityType, int maxRetryCount);
 }
