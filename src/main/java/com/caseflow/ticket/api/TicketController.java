@@ -3,6 +3,11 @@ package com.caseflow.ticket.api;
 import com.caseflow.auth.CaseFlowUserDetails;
 import com.caseflow.common.api.PagedResponse;
 import com.caseflow.common.security.SecurityContextHelper;
+import com.caseflow.email.api.dto.ReplyEnqueuedResponse;
+import com.caseflow.email.api.dto.SendReplyRequest;
+import com.caseflow.email.domain.OutboundEmailDispatch;
+import com.caseflow.email.service.EmailMailboxService;
+import com.caseflow.email.service.EmailReplyService;
 import com.caseflow.identity.domain.TicketScope;
 import com.caseflow.notification.service.NotificationService;
 import com.caseflow.ticket.api.dto.AllowedTransitionsResponse;
@@ -61,15 +66,21 @@ public class TicketController {
     private final TicketQueryService ticketQueryService;
     private final TicketStateMachineService stateMachine;
     private final NotificationService notificationService;
+    private final EmailReplyService emailReplyService;
+    private final EmailMailboxService mailboxService;
 
     public TicketController(TicketService ticketService, TicketReadService ticketReadService,
                             TicketQueryService ticketQueryService, TicketStateMachineService stateMachine,
-                            NotificationService notificationService) {
+                            NotificationService notificationService,
+                            EmailReplyService emailReplyService,
+                            EmailMailboxService mailboxService) {
         this.ticketService = ticketService;
         this.ticketReadService = ticketReadService;
         this.ticketQueryService = ticketQueryService;
         this.stateMachine = stateMachine;
         this.notificationService = notificationService;
+        this.emailReplyService = emailReplyService;
+        this.mailboxService = mailboxService;
     }
 
     @PostMapping
@@ -271,16 +282,27 @@ public class TicketController {
         ));
     }
 
-    /**
-     * Customer reply outbound — not yet implemented.
-     * Authorization is enforced (permission + scope); authorized callers get 501.
-     * Unauthorized callers get 403. Both responses are honest.
-     */
     @PostMapping("/{id}/reply")
     @PreAuthorize("@ticketAuth.canSendCustomerReply(authentication, #id)")
-    public ResponseEntity<Void> replyToCustomer(@PathVariable Long id) {
-        log.info("POST /tickets/{}/reply — not implemented", id);
-        return ResponseEntity.status(HttpStatus.NOT_IMPLEMENTED).build();
+    public ResponseEntity<ReplyEnqueuedResponse> replyToCustomer(
+            @PathVariable Long id,
+            @Valid @RequestBody SendReplyRequest request,
+            @AuthenticationPrincipal CaseFlowUserDetails principal) {
+        log.info("POST /tickets/{}/reply — mailboxId: {}, sourceEventId: {}", id, request.mailboxId(), request.sourceEventId());
+        if (request.sourceEventId() == null && (request.toAddress() == null || request.toAddress().isBlank())) {
+            throw new org.springframework.web.server.ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Provide either sourceEventId or toAddress");
+        }
+        String fromAddress = mailboxService.getById(request.mailboxId()).getAddress();
+        OutboundEmailDispatch dispatch = emailReplyService.sendReply(
+                id, request.mailboxId(), request.sourceEventId(), request.toAddress(),
+                fromAddress, request.subject(), request.textBody(), request.htmlBody(),
+                request.inReplyToMessageId(), principal.getUserId(),
+                request.templateId(), request.templateCode(),
+                Boolean.TRUE.equals(request.contentWasEdited()));
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(new ReplyEnqueuedResponse(
+                dispatch.getId(), request.sourceEventId(), dispatch.getResolvedToAddress(),
+                fromAddress, dispatch.getMailboxId(), request.subject(), java.time.Instant.now()));
     }
 
     // ── Constants ─────────────────────────────────────────────────────────────

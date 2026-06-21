@@ -4,6 +4,8 @@ import com.caseflow.auth.CaseFlowUserDetailsService;
 import com.caseflow.auth.JwtTokenService;
 import com.caseflow.common.exception.TicketNotFoundException;
 import com.caseflow.common.security.SecurityConfig;
+import com.caseflow.email.service.EmailMailboxService;
+import com.caseflow.email.service.EmailReplyService;
 import com.caseflow.notification.service.NotificationService;
 import com.caseflow.ticket.api.dto.CreateTicketRequest;
 import com.caseflow.ticket.api.dto.TicketResponse;
@@ -75,6 +77,12 @@ class TicketControllerTest {
 
     @MockBean
     private NotificationService notificationService;
+
+    @MockBean
+    private EmailReplyService emailReplyService;
+
+    @MockBean
+    private EmailMailboxService mailboxService;
 
     @BeforeEach
     void allowAll() {

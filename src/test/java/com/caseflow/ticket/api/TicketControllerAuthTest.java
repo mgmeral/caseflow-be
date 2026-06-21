@@ -3,6 +3,8 @@ package com.caseflow.ticket.api;
 import com.caseflow.auth.CaseFlowUserDetailsService;
 import com.caseflow.auth.JwtTokenService;
 import com.caseflow.common.security.SecurityConfig;
+import com.caseflow.email.service.EmailMailboxService;
+import com.caseflow.email.service.EmailReplyService;
 import com.caseflow.ticket.api.dto.CloseTicketRequest;
 import com.caseflow.ticket.api.dto.CreateTicketRequest;
 import com.caseflow.ticket.api.dto.TicketResponse;
@@ -48,7 +50,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * 2. Authenticated users missing permission receive 403
  * 3. Scope denial (ticketAuth returns false) produces 403
  * 4. Admin pool requires ADMIN_POOL_VIEW, not just TICKET_READ
- * 5. Customer reply endpoint returns 501 when authorized
+ * 5. Customer reply endpoint returns 400 when no body provided
  * 6. Role name alone never grants access — only permissions matter
  */
 @WebMvcTest(TicketController.class)
@@ -84,6 +86,12 @@ class TicketControllerAuthTest {
 
     @MockBean
     private NotificationService notificationService;
+
+    @MockBean
+    private EmailReplyService emailReplyService;
+
+    @MockBean
+    private EmailMailboxService mailboxService;
 
     // ── 401 when unauthenticated ──────────────────────────────────────────────
 
@@ -179,16 +187,17 @@ class TicketControllerAuthTest {
                 .andExpect(status().isOk());
     }
 
-    // ── Customer reply returns 501 when authorized ────────────────────────────
+    // ── Customer reply returns 400 when no body provided ─────────────────────
 
     @Test
     @WithMockUser(authorities = "PERM_CUSTOMER_REPLY_SEND")
-    void reply_returns501_whenAuthorized() throws Exception {
+    void reply_returns400_whenNoBodyProvided() throws Exception {
         when(ticketAuth.canSendCustomerReply(any(Authentication.class), anyLong())).thenReturn(true);
 
         mockMvc.perform(post("/api/tickets/1/reply")
-                        .with(csrf()))
-                .andExpect(status().isNotImplemented());
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest());
     }
 
     @Test
@@ -197,7 +206,9 @@ class TicketControllerAuthTest {
         when(ticketAuth.canSendCustomerReply(any(Authentication.class), anyLong())).thenReturn(false);
 
         mockMvc.perform(post("/api/tickets/1/reply")
-                        .with(csrf()))
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"mailboxId\":1,\"subject\":\"Re: issue\",\"sourceEventId\":10,\"textBody\":\"hello\"}"))
                 .andExpect(status().isForbidden());
     }
 
