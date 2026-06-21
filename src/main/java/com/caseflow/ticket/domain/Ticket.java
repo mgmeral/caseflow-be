@@ -11,6 +11,7 @@ import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
+import com.caseflow.ticket.domain.TicketChannel;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -59,6 +60,22 @@ public class Ticket {
 
     @Column(name = "customer_id")
     private Long customerId;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "channel", nullable = false, length = 20)
+    private TicketChannel channel = TicketChannel.EMAIL;
+
+    @Column(name = "resolved_by")
+    private Long resolvedBy;
+
+    @Column(name = "closed_by")
+    private Long closedBy;
+
+    @Column(name = "created_by")
+    private Long createdBy;
+
+    @Column(name = "updated_by")
+    private Long updatedBy;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -238,4 +255,19 @@ public class Ticket {
 
     public Instant getResolvedAt() { return resolvedAt; }
     public void setResolvedAt(Instant resolvedAt) { this.resolvedAt = resolvedAt; }
+
+    public TicketChannel getChannel() { return channel; }
+    public void setChannel(TicketChannel channel) { this.channel = channel; }
+
+    public Long getResolvedBy() { return resolvedBy; }
+    public void setResolvedBy(Long resolvedBy) { this.resolvedBy = resolvedBy; }
+
+    public Long getClosedBy() { return closedBy; }
+    public void setClosedBy(Long closedBy) { this.closedBy = closedBy; }
+
+    public Long getCreatedBy() { return createdBy; }
+    public void setCreatedBy(Long createdBy) { this.createdBy = createdBy; }
+
+    public Long getUpdatedBy() { return updatedBy; }
+    public void setUpdatedBy(Long updatedBy) { this.updatedBy = updatedBy; }
 }

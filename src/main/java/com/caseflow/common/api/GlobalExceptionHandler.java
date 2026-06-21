@@ -14,6 +14,7 @@ import com.caseflow.common.exception.EmailOperationException;
 import com.caseflow.common.exception.InvalidDateRangeException;
 import com.caseflow.common.exception.InvalidMailboxConfigException;
 import com.caseflow.common.exception.UserProfileException;
+import com.caseflow.auth.AccountLockedException;
 import com.caseflow.common.exception.DuplicateCustomerCodeException;
 import com.caseflow.common.exception.DuplicateEmailException;
 import com.caseflow.common.exception.AttachmentNotFoundException;
@@ -463,6 +464,19 @@ public class GlobalExceptionHandler {
                 HttpStatus.CONFLICT.value(), HttpStatus.CONFLICT.getReasonPhrase(),
                 "DUPLICATE_CUSTOMER_CODE", ex.getMessage(), request.getRequestURI());
         return ResponseEntity.status(HttpStatus.CONFLICT).body(body);
+    }
+
+    // ── 429 Account locked ────────────────────────────────────────────────────
+
+    @ExceptionHandler(AccountLockedException.class)
+    public ResponseEntity<ErrorResponse> handleAccountLocked(AccountLockedException ex,
+                                                              HttpServletRequest request) {
+        ErrorResponse body = ErrorResponse.of(
+                429, "Too Many Requests",
+                "ACCOUNT_LOCKED",
+                "Account temporarily locked due to too many failed login attempts. Try again after " + ex.getLockedUntil(),
+                request.getRequestURI());
+        return ResponseEntity.status(429).body(body);
     }
 
     // ── 401 BadCredentials ────────────────────────────────────────────────────

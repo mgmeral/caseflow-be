@@ -12,13 +12,13 @@ public record ErrorResponse(
         String message,
         String path,
         List<FieldViolation> details,
-        String requestId
+        String correlationId
 ) {
     public static ErrorResponse of(int status, String error, String code,
                                    String message, String path) {
         return new ErrorResponse(
                 Instant.now(), status, error, code, message, path,
-                null, UUID.randomUUID().toString()
+                null, resolveCorrelationId()
         );
     }
 
@@ -27,7 +27,12 @@ public record ErrorResponse(
                                             List<FieldViolation> details) {
         return new ErrorResponse(
                 Instant.now(), status, error, code, message, path,
-                details, UUID.randomUUID().toString()
+                details, resolveCorrelationId()
         );
+    }
+
+    private static String resolveCorrelationId() {
+        String fromMdc = org.slf4j.MDC.get("correlationId");
+        return fromMdc != null ? fromMdc : UUID.randomUUID().toString();
     }
 }

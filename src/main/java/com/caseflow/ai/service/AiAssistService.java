@@ -19,17 +19,27 @@ import com.caseflow.ai.context.dto.PolicyGuidanceContext;
 import com.caseflow.ai.context.dto.ReplyDraftContext;
 import com.caseflow.ai.context.dto.SimilarCasesContext;
 import com.caseflow.ai.context.dto.SummaryContext;
+import com.caseflow.ai.domain.AiResponseType;
+import com.caseflow.ai.domain.TicketAiIndex;
+import com.caseflow.ai.domain.TicketAiResponseCache;
+import com.caseflow.ai.repository.TicketAiIndexRepository;
+import com.caseflow.ai.repository.TicketAiResponseCacheRepository;
 import com.caseflow.common.exception.TicketNotFoundException;
 import com.caseflow.ticket.domain.Ticket;
 import com.caseflow.ticket.repository.TicketRepository;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -39,8 +49,9 @@ import java.util.UUID;
  * <ul>
  *   <li>Resolves the ticket from the repository</li>
  *   <li>Delegates context building to {@link TicketAiContextBuilder}</li>
+ *   <li>Serves valid cache entries from {@code ticket_ai_response_cache} before calling the AI</li>
  *   <li>Delegates HTTP calls to {@link CaseflowAiClient}</li>
- *   <li>Maps raw AI responses to stable FE-facing DTOs</li>
+ *   <li>Maps raw AI responses to stable FE-facing DTOs and persists them in the cache</li>
  *   <li>Returns graceful fallback responses when AI is unavailable</li>
  * </ul>
  *
@@ -53,25 +64,35 @@ public class AiAssistService {
 
     private static final Logger log = LoggerFactory.getLogger(AiAssistService.class);
     private static final int SIMILAR_CASES_MAX = 5;
+    private static final Duration CACHE_TTL = Duration.ofMinutes(30);
 
     private final CaseflowAiClient aiClient;
     private final TicketAiContextBuilder contextBuilder;
     private final AiAvailabilityService availabilityService;
     private final TicketRepository ticketRepository;
+    private final TicketAiIndexRepository aiIndexRepository;
+    private final TicketAiResponseCacheRepository cacheRepository;
+    private final ObjectMapper objectMapper;
 
     public AiAssistService(CaseflowAiClient aiClient,
                            TicketAiContextBuilder contextBuilder,
                            AiAvailabilityService availabilityService,
-                           TicketRepository ticketRepository) {
+                           TicketRepository ticketRepository,
+                           TicketAiIndexRepository aiIndexRepository,
+                           TicketAiResponseCacheRepository cacheRepository,
+                           ObjectMapper objectMapper) {
         this.aiClient = aiClient;
         this.contextBuilder = contextBuilder;
         this.availabilityService = availabilityService;
         this.ticketRepository = ticketRepository;
+        this.aiIndexRepository = aiIndexRepository;
+        this.cacheRepository = cacheRepository;
+        this.objectMapper = objectMapper;
     }
 
     // ── Summary ───────────────────────────────────────────────────────────────
 
-    @Transactional(readOnly = true)
+    @Transactional
     public AiSummaryAssistResponse summarize(Long ticketId) {
         String correlationId = newCorrelationId();
         Ticket ticket = requireTicket(ticketId);
@@ -80,17 +101,29 @@ public class AiAssistService {
             return AiSummaryAssistResponse.unavailable(ticketId, correlationId, "AI service disabled");
         }
 
+        long sourceVersion = resolveSourceVersion(ticketId);
+        Optional<AiSummaryAssistResponse> cached = loadCache(ticketId, sourceVersion,
+                AiResponseType.SUMMARY, AiSummaryAssistResponse.class);
+        if (cached.isPresent()) {
+            log.debug("AI summary cache hit [ticketId={}, sourceVersion={}]", ticketId, sourceVersion);
+            return cached.get();
+        }
+
         try {
             SummaryContext ctx = contextBuilder.buildSummaryContext(ticket);
             AiSummaryRequest request = toSummaryRequest(ctx, correlationId);
             AiRawSummaryResponse raw = aiClient.requestSummary(request, ticketId);
 
-            return new AiSummaryAssistResponse(
+            AiSummaryAssistResponse response = new AiSummaryAssistResponse(
                     ticketId,
                     raw.summary(),
                     raw.warnings() != null ? raw.warnings() : List.of(),
                     com.caseflow.ai.api.dto.AiAssistMetadata.of(
                             raw.model(), raw.promptVersion(), raw.generatedAt(), correlationId));
+
+            saveCache(ticketId, sourceVersion, AiResponseType.SUMMARY, response,
+                    raw.model(), raw.promptVersion(), parseInstant(raw.generatedAt()));
+            return response;
 
         } catch (AiServiceUnavailableException ex) {
             log.warn("AI summary unavailable [ticketId={}, correlationId={}]: {}",
@@ -140,13 +173,21 @@ public class AiAssistService {
 
     // ── Similar cases ─────────────────────────────────────────────────────────
 
-    @Transactional(readOnly = true)
+    @Transactional
     public AiSimilarCasesAssistResponse similarCases(Long ticketId) {
         String correlationId = newCorrelationId();
         Ticket ticket = requireTicket(ticketId);
 
         if (!availabilityService.isAvailable()) {
             return AiSimilarCasesAssistResponse.unavailable(ticketId, correlationId, "AI service disabled");
+        }
+
+        long sourceVersion = resolveSourceVersion(ticketId);
+        Optional<AiSimilarCasesAssistResponse> cached = loadCache(ticketId, sourceVersion,
+                AiResponseType.SIMILAR_CASES, AiSimilarCasesAssistResponse.class);
+        if (cached.isPresent()) {
+            log.debug("AI similar-cases cache hit [ticketId={}, sourceVersion={}]", ticketId, sourceVersion);
+            return cached.get();
         }
 
         try {
@@ -163,9 +204,13 @@ public class AiAssistService {
                                     c.resolutionSummary(), c.tags()))
                             .toList();
 
-            return new AiSimilarCasesAssistResponse(ticketId, cases,
+            AiSimilarCasesAssistResponse response = new AiSimilarCasesAssistResponse(ticketId, cases,
                     com.caseflow.ai.api.dto.AiAssistMetadata.of(
                             raw.model(), raw.promptVersion(), raw.generatedAt(), correlationId));
+
+            saveCache(ticketId, sourceVersion, AiResponseType.SIMILAR_CASES, response,
+                    raw.model(), raw.promptVersion(), parseInstant(raw.generatedAt()));
+            return response;
 
         } catch (AiServiceUnavailableException ex) {
             log.warn("AI similar-cases unavailable [ticketId={}, correlationId={}]: {}",
@@ -218,6 +263,58 @@ public class AiAssistService {
         }
     }
 
+    // ── Cache helpers ─────────────────────────────────────────────────────────
+
+    private long resolveSourceVersion(Long ticketId) {
+        return aiIndexRepository.findByTicketId(ticketId)
+                .map(TicketAiIndex::getSourceVersion)
+                .orElse(0L);
+    }
+
+    private <T> Optional<T> loadCache(Long ticketId, long sourceVersion,
+                                       AiResponseType type, Class<T> responseClass) {
+        return cacheRepository.findByTicketIdAndSourceVersionAndResponseType(ticketId, sourceVersion, type)
+                .filter(TicketAiResponseCache::isValid)
+                .map(entry -> {
+                    try {
+                        return objectMapper.readValue(entry.getResponsePayload(), responseClass);
+                    } catch (JsonProcessingException e) {
+                        log.warn("AI cache deserialization failed [ticketId={}, type={}]: {}",
+                                ticketId, type, e.getMessage());
+                        entry.invalidate();
+                        cacheRepository.save(entry);
+                        return null;
+                    }
+                });
+    }
+
+    private void saveCache(Long ticketId, long sourceVersion, AiResponseType type,
+                           Object response, String model, String promptVersion, Instant generatedAt) {
+        try {
+            String payload = objectMapper.writeValueAsString(response);
+
+            // Upsert: mark any old entry stale, then save new one
+            cacheRepository.findByTicketIdAndSourceVersionAndResponseType(ticketId, sourceVersion, type)
+                    .ifPresent(old -> {
+                        old.invalidate();
+                        cacheRepository.save(old);
+                    });
+
+            TicketAiResponseCache entry = new TicketAiResponseCache();
+            entry.setTicketId(ticketId);
+            entry.setSourceVersion(sourceVersion);
+            entry.setResponseType(type);
+            entry.setResponsePayload(payload);
+            entry.setModelName(model);
+            entry.setPromptVersion(promptVersion);
+            entry.setGeneratedAt(generatedAt);
+            entry.setExpiresAt(Instant.now().plus(CACHE_TTL));
+            cacheRepository.save(entry);
+        } catch (JsonProcessingException e) {
+            log.warn("AI cache serialization failed [ticketId={}, type={}]: {}", ticketId, type, e.getMessage());
+        }
+    }
+
     // ── Private helpers ───────────────────────────────────────────────────────
 
     private Ticket requireTicket(Long ticketId) {
@@ -229,8 +326,12 @@ public class AiAssistService {
         return UUID.randomUUID().toString();
     }
 
+    private Instant parseInstant(String value) {
+        if (value == null || value.isBlank()) return null;
+        try { return Instant.parse(value); } catch (Exception e) { return null; }
+    }
+
     private AiSummaryRequest toSummaryRequest(SummaryContext ctx, String correlationId) {
-        // Build unified timeline: merge inbound + outbound, sort oldest-first
         List<AiSummaryRequest.LatestMessage> inbound = ctx.recentInboundMessages().stream()
                 .map(m -> new AiSummaryRequest.LatestMessage("inbound", m.from(), m.preview(), m.receivedAt()))
                 .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
@@ -244,14 +345,14 @@ public class AiAssistService {
         return new AiSummaryRequest(
                 correlationId,
                 ctx.customerName(),
-                ctx.status(),               // ticketStatus
+                ctx.status(),
                 ctx.priority(),
                 ctx.slaState(),
                 ctx.tags(),
-                inbound,                    // unified latestMessages
-                ctx.recentInternalNotes(),  // internalNotes
+                inbound,
+                ctx.recentInternalNotes(),
                 ctx.locale(),
-                "STANDARD"                  // summaryStyle — safe default
+                "STANDARD"
         );
     }
 
@@ -265,16 +366,16 @@ public class AiAssistService {
                 correlationId,
                 ctx.customerName(),
                 ctx.locale(),
-                tone,           // tone (mapped from toneHint/override)
-                ctx.status(),   // ticketStatus
+                tone,
+                ctx.status(),
                 ctx.priority(),
                 ctx.tags(),
                 latestMessages,
                 ctx.internalNotes(),
-                List.of(),      // policySnippets — empty for now
-                List.of(),      // constraints — empty for now
-                "RESOLUTION",   // replyGoal — safe default
-                null            // selectedTemplateCode — null for now
+                List.of(),
+                List.of(),
+                "RESOLUTION",
+                null
         );
     }
 }

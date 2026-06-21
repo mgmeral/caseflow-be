@@ -15,6 +15,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -54,10 +55,10 @@ public class AiAssistantController {
      * rather than a 5xx error. The FE must check {@code metadata.available}.
      */
     @Operation(summary = "Generate AI summary for a ticket")
-    @PostMapping("/ai-summary")
+    @GetMapping("/ai-summary")
     @PreAuthorize("hasAuthority('PERM_AI_ASSIST') and @ticketAuth.canReadTicket(authentication, #ticketId)")
     public ResponseEntity<AiSummaryAssistResponse> summarize(@PathVariable Long ticketId) {
-        log.info("POST /tickets/{}/ai-summary", ticketId);
+        log.info("GET /tickets/{}/ai-summary", ticketId);
         return ResponseEntity.ok(aiAssistService.summarize(ticketId));
     }
 
@@ -82,10 +83,10 @@ public class AiAssistantController {
      * Retrieves AI-matched similar resolved cases for the given ticket.
      */
     @Operation(summary = "Find AI-similar resolved cases for a ticket")
-    @PostMapping("/ai-similar-cases")
+    @GetMapping("/ai-similar-cases")
     @PreAuthorize("hasAuthority('PERM_AI_ASSIST') and @ticketAuth.canReadTicket(authentication, #ticketId)")
     public ResponseEntity<AiSimilarCasesAssistResponse> similarCases(@PathVariable Long ticketId) {
-        log.info("POST /tickets/{}/ai-similar-cases", ticketId);
+        log.info("GET /tickets/{}/ai-similar-cases", ticketId);
         return ResponseEntity.ok(aiAssistService.similarCases(ticketId));
     }
 

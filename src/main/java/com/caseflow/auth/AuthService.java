@@ -14,12 +14,17 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.Base64;
+import java.util.List;
 import java.util.UUID;
+
+import org.springframework.data.domain.PageRequest;
 
 @Service
 public class AuthService {
 
     private static final Logger log = LoggerFactory.getLogger(AuthService.class);
+    private static final int MAX_FAILED_ATTEMPTS = 5;
+    private static final java.time.Duration LOCKOUT_DURATION = java.time.Duration.ofMinutes(15);
 
     private final UserRepository userRepository;
     private final RefreshTokenRepository refreshTokenRepository;
@@ -49,11 +54,25 @@ public class AuthService {
                     throw new BadCredentialsException("Invalid credentials");
                 });
 
+        if (user.isLocked()) {
+            log.warn("Login blocked — account locked until: {}, username: {}", user.getLockedUntil(), username);
+            throw new AccountLockedException(user.getLockedUntil());
+        }
+
         if (user.getPasswordHash() == null || !passwordEncoder.matches(password, user.getPasswordHash())) {
-            log.warn("Login failed — invalid password for username: {}", username);
+            int attempts = user.getFailedLoginAttempts() + 1;
+            user.setFailedLoginAttempts(attempts);
+            if (attempts >= MAX_FAILED_ATTEMPTS) {
+                user.setLockedUntil(Instant.now().plus(LOCKOUT_DURATION));
+                log.warn("Account locked — too many failed attempts, username: {}, until: {}", username, user.getLockedUntil());
+            }
+            userRepository.save(user);
+            log.warn("Login failed — invalid password for username: {} (attempt {})", username, attempts);
             throw new BadCredentialsException("Invalid credentials");
         }
 
+        user.setFailedLoginAttempts(0);
+        user.setLockedUntil(null);
         user.setLastLoginAt(Instant.now());
         userRepository.save(user);
 
@@ -70,9 +89,16 @@ public class AuthService {
                     throw new BadCredentialsException("Invalid refresh token");
                 });
 
-        if (stored.isRevoked() || stored.getExpiresAt().isBefore(Instant.now())) {
-            log.warn("Token refresh failed — token expired or revoked for userId: {}", stored.getUserId());
-            throw new BadCredentialsException("Refresh token expired or revoked");
+        if (stored.isRevoked()) {
+            // Token theft detected — revoke all sessions for this user
+            log.warn("Refresh token reuse detected (possible theft) — revoking all sessions for userId: {}", stored.getUserId());
+            refreshTokenRepository.revokeAllForUser(stored.getUserId());
+            throw new BadCredentialsException("Refresh token already used — all sessions revoked");
+        }
+
+        if (stored.getExpiresAt().isBefore(Instant.now())) {
+            log.warn("Token refresh failed — token expired for userId: {}", stored.getUserId());
+            throw new BadCredentialsException("Refresh token expired");
         }
 
         stored.setRevoked(true);
@@ -104,6 +130,8 @@ public class AuthService {
     private TokenPair generateTokenPair(User user) {
         String accessToken = jwtTokenService.generateAccessToken(user.getId(), user.getUsername());
 
+        enforceSessionLimit(user.getId());
+
         String rawRefreshToken = UUID.randomUUID().toString();
         RefreshToken rt = new RefreshToken();
         rt.setUserId(user.getId());
@@ -112,6 +140,19 @@ public class AuthService {
         refreshTokenRepository.save(rt);
 
         return new TokenPair(accessToken, rawRefreshToken, jwtProperties.getAccessTokenExpirationMs() / 1000);
+    }
+
+    private void enforceSessionLimit(Long userId) {
+        int max = jwtProperties.getMaxConcurrentSessions();
+        long active = refreshTokenRepository.countByUserIdAndRevokedFalseAndExpiresAtAfter(userId, Instant.now());
+        if (active >= max) {
+            int toRevoke = (int) (active - max + 1);
+            List<RefreshToken> oldest = refreshTokenRepository
+                    .findActiveByUserIdOrderByCreatedAsc(userId, Instant.now(), PageRequest.of(0, toRevoke));
+            oldest.forEach(t -> t.setRevoked(true));
+            refreshTokenRepository.saveAll(oldest);
+            log.info("Session limit ({}) reached for userId: {} — revoked {} oldest session(s)", max, userId, oldest.size());
+        }
     }
 
     private String hashToken(String token) {

@@ -30,6 +30,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -55,7 +56,7 @@ class AiAssistantControllerTest {
 
     @Test
     void summary_returns401_whenUnauthenticated() throws Exception {
-        mockMvc.perform(post("/api/tickets/1/ai-summary"))
+        mockMvc.perform(get("/api/tickets/1/ai-summary"))
                 .andExpect(status().isUnauthorized());
     }
 
@@ -64,7 +65,7 @@ class AiAssistantControllerTest {
     void summary_returns403_whenCannotViewTicket() throws Exception {
         when(ticketAuth.canReadTicket(any(Authentication.class), eq(99L))).thenReturn(false);
 
-        mockMvc.perform(post("/api/tickets/99/ai-summary"))
+        mockMvc.perform(get("/api/tickets/99/ai-summary"))
                 .andExpect(status().isForbidden());
     }
 
@@ -75,7 +76,7 @@ class AiAssistantControllerTest {
                 1L, "This is a login issue.", List.of(), AiAssistMetadata.of("gpt-4o", "v1",
                         Instant.now().toString(), "corr-abc")));
 
-        mockMvc.perform(post("/api/tickets/1/ai-summary"))
+        mockMvc.perform(get("/api/tickets/1/ai-summary"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.ticketId").value(1))
                 .andExpect(jsonPath("$.summary").value("This is a login issue."))
@@ -89,7 +90,7 @@ class AiAssistantControllerTest {
         when(aiAssistService.summarize(1L)).thenReturn(
                 AiSummaryAssistResponse.unavailable(1L, "corr-xyz", "AI service unavailable"));
 
-        mockMvc.perform(post("/api/tickets/1/ai-summary"))
+        mockMvc.perform(get("/api/tickets/1/ai-summary"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.summary").doesNotExist())
                 .andExpect(jsonPath("$.metadata.available").value(false))
@@ -100,7 +101,7 @@ class AiAssistantControllerTest {
     @WithMockUser
     void summary_returns403_whenMissingPermission() throws Exception {
         // Authenticated but lacks PERM_AI_ASSIST
-        mockMvc.perform(post("/api/tickets/1/ai-summary"))
+        mockMvc.perform(get("/api/tickets/1/ai-summary"))
                 .andExpect(status().isForbidden());
     }
 
@@ -165,7 +166,7 @@ class AiAssistantControllerTest {
                                 "TKT-0000050", "Similar issue", 0.9f, "Fixed by reset", List.of())),
                         AiAssistMetadata.of("gpt-4o", "v1", Instant.now().toString(), "corr-jkl")));
 
-        mockMvc.perform(post("/api/tickets/1/ai-similar-cases"))
+        mockMvc.perform(get("/api/tickets/1/ai-similar-cases"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.cases[0].ticketNo").value("TKT-0000050"))
                 .andExpect(jsonPath("$.cases[0].similarityScore").value(0.9));
@@ -177,7 +178,7 @@ class AiAssistantControllerTest {
         when(aiAssistService.similarCases(1L)).thenReturn(
                 AiSimilarCasesAssistResponse.unavailable(1L, "corr-xyz", "AI service unavailable"));
 
-        mockMvc.perform(post("/api/tickets/1/ai-similar-cases"))
+        mockMvc.perform(get("/api/tickets/1/ai-similar-cases"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.cases").isArray())
                 .andExpect(jsonPath("$.cases").isEmpty())

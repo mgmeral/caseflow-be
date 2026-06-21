@@ -52,6 +52,8 @@ public class TicketService {
         ticket.setPriority(priority);
         ticket.setCustomerId(customerId);
         ticket.setStatus(TicketStatus.NEW);
+        ticket.setCreatedBy(createdBy);
+        ticket.setUpdatedBy(createdBy);
         Ticket saved = ticketRepository.save(ticket);
         // Stamp SLA due dates immediately after first save (so createdAt is set)
         stampSlaDueDates(saved);
@@ -89,9 +91,11 @@ public class TicketService {
         ticket.setStatus(newStatus);
         if (newStatus == TicketStatus.CLOSED) {
             ticket.setClosedAt(Instant.now());
+            ticket.setClosedBy(performedBy);
         }
         if (newStatus == TicketStatus.RESOLVED && ticket.getResolvedAt() == null) {
             ticket.setResolvedAt(Instant.now());
+            ticket.setResolvedBy(performedBy);
         }
         Ticket saved = ticketRepository.save(ticket);
         ticketHistoryService.recordStatusChanged(ticketId, performedBy,
@@ -116,6 +120,7 @@ public class TicketService {
         ticketStateMachineService.validateTransition(ticket.getStatus(), TicketStatus.CLOSED);
         ticket.setStatus(TicketStatus.CLOSED);
         ticket.setClosedAt(Instant.now());
+        ticket.setClosedBy(performedBy);
         Ticket saved = ticketRepository.save(ticket);
         ticketHistoryService.recordClosed(ticketId, performedBy);
         eventPublisher.publishEvent(new TicketDomainEvent(saved.getId(), saved.getPublicId(),

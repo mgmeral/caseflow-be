@@ -16,17 +16,22 @@ import com.caseflow.ai.context.dto.PolicyGuidanceContext;
 import com.caseflow.ai.context.dto.ReplyDraftContext;
 import com.caseflow.ai.context.dto.SimilarCasesContext;
 import com.caseflow.ai.context.dto.SummaryContext;
+import com.caseflow.ai.domain.AiResponseType;
+import com.caseflow.ai.repository.TicketAiIndexRepository;
+import com.caseflow.ai.repository.TicketAiResponseCacheRepository;
 import com.caseflow.common.exception.TicketNotFoundException;
 import com.caseflow.ticket.domain.Ticket;
 import com.caseflow.ticket.domain.TicketPriority;
 import com.caseflow.ticket.domain.TicketStatus;
 import com.caseflow.ticket.repository.TicketRepository;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
@@ -36,7 +41,9 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -48,6 +55,9 @@ class AiAssistServiceTest {
     @Mock private TicketAiContextBuilder contextBuilder;
     @Mock private AiAvailabilityService availabilityService;
     @Mock private TicketRepository ticketRepository;
+    @Mock private TicketAiIndexRepository aiIndexRepository;
+    @Mock private TicketAiResponseCacheRepository cacheRepository;
+    @Spy  private ObjectMapper objectMapper;
 
     @InjectMocks
     private AiAssistService sut;
@@ -62,6 +72,13 @@ class AiAssistServiceTest {
         ticket.setSubject("Login issue");
         setId(ticket, 1L);
         setTicketNo(ticket, "TKT-0000001");
+
+        // Default: no AI index entry (sourceVersion=0) and no cache hits
+        // lenient() because not all tests call cache-enabled methods (replyDraft / policyGuidance skip cache)
+        lenient().when(aiIndexRepository.findByTicketId(anyLong())).thenReturn(Optional.empty());
+        lenient().when(cacheRepository.findByTicketIdAndSourceVersionAndResponseType(anyLong(), anyLong(), any(AiResponseType.class)))
+                .thenReturn(Optional.empty());
+        lenient().when(cacheRepository.save(any())).thenAnswer(i -> i.getArgument(0));
     }
 
     // ── Summary ───────────────────────────────────────────────────────────────

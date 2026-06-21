@@ -15,6 +15,7 @@ public class JwtProperties {
     private String secret;
     private long accessTokenExpirationMs = 3_600_000L;
     private long refreshTokenExpirationMs = 604_800_000L;
+    private int maxConcurrentSessions = 5;
 
     @PostConstruct
     public void validate() {
@@ -42,4 +43,7 @@ public class JwtProperties {
 
     public long getRefreshTokenExpirationMs() { return refreshTokenExpirationMs; }
     public void setRefreshTokenExpirationMs(long ms) { this.refreshTokenExpirationMs = ms; }
+
+    public int getMaxConcurrentSessions() { return maxConcurrentSessions; }
+    public void setMaxConcurrentSessions(int maxConcurrentSessions) { this.maxConcurrentSessions = maxConcurrentSessions; }
 }

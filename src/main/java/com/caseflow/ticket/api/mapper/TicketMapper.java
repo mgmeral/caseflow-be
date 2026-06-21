@@ -31,6 +31,11 @@ public interface TicketMapper {
     @Mapping(target = "resolutionDueAt", ignore = true)
     @Mapping(target = "firstResponseRespondedAt", ignore = true)
     @Mapping(target = "resolvedAt", ignore = true)
+    @Mapping(target = "channel", ignore = true)
+    @Mapping(target = "resolvedBy", ignore = true)
+    @Mapping(target = "closedBy", ignore = true)
+    @Mapping(target = "createdBy", ignore = true)
+    @Mapping(target = "updatedBy", ignore = true)
     Ticket toEntity(CreateTicketRequest request);
 
     /**
@@ -48,5 +53,10 @@ public interface TicketMapper {
     @Mapping(target = "resolutionDueAt", ignore = true)
     @Mapping(target = "firstResponseRespondedAt", ignore = true)
     @Mapping(target = "resolvedAt", ignore = true)
+    @Mapping(target = "channel", ignore = true)
+    @Mapping(target = "resolvedBy", ignore = true)
+    @Mapping(target = "closedBy", ignore = true)
+    @Mapping(target = "createdBy", ignore = true)
+    @Mapping(target = "updatedBy", ignore = true)
     void updateEntity(UpdateTicketRequest request, @MappingTarget Ticket ticket);
 }
