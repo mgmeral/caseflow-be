@@ -18,6 +18,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
@@ -97,14 +99,15 @@ class CustomerControllerTest {
         Customer c = makeCustomer(1L, "ACME", "#3B82F6");
         CustomerSummaryResponse summary = new CustomerSummaryResponse(1L, "ACME Corp", "ACME", true, "#3B82F6");
 
-        when(customerService.findAll()).thenReturn(List.of(c));
+        when(customerService.findFiltered(isNull(), isNull(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(c)));
         when(customerMapper.toSummaryResponse(c)).thenReturn(summary);
 
         mockMvc.perform(get("/api/customers"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].code").value("ACME"))
-                .andExpect(jsonPath("$[0].isActive").value(true))
-                .andExpect(jsonPath("$[0].colorHex").value("#3B82F6"));
+                .andExpect(jsonPath("$.items[0].code").value("ACME"))
+                .andExpect(jsonPath("$.items[0].isActive").value(true))
+                .andExpect(jsonPath("$.items[0].colorHex").value("#3B82F6"));
     }
 
     @Test
@@ -113,12 +116,13 @@ class CustomerControllerTest {
         Customer c = makeCustomer(2L, "BETA", null);
         CustomerSummaryResponse summary = new CustomerSummaryResponse(2L, "Beta Ltd", "BETA", false, null);
 
-        when(customerService.findFiltered(isNull(), eq(false))).thenReturn(List.of(c));
+        when(customerService.findFiltered(isNull(), eq(false), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(c)));
         when(customerMapper.toSummaryResponse(c)).thenReturn(summary);
 
         mockMvc.perform(get("/api/customers").param("isActive", "false"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].isActive").value(false));
+                .andExpect(jsonPath("$.items[0].isActive").value(false));
     }
 
     @Test
@@ -127,12 +131,13 @@ class CustomerControllerTest {
         Customer c = makeCustomer(1L, "ACME", null);
         CustomerSummaryResponse summary = new CustomerSummaryResponse(1L, "ACME Corp", "ACME", true, null);
 
-        when(customerService.findFiltered(eq("ACM"), isNull())).thenReturn(List.of(c));
+        when(customerService.findFiltered(eq("ACM"), isNull(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(c)));
         when(customerMapper.toSummaryResponse(c)).thenReturn(summary);
 
         mockMvc.perform(get("/api/customers").param("search", "ACM"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].name").value("ACME Corp"));
+                .andExpect(jsonPath("$.items[0].name").value("ACME Corp"));
     }
 
     @Test

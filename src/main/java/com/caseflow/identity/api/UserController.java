@@ -10,10 +10,14 @@ import com.caseflow.identity.api.dto.UserResponse;
 import com.caseflow.identity.api.dto.UserSummaryResponse;
 import com.caseflow.identity.api.mapper.UserMapper;
 import com.caseflow.identity.service.UserService;
+import com.caseflow.common.api.PagedResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -63,10 +67,10 @@ public class UserController {
 
     @GetMapping
     @PreAuthorize("hasAnyAuthority('PERM_USER_MANAGE', 'PERM_USER_READ')")
-    public ResponseEntity<List<UserSummaryResponse>> listUsers() {
-        return ResponseEntity.ok(
-                userService.findAll().stream().map(userMapper::toSummaryResponse).toList()
-        );
+    public ResponseEntity<PagedResponse<UserSummaryResponse>> listUsers(
+            @PageableDefault(size = 20, sort = "username", direction = Sort.Direction.ASC) Pageable pageable) {
+        return ResponseEntity.ok(PagedResponse.from(
+                userService.findAll(pageable).map(userMapper::toSummaryResponse)));
     }
 
     @GetMapping("/by-username")

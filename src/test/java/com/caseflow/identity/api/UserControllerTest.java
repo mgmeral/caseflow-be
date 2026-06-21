@@ -17,6 +17,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
@@ -190,13 +192,13 @@ class UserControllerTest {
         User user = new User();
         UserSummaryResponse summary = new UserSummaryResponse(1L, "alice", "Alice Admin", 1L, "ADMIN", true);
 
-        when(userService.findAll()).thenReturn(List.of(user));
+        when(userService.findAll(any(Pageable.class))).thenReturn(new PageImpl<>(List.of(user)));
         when(userMapper.toSummaryResponse(user)).thenReturn(summary);
 
         mockMvc.perform(get("/api/users"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].username").value("alice"))
-                .andExpect(jsonPath("$[0].roleCode").value("ADMIN"));
+                .andExpect(jsonPath("$.items[0].username").value("alice"))
+                .andExpect(jsonPath("$.items[0].roleCode").value("ADMIN"));
     }
 
     // ── PUT /api/users/{id} ───────────────────────────────────────────────────

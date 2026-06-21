@@ -18,6 +18,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
@@ -124,13 +126,13 @@ class ContactControllerTest {
     void list_returns200_withSummaryList() throws Exception {
         ContactSummaryResponse summary = new ContactSummaryResponse(10L, 1L, "alice@example.com", "Alice", false);
 
-        when(contactService.findAll()).thenReturn(List.of(new Contact()));
+        when(contactService.findAll(any(Pageable.class))).thenReturn(new PageImpl<>(List.of(new Contact())));
         when(contactMapper.toSummaryResponse(any())).thenReturn(summary);
 
         mockMvc.perform(get("/api/contacts"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].id").value(10))
-                .andExpect(jsonPath("$[0].email").value("alice@example.com"));
+                .andExpect(jsonPath("$.items[0].id").value(10))
+                .andExpect(jsonPath("$.items[0].email").value("alice@example.com"));
     }
 
     // ── GET /api/contacts/by-email ────────────────────────────────────────────

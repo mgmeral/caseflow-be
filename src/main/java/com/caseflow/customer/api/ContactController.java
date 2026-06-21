@@ -6,10 +6,14 @@ import com.caseflow.customer.api.dto.CreateContactRequest;
 import com.caseflow.customer.api.dto.UpdateContactRequest;
 import com.caseflow.customer.api.mapper.ContactMapper;
 import com.caseflow.customer.service.ContactService;
+import com.caseflow.common.api.PagedResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -62,10 +66,10 @@ public class ContactController {
 
     @GetMapping
     @PreAuthorize("hasAnyAuthority('PERM_CUSTOMER_MANAGE', 'PERM_TICKET_READ')")
-    public ResponseEntity<List<ContactSummaryResponse>> listContacts() {
-        return ResponseEntity.ok(
-                contactService.findAll().stream().map(contactMapper::toSummaryResponse).toList()
-        );
+    public ResponseEntity<PagedResponse<ContactSummaryResponse>> listContacts(
+            @PageableDefault(size = 20, sort = "name", direction = Sort.Direction.ASC) Pageable pageable) {
+        return ResponseEntity.ok(PagedResponse.from(
+                contactService.findAll(pageable).map(contactMapper::toSummaryResponse)));
     }
 
     @GetMapping("/by-email")

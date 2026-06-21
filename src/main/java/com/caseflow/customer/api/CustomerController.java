@@ -6,10 +6,14 @@ import com.caseflow.customer.api.dto.CustomerSummaryResponse;
 import com.caseflow.customer.api.dto.UpdateCustomerRequest;
 import com.caseflow.customer.api.mapper.CustomerMapper;
 import com.caseflow.customer.service.CustomerService;
+import com.caseflow.common.api.PagedResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -57,26 +61,16 @@ public class CustomerController {
         return ResponseEntity.ok(customerMapper.toResponse(customerService.getById(id)));
     }
 
-    /**
-     * Lists customers with optional filtering.
-     *
-     * @param search   case-insensitive substring matched against name or code; omit for no filter
-     * @param isActive true = active only, false = inactive only; omit for all
-     */
     @GetMapping
     @PreAuthorize("hasAnyAuthority('PERM_CUSTOMER_MANAGE', 'PERM_TICKET_READ')")
-    public ResponseEntity<List<CustomerSummaryResponse>> listCustomers(
+    public ResponseEntity<PagedResponse<CustomerSummaryResponse>> listCustomers(
             @RequestParam(required = false) String search,
-            @RequestParam(required = false) Boolean isActive) {
-        log.debug("GET /customers — search: '{}', isActive: {}", search, isActive);
-        List<CustomerSummaryResponse> results;
-        if (search == null && isActive == null) {
-            results = customerService.findAll().stream().map(customerMapper::toSummaryResponse).toList();
-        } else {
-            results = customerService.findFiltered(search, isActive).stream()
-                    .map(customerMapper::toSummaryResponse).toList();
-        }
-        return ResponseEntity.ok(results);
+            @RequestParam(required = false) Boolean isActive,
+            @PageableDefault(size = 20, sort = "name", direction = Sort.Direction.ASC) Pageable pageable) {
+        log.debug("GET /customers — search: '{}', isActive: {}, page: {}", search, isActive, pageable);
+        return ResponseEntity.ok(PagedResponse.from(
+                customerService.findFiltered(search, isActive, pageable)
+                        .map(customerMapper::toSummaryResponse)));
     }
 
     @PutMapping("/{id}")

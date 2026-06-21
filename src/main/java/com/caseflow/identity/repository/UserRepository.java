@@ -1,6 +1,8 @@
 package com.caseflow.identity.repository;
 
 import com.caseflow.identity.domain.User;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -22,6 +24,14 @@ public interface UserRepository extends JpaRepository<User, Long> {
      */
     @Query("SELECT u FROM User u JOIN FETCH u.role")
     List<User> findAllWithRole();
+
+    /**
+     * Paged variant of {@link #findAllWithRole()} for the paginated list endpoint.
+     * Explicit countQuery avoids JOIN FETCH in the count projection.
+     */
+    @Query(value = "SELECT u FROM User u JOIN FETCH u.role",
+           countQuery = "SELECT count(u) FROM User u JOIN u.role")
+    Page<User> findAllWithRole(Pageable pageable);
 
     /**
      * Fetches a single user with role and groups — used by GET /api/users/{id}.

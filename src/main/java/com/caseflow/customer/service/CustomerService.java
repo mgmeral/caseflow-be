@@ -11,6 +11,8 @@ import com.caseflow.customer.repository.CustomerSpecification;
 import com.caseflow.ticket.repository.TicketRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -100,11 +102,20 @@ public class CustomerService {
 
     /**
      * Filtered listing with optional name/code search and active-status filter.
-     * Both parameters are optional; passing nulls is equivalent to {@link #findAll()}.
+     * Both parameters are optional; passing nulls returns all customers.
      *
      * @param search   case-insensitive substring matched against name OR code
      * @param isActive null = all, true = active only, false = inactive only
+     * @param pageable page/size/sort
      */
+    @Transactional(readOnly = true)
+    public Page<Customer> findFiltered(String search, Boolean isActive, Pageable pageable) {
+        Specification<Customer> spec = Specification
+                .where(CustomerSpecification.nameOrCodeContains(search))
+                .and(CustomerSpecification.hasStatus(isActive));
+        return customerRepository.findAll(spec, pageable);
+    }
+
     @Transactional(readOnly = true)
     public List<Customer> findFiltered(String search, Boolean isActive) {
         Specification<Customer> spec = Specification
