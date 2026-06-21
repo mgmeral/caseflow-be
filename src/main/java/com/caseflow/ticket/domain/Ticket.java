@@ -270,4 +270,25 @@ public class Ticket {
 
     public Long getUpdatedBy() { return updatedBy; }
     public void setUpdatedBy(Long updatedBy) { this.updatedBy = updatedBy; }
+
+    // ── Merge/split ───────────────────────────────────────────────────────────
+
+    /** Non-null when this ticket has been merged into another ticket. */
+    @Column(name = "parent_ticket_id")
+    private Long parentTicketId;
+
+    @Column(name = "merged_at")
+    private Instant mergedAt;
+
+    @Column(name = "merged_by")
+    private Long mergedBy;
+
+    public Long getParentTicketId() { return parentTicketId; }
+    public void setParentTicketId(Long parentTicketId) { this.parentTicketId = parentTicketId; }
+
+    public Instant getMergedAt() { return mergedAt; }
+    public void setMergedAt(Instant mergedAt) { this.mergedAt = mergedAt; }
+
+    public Long getMergedBy() { return mergedBy; }
+    public void setMergedBy(Long mergedBy) { this.mergedBy = mergedBy; }
 }

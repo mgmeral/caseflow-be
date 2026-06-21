@@ -36,6 +36,9 @@ public interface TicketMapper {
     @Mapping(target = "closedBy", ignore = true)
     @Mapping(target = "createdBy", ignore = true)
     @Mapping(target = "updatedBy", ignore = true)
+    @Mapping(target = "parentTicketId", ignore = true)
+    @Mapping(target = "mergedAt", ignore = true)
+    @Mapping(target = "mergedBy", ignore = true)
     Ticket toEntity(CreateTicketRequest request);
 
     /**
@@ -58,5 +61,8 @@ public interface TicketMapper {
     @Mapping(target = "closedBy", ignore = true)
     @Mapping(target = "createdBy", ignore = true)
     @Mapping(target = "updatedBy", ignore = true)
+    @Mapping(target = "parentTicketId", ignore = true)
+    @Mapping(target = "mergedAt", ignore = true)
+    @Mapping(target = "mergedBy", ignore = true)
     void updateEntity(UpdateTicketRequest request, @MappingTarget Ticket ticket);
 }
