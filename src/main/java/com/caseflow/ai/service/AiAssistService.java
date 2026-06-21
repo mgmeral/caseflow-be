@@ -372,10 +372,10 @@ public class AiAssistService {
                 ctx.tags(),
                 latestMessages,
                 ctx.internalNotes(),
-                List.of(),
-                List.of(),
+                ctx.policySnippets(),
+                ctx.constraints(),
                 "RESOLUTION",
-                null
+                ctx.selectedTemplateCode()
         );
     }
 }

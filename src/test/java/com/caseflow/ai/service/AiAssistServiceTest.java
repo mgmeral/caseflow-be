@@ -330,7 +330,8 @@ class AiAssistServiceTest {
         ReplyDraftContext ctx = new ReplyDraftContext("TKT-0000001", "Login issue", "IN_PROGRESS", "MEDIUM",
                 "Acme Corp", "I cannot login", "c***@acme.com",
                 List.of(new ReplyDraftContext.MessageSnippet("inbound", "I cannot login", "2026-04-16T10:00:00Z")),
-                List.of("AUTH", "LOGIN"), List.of("Agent note about account"), "en", "professional");
+                List.of("AUTH", "LOGIN"), List.of("Agent note about account"), "en", "professional",
+                List.of(), List.of(), null);
         when(contextBuilder.buildReplyDraftContext(ticket)).thenReturn(ctx);
         when(aiClient.requestReplyDraft(any(), eq(1L))).thenReturn(
                 new AiRawReplyDraftResponse("ok", "professional", null,
@@ -420,7 +421,8 @@ class AiAssistServiceTest {
     private ReplyDraftContext stubReplyDraftContext() {
         return new ReplyDraftContext("TKT-0000001", "Login issue", "IN_PROGRESS", "MEDIUM",
                 "Acme Corp", "I cannot login", "u***@acme.com",
-                List.of(), List.of(), List.of(), "en", "professional");
+                List.of(), List.of(), List.of(), "en", "professional",
+                List.of(), List.of(), null);
     }
 
     private SimilarCasesContext stubSimilarCasesContext() {

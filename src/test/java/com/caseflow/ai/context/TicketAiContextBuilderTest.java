@@ -17,6 +17,7 @@ import com.caseflow.ticket.domain.Ticket;
 import com.caseflow.ticket.domain.TicketPriority;
 import com.caseflow.ticket.domain.TicketStatus;
 import com.caseflow.ticket.domain.TicketTag;
+import com.caseflow.email.repository.MailTemplateRepository;
 import com.caseflow.ticket.repository.TagRepository;
 import com.caseflow.ticket.repository.TicketTagRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -46,6 +47,7 @@ class TicketAiContextBuilderTest {
     @Mock private UserRepository userRepository;
     @Mock private TicketTagRepository ticketTagRepository;
     @Mock private TagRepository tagRepository;
+    @Mock private MailTemplateRepository mailTemplateRepository;
 
     @InjectMocks
     private TicketAiContextBuilder builder;

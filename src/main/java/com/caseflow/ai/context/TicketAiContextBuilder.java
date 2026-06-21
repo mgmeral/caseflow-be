@@ -8,7 +8,9 @@ import com.caseflow.customer.domain.Customer;
 import com.caseflow.customer.repository.CustomerRepository;
 import com.caseflow.email.document.EmailDocument;
 import com.caseflow.email.domain.EmailDirection;
+import com.caseflow.email.domain.MailTemplate;
 import com.caseflow.email.repository.EmailDocumentRepository;
+import com.caseflow.email.repository.MailTemplateRepository;
 import com.caseflow.identity.domain.User;
 import com.caseflow.identity.repository.UserRepository;
 import com.caseflow.note.domain.Note;
@@ -54,25 +56,30 @@ public class TicketAiContextBuilder {
     private static final int PREVIEW_MAX_CHARS = 500;
     private static final DateTimeFormatter ISO_FMT = DateTimeFormatter.ISO_INSTANT;
 
+    private static final String DEFAULT_REPLY_TEMPLATE_CODE = "CUSTOMER_REPLY";
+
     private final NoteRepository noteRepository;
     private final EmailDocumentRepository emailDocumentRepository;
     private final CustomerRepository customerRepository;
     private final UserRepository userRepository;
     private final TicketTagRepository ticketTagRepository;
     private final TagRepository tagRepository;
+    private final MailTemplateRepository mailTemplateRepository;
 
     public TicketAiContextBuilder(NoteRepository noteRepository,
                                    EmailDocumentRepository emailDocumentRepository,
                                    CustomerRepository customerRepository,
                                    UserRepository userRepository,
                                    TicketTagRepository ticketTagRepository,
-                                   TagRepository tagRepository) {
+                                   TagRepository tagRepository,
+                                   MailTemplateRepository mailTemplateRepository) {
         this.noteRepository = noteRepository;
         this.emailDocumentRepository = emailDocumentRepository;
         this.customerRepository = customerRepository;
         this.userRepository = userRepository;
         this.ticketTagRepository = ticketTagRepository;
         this.tagRepository = tagRepository;
+        this.mailTemplateRepository = mailTemplateRepository;
     }
 
     // ── Public builders ───────────────────────────────────────────────────────
@@ -177,6 +184,9 @@ public class TicketAiContextBuilder {
                 .map(n -> truncate(n.getContent()))
                 .toList();
 
+        List<String> constraints = buildConstraints(ticket);
+        String selectedTemplateCode = resolveReplyTemplateCode();
+
         return new ReplyDraftContext(
                 ticket.getTicketNo(),
                 ticket.getSubject(),
@@ -189,7 +199,10 @@ public class TicketAiContextBuilder {
                 tags,
                 internalNotes,
                 "en",
-                "professional"
+                "professional",
+                List.of(),   // policySnippets — no Policy module yet; context is ready
+                constraints,
+                selectedTemplateCode
         );
     }
 
@@ -280,6 +293,29 @@ public class TicketAiContextBuilder {
         int at = email.indexOf('@');
         if (at <= 1) return "***";
         return email.charAt(0) + "***" + email.substring(at);
+    }
+
+    private List<String> buildConstraints(Ticket ticket) {
+        List<String> constraints = new ArrayList<>();
+        if (ticket.getResolutionDueAt() != null) {
+            long minutesLeft = java.time.Duration.between(Instant.now(), ticket.getResolutionDueAt()).toMinutes();
+            if (minutesLeft > 0) {
+                constraints.add("SLA resolution deadline in " + minutesLeft + " minutes");
+            } else {
+                constraints.add("SLA resolution deadline already breached");
+            }
+        }
+        String category = resolveCustomerCategory(ticket.getCustomerId());
+        if (category != null) {
+            constraints.add("Customer category: " + category);
+        }
+        return constraints;
+    }
+
+    private String resolveReplyTemplateCode() {
+        return mailTemplateRepository.findByCodeAndIsActiveTrue(DEFAULT_REPLY_TEMPLATE_CODE)
+                .map(MailTemplate::getCode)
+                .orElse(null);
     }
 
     private String formatInstant(Instant instant) {
