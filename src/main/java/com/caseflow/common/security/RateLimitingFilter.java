@@ -86,7 +86,7 @@ public class RateLimitingFilter extends OncePerRequestFilter {
         if (path.equals("/api/contacts/by-email")) {
             return emailBuckets.computeIfAbsent(ip, k -> newBucket(EMAIL_LOOKUP_CAPACITY));
         }
-        if (path.startsWith("/api/ai/")) {
+        if (isAiPath(path)) {
             return aiBuckets.computeIfAbsent(ip, k -> newBucket(AI_CAPACITY));
         }
         return generalBuckets.computeIfAbsent(ip, k -> newBucket(GENERAL_CAPACITY));
@@ -96,6 +96,11 @@ public class RateLimitingFilter extends OncePerRequestFilter {
         return path.equals("/api/auth/login")
                 || path.equals("/api/auth/refresh")
                 || path.equals("/api/auth/logout");
+    }
+
+    private boolean isAiPath(String path) {
+        // /api/ai/** (future) and /api/tickets/{id}/ai-* (current AI assist endpoints)
+        return path.startsWith("/api/ai/") || path.contains("/ai-");
     }
 
     private Bucket newBucket(int capacity) {

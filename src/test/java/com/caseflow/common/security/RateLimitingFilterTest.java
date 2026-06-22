@@ -98,6 +98,22 @@ class RateLimitingFilterTest {
         assertThat(resp.getStatus()).isEqualTo(429);
     }
 
+    @Test
+    void ticketAiEndpoint_usesAiBucket_returns429AfterLimit() throws Exception {
+        String ip = "11.11.11.11";
+        // AI bucket capacity = 20; exhaust with ticket AI path
+        for (int i = 0; i < 20; i++) {
+            filter.doFilter(request("GET", "/api/tickets/1/ai-summary", ip),
+                    new MockHttpServletResponse(), chain);
+        }
+
+        MockHttpServletRequest req = request("GET", "/api/tickets/1/ai-summary", ip);
+        MockHttpServletResponse resp = new MockHttpServletResponse();
+        filter.doFilter(req, resp, chain);
+
+        assertThat(resp.getStatus()).isEqualTo(429);
+    }
+
     // ── Different IPs have independent buckets ────────────────────────────────
 
     @Test
