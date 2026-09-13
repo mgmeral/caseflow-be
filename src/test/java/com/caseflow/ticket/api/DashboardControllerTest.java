@@ -43,7 +43,7 @@ class DashboardControllerTest {
         DashboardStatsResponse stats = new DashboardStatsResponse(
                 10L, 7L, 2L, 1L, 3L, 2L, 0L, 1L, 5L, List.of());
 
-        when(dashboardService.getStats(any())).thenReturn(stats);
+        when(dashboardService.getStats(any(), any(), any())).thenReturn(stats);
 
         mockMvc.perform(get("/api/dashboard/stats"))
                 .andExpect(status().isOk())

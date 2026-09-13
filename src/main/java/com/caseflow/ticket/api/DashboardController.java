@@ -1,6 +1,7 @@
 package com.caseflow.ticket.api;
 
 import com.caseflow.auth.CaseFlowUserDetails;
+import com.caseflow.identity.domain.TicketScope;
 import com.caseflow.ticket.api.dto.DashboardStatsResponse;
 import com.caseflow.ticket.service.DashboardService;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -13,6 +14,8 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
 
 @Tag(name = "Dashboard", description = "Aggregate dashboard statistics")
 @SecurityRequirement(name = "bearerAuth")
@@ -32,14 +35,19 @@ public class DashboardController {
      * Returns aggregate ticket statistics for the dashboard.
      *
      * <p>All counts use explicit, documented business rules — see {@link DashboardStatsResponse}
-     * for field semantics. The {@code myActionRequired} widget is scoped to the authenticated caller.
+     * for field semantics. The {@code myActionRequired} widget is scoped to the authenticated
+     * caller's {@code ticketScope} — see {@link DashboardService#getStats} for the exact rule
+     * per scope.
      */
     @GetMapping("/stats")
     @PreAuthorize("hasAuthority('PERM_TICKET_READ')")
     public ResponseEntity<DashboardStatsResponse> getStats(
             @AuthenticationPrincipal CaseFlowUserDetails user) {
         Long userId = user != null ? user.getUserId() : null;
-        log.info("GET /dashboard/stats — userId: {}", userId);
-        return ResponseEntity.ok(dashboardService.getStats(userId));
+        TicketScope scope = (user != null && user.getTicketScope() != null)
+                ? TicketScope.valueOf(user.getTicketScope()) : null;
+        List<Long> groupIds = user != null ? user.getGroupIds() : null;
+        log.info("GET /dashboard/stats — userId: {}, scope: {}", userId, scope);
+        return ResponseEntity.ok(dashboardService.getStats(userId, scope, groupIds));
     }
 }

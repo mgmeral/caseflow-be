@@ -1,12 +1,17 @@
 package com.caseflow.ticket.service;
 
 import com.caseflow.customer.repository.CustomerRepository;
+import com.caseflow.identity.domain.TicketScope;
 import com.caseflow.ticket.api.dto.DashboardStatsResponse;
 import com.caseflow.ticket.domain.Ticket;
 import com.caseflow.ticket.domain.TicketSlaFilter;
 import com.caseflow.ticket.domain.TicketStatus;
 import com.caseflow.ticket.repository.TicketRepository;
+import com.caseflow.ticket.repository.TicketScopeSpecification;
 import com.caseflow.ticket.repository.TicketSpecification;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,7 +40,18 @@ import java.util.stream.Collectors;
  *   <li><b>breachedSlaCount</b> — resolutionDueAt &lt; now AND status NOT IN (RESOLVED, CLOSED)</li>
  *   <li><b>atRiskSlaCount</b> — resolutionDueAt IS NOT NULL AND resolutionDueAt BETWEEN now AND now+4h AND status NOT terminal.
  *       Fixed 4-hour warning window; per-policy thresholds are available in the SLA detail view.</li>
- *   <li><b>myActionRequired</b> — assignedUserId = caller AND status NOT IN (RESOLVED, CLOSED)</li>
+ *   <li><b>myActionRequired</b> — depends on the caller's {@code ticketScope}:
+ *       <ul>
+ *         <li>{@code ASSIGNED_ONLY} / {@code OWN_AND_OWN_GROUPS} (roles that personally own
+ *             tickets, e.g. Viewer/Agent): assignedUserId = caller AND status NOT IN (RESOLVED, CLOSED) —
+ *             unchanged "my personal queue" semantics.</li>
+ *         <li>{@code OWN_GROUPS} / {@code ALL} (roles that orchestrate rather than personally
+ *             own tickets, e.g. Supervisor/Admin): open tickets, visible to the caller per
+ *             {@link TicketScopeSpecification#visibleTo}, that are SLA-breached, SLA-at-risk, or
+ *             unassigned — sorted most-urgent-first, capped to the top 5. "Assigned to me" would
+ *             almost always be empty for these roles and tells them nothing actionable.</li>
+ *       </ul>
+ *   </li>
  * </ul>
  */
 @Service
@@ -51,13 +67,18 @@ public class DashboardService {
         this.customerRepository = customerRepository;
     }
 
+    /** Number of items returned in the operationally-urgent {@code myActionRequired} queue (OWN_GROUPS/ALL scopes). */
+    private static final int URGENT_QUEUE_SIZE = 5;
+
     /**
      * Returns dashboard stats for the given caller.
      *
      * @param currentUserId the authenticated user id — used for myActionRequired; null = skip that widget
+     * @param scope         the caller's ticketScope — determines myActionRequired's business rule (see class javadoc); null = skip that widget
+     * @param groupIds      the caller's group memberships — only consulted for OWN_GROUPS/ALL scope
      */
     @Transactional(readOnly = true)
-    public DashboardStatsResponse getStats(Long currentUserId) {
+    public DashboardStatsResponse getStats(Long currentUserId, TicketScope scope, List<Long> groupIds) {
         Instant now = Instant.now();
         Instant threshold24h = now.minus(24, ChronoUnit.HOURS);
         // AT_RISK_WINDOW is the shared constant — same value used by TicketSlaFilter.AT_RISK for list drill-down
@@ -81,11 +102,23 @@ public class DashboardService {
         Long myActionRequiredCount = null;
         List<DashboardStatsResponse.MyActionRequiredItem> myItems = List.of();
 
-        if (currentUserId != null) {
-            Specification<Ticket> mySpec = activeSpec.and(TicketSpecification.hasAssignedUserId(currentUserId));
-            List<Ticket> myTickets = ticketRepository.findAll(mySpec);
-            myActionRequiredCount = (long) myTickets.size();
-            myItems = buildMyItems(myTickets);
+        if (currentUserId != null && scope != null) {
+            if (scope == TicketScope.ASSIGNED_ONLY || scope == TicketScope.OWN_AND_OWN_GROUPS) {
+                Specification<Ticket> mySpec = activeSpec.and(TicketSpecification.hasAssignedUserId(currentUserId));
+                List<Ticket> myTickets = ticketRepository.findAll(mySpec);
+                myActionRequiredCount = (long) myTickets.size();
+                myItems = buildMyItems(myTickets);
+            } else {
+                Specification<Ticket> urgentSpec = Specification.where(activeSpec)
+                        .and(TicketScopeSpecification.visibleTo(currentUserId, groupIds, scope))
+                        .and(Specification.<Ticket>where(TicketSpecification.hasSlaBreached(now))
+                                .or(TicketSpecification.hasSlaAtRisk(now, atRiskThreshold))
+                                .or(TicketScopeSpecification.unassignedUser()));
+                Sort urgencySort = Sort.by(Sort.Order.asc("resolutionDueAt").nullsLast());
+                Page<Ticket> urgentPage = ticketRepository.findAll(urgentSpec, PageRequest.of(0, URGENT_QUEUE_SIZE, urgencySort));
+                myActionRequiredCount = urgentPage.getTotalElements();
+                myItems = buildMyItems(urgentPage.getContent());
+            }
         }
 
         return new DashboardStatsResponse(

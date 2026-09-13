@@ -1,6 +1,7 @@
 package com.caseflow.ticket.service;
 
 import com.caseflow.customer.repository.CustomerRepository;
+import com.caseflow.identity.domain.TicketScope;
 import com.caseflow.ticket.api.dto.DashboardStatsResponse;
 import com.caseflow.ticket.domain.Ticket;
 import com.caseflow.ticket.domain.TicketPriority;
@@ -11,6 +12,9 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 
 import java.time.Instant;
@@ -49,7 +53,7 @@ class DashboardServiceTest {
 
         when(ticketRepository.findAll(any(Specification.class))).thenReturn(List.of());
 
-        DashboardStatsResponse stats = dashboardService.getStats(1L);
+        DashboardStatsResponse stats = dashboardService.getStats(1L, TicketScope.ASSIGNED_ONLY, null);
 
         assertThat(stats.totalTickets()).isEqualTo(10L);
         assertThat(stats.breachedSlaCount()).isEqualTo(1L);
@@ -64,7 +68,7 @@ class DashboardServiceTest {
         when(ticketRepository.countBreachedResolutionSla(isNull())).thenReturn(0L);
         when(ticketRepository.countAtRiskResolutionSla(isNull(), any(Instant.class))).thenReturn(0L);
 
-        DashboardStatsResponse stats = dashboardService.getStats(null);
+        DashboardStatsResponse stats = dashboardService.getStats(null, null, null);
 
         assertThat(stats.myActionRequired()).isNull();
         assertThat(stats.myActionRequiredItems()).isEmpty();
@@ -78,7 +82,7 @@ class DashboardServiceTest {
         when(ticketRepository.countAtRiskResolutionSla(isNull(), any(Instant.class))).thenReturn(3L);
         when(ticketRepository.findAll(any(Specification.class))).thenReturn(List.of());
 
-        DashboardStatsResponse stats = dashboardService.getStats(1L);
+        DashboardStatsResponse stats = dashboardService.getStats(1L, TicketScope.ASSIGNED_ONLY, null);
 
         assertThat(stats.atRiskSlaCount()).isEqualTo(3L);
     }
@@ -99,7 +103,7 @@ class DashboardServiceTest {
         when(ticketRepository.countAtRiskResolutionSla(isNull(), any(Instant.class))).thenReturn(0L);
         when(ticketRepository.findAll(any(Specification.class))).thenReturn(List.of());
 
-        DashboardStatsResponse stats = dashboardService.getStats(1L);
+        DashboardStatsResponse stats = dashboardService.getStats(1L, TicketScope.ASSIGNED_ONLY, null);
 
         // We cannot inspect the predicate expression directly in a unit test, but the fact
         // that getStats() compiles and runs against the statusChangedBefore predicate (not
@@ -134,11 +138,69 @@ class DashboardServiceTest {
         com.caseflow.customer.domain.Customer customer = buildCustomer(10L, "Acme Corp");
         when(customerRepository.findAllById(any())).thenReturn(List.of(customer));
 
-        DashboardStatsResponse stats = dashboardService.getStats(42L);
+        DashboardStatsResponse stats = dashboardService.getStats(42L, TicketScope.ASSIGNED_ONLY, null);
 
         assertThat(stats.myActionRequiredItems()).hasSize(1);
         assertThat(stats.myActionRequiredItems().get(0).customerName()).isEqualTo("Acme Corp");
         assertThat(stats.myActionRequiredItems().get(0).ticketNo()).isEqualTo("TKT-000001");
+    }
+
+    @Test
+    void getStats_scopeAll_usesOperationallyUrgentQueue_notAssignedToMe() {
+        when(ticketRepository.count()).thenReturn(1L);
+        when(ticketRepository.count(any(Specification.class))).thenReturn(1L);
+        when(ticketRepository.countBreachedResolutionSla(isNull())).thenReturn(1L);
+        when(ticketRepository.countAtRiskResolutionSla(isNull(), any(Instant.class))).thenReturn(0L);
+
+        Ticket urgent = buildTicket(9L, "TKT-000009", 10L);
+        Page<Ticket> page = new PageImpl<>(List.of(urgent));
+        when(ticketRepository.findAll(any(Specification.class), any(Pageable.class))).thenReturn(page);
+
+        com.caseflow.customer.domain.Customer customer = buildCustomer(10L, "Acme Corp");
+        when(customerRepository.findAllById(any())).thenReturn(List.of(customer));
+
+        DashboardStatsResponse stats = dashboardService.getStats(1L, TicketScope.ALL, null);
+
+        // ALL-scope must go through the Page-based urgent-queue query, never the
+        // unbounded "assigned to me" List query (that would be empty for admins today).
+        assertThat(stats.myActionRequiredItems()).hasSize(1);
+        assertThat(stats.myActionRequiredItems().get(0).ticketNo()).isEqualTo("TKT-000009");
+        assertThat(stats.myActionRequired()).isEqualTo(1L);
+    }
+
+    @Test
+    void getStats_scopeOwnGroups_usesOperationallyUrgentQueue_scopedToGroups() {
+        when(ticketRepository.count()).thenReturn(1L);
+        when(ticketRepository.count(any(Specification.class))).thenReturn(1L);
+        when(ticketRepository.countBreachedResolutionSla(isNull())).thenReturn(0L);
+        when(ticketRepository.countAtRiskResolutionSla(isNull(), any(Instant.class))).thenReturn(0L);
+        when(ticketRepository.findAll(any(Specification.class), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
+
+        DashboardStatsResponse stats = dashboardService.getStats(1L, TicketScope.OWN_GROUPS, List.of(2L, 3L));
+
+        assertThat(stats.myActionRequiredItems()).isEmpty();
+        assertThat(stats.myActionRequired()).isEqualTo(0L);
+    }
+
+    @Test
+    void getStats_scopeOwnAndOwnGroups_keepsAssignedToMeSemantics() {
+        when(ticketRepository.count()).thenReturn(1L);
+        when(ticketRepository.count(any(Specification.class))).thenReturn(1L);
+        when(ticketRepository.countBreachedResolutionSla(isNull())).thenReturn(0L);
+        when(ticketRepository.countAtRiskResolutionSla(isNull(), any(Instant.class))).thenReturn(0L);
+
+        Ticket mine = buildTicket(3L, "TKT-000003", 10L);
+        when(ticketRepository.findAll(any(Specification.class))).thenReturn(List.of(mine));
+
+        com.caseflow.customer.domain.Customer customer = buildCustomer(10L, "Acme Corp");
+        when(customerRepository.findAllById(any())).thenReturn(List.of(customer));
+
+        DashboardStatsResponse stats = dashboardService.getStats(7L, TicketScope.OWN_AND_OWN_GROUPS, List.of(2L));
+
+        // Agents keep the unbounded "assigned to me" List query — unchanged from before this change.
+        assertThat(stats.myActionRequiredItems()).hasSize(1);
+        assertThat(stats.myActionRequiredItems().get(0).ticketNo()).isEqualTo("TKT-000003");
     }
 
     // ── Builders ──────────────────────────────────────────────────────────────
