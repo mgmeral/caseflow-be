@@ -41,4 +41,4 @@ CREATE INDEX IF NOT EXISTS idx_assignments_assigned_user
     ON assignments(assigned_user_id);
 
 CREATE INDEX IF NOT EXISTS idx_assignments_ticket_status
-    ON assignments(ticket_id, status);
+    ON assignments(ticket_id);
