@@ -50,7 +50,7 @@ class IngressEventAdminControllerTest {
 
         mockMvc.perform(get("/api/admin/ingress-events"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content").isArray())
+                .andExpect(jsonPath("$.items").isArray())
                 .andExpect(jsonPath("$.totalElements").value(0));
     }
 

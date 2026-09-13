@@ -5,14 +5,18 @@ import com.caseflow.common.exception.InvalidIngressEventStateException;
 import com.caseflow.email.domain.EmailIngressEvent;
 import com.caseflow.email.domain.IngressEventStatus;
 import com.caseflow.email.repository.EmailIngressEventRepository;
+import jakarta.persistence.criteria.Predicate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Operator recovery operations for inbound ingress events.
@@ -49,7 +53,21 @@ public class IngressEventAdminService {
                                                  Long mailboxId, String messageId, Long ticketId,
                                                  Instant from, Instant to,
                                                  Pageable pageable) {
-        return eventRepository.findFiltered(status, mailboxId, messageId, ticketId, from, to, pageable);
+        // Built as a Specification (rather than a JPQL "(:param IS NULL OR ...)" query) so that
+        // an absent filter never binds a null parameter at all — Postgres/PgJDBC cannot always
+        // infer the SQL type of a bare null parameter used only in an "IS NULL" check (observed
+        // for the Instant from/to bounds: "could not determine data type of parameter $9").
+        Specification<EmailIngressEvent> spec = (root, query, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+            if (status != null) predicates.add(cb.equal(root.get("status"), status));
+            if (mailboxId != null) predicates.add(cb.equal(root.get("mailboxId"), mailboxId));
+            if (messageId != null) predicates.add(cb.equal(root.get("messageId"), messageId));
+            if (ticketId != null) predicates.add(cb.equal(root.get("ticketId"), ticketId));
+            if (from != null) predicates.add(cb.greaterThanOrEqualTo(root.get("receivedAt"), from));
+            if (to != null) predicates.add(cb.lessThanOrEqualTo(root.get("receivedAt"), to));
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
+        return eventRepository.findAll(spec, pageable);
     }
 
     /**

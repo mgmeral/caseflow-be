@@ -1,5 +1,6 @@
 package com.caseflow.email.api;
 
+import com.caseflow.common.api.PagedResponse;
 import com.caseflow.email.api.dto.IngressEventAdminResponse;
 import com.caseflow.email.domain.IngressEventStatus;
 import com.caseflow.email.service.IngressEventAdminService;
@@ -37,7 +38,7 @@ public class IngressEventAdminController {
 
     @GetMapping
     @PreAuthorize("hasAuthority('PERM_EMAIL_CONFIG_VIEW')")
-    public ResponseEntity<Page<IngressEventAdminResponse>> list(
+    public ResponseEntity<PagedResponse<IngressEventAdminResponse>> list(
             @RequestParam(required = false) IngressEventStatus status,
             @RequestParam(required = false) Long mailboxId,
             @RequestParam(required = false) String messageId,
@@ -48,7 +49,7 @@ public class IngressEventAdminController {
         Page<IngressEventAdminResponse> page = adminService
                 .findFiltered(status, mailboxId, messageId, ticketId, from, to, pageable)
                 .map(IngressEventAdminResponse::from);
-        return ResponseEntity.ok(page);
+        return ResponseEntity.ok(PagedResponse.from(page));
     }
 
     @GetMapping("/{id}")
