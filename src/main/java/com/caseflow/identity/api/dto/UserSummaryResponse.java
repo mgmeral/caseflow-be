@@ -6,5 +6,7 @@ public record UserSummaryResponse(
         String fullName,
         Long roleId,
         String roleCode,
-        Boolean isActive
+        Boolean isActive,
+        /** Open (non-terminal), assigned ticket count — used by agent-picker UIs to show current workload. */
+        Long openTicketCount
 ) {}

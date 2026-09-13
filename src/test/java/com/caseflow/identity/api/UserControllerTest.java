@@ -11,6 +11,7 @@ import com.caseflow.identity.api.dto.UserSummaryResponse;
 import com.caseflow.identity.api.mapper.UserMapper;
 import com.caseflow.identity.domain.User;
 import com.caseflow.identity.service.UserService;
+import com.caseflow.ticket.repository.TicketRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -59,6 +60,9 @@ class UserControllerTest {
 
     @MockBean
     private UserMapper userMapper;
+
+    @MockBean
+    private TicketRepository ticketRepository;
 
     // ── POST /api/users ───────────────────────────────────────────────────────
 
@@ -190,15 +194,45 @@ class UserControllerTest {
     @WithMockUser(authorities = "PERM_USER_READ")
     void listUsers_returns200_withSummaryList() throws Exception {
         User user = new User();
-        UserSummaryResponse summary = new UserSummaryResponse(1L, "alice", "Alice Admin", 1L, "ADMIN", true);
+        // openTicketCount here is irrelevant — the controller overwrites it from
+        // ticketRepository.countActiveByAssignedUser(), never from the mapper's own output.
+        UserSummaryResponse summary = new UserSummaryResponse(1L, "alice", "Alice Admin", 1L, "ADMIN", true, 0L);
 
         when(userService.findAll(any(Pageable.class))).thenReturn(new PageImpl<>(List.of(user)));
         when(userMapper.toSummaryResponse(user)).thenReturn(summary);
+        when(ticketRepository.countActiveByAssignedUser()).thenReturn(List.of());
 
         mockMvc.perform(get("/api/users"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].username").value("alice"))
-                .andExpect(jsonPath("$.items[0].roleCode").value("ADMIN"));
+                .andExpect(jsonPath("$.items[0].roleCode").value("ADMIN"))
+                .andExpect(jsonPath("$.items[0].openTicketCount").value(0));
+    }
+
+    @Test
+    @WithMockUser(authorities = "PERM_USER_READ")
+    void listUsers_populatesOpenTicketCount_fromTicketRepositoryAggregate() throws Exception {
+        User user = new User();
+        try {
+            var idField = User.class.getDeclaredField("id");
+            idField.setAccessible(true);
+            idField.set(user, 1L);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        UserSummaryResponse summary = new UserSummaryResponse(1L, "alice", "Alice Admin", 1L, "ADMIN", true, 0L);
+
+        when(userService.findAll(any(Pageable.class))).thenReturn(new PageImpl<>(List.of(user)));
+        when(userMapper.toSummaryResponse(user)).thenReturn(summary);
+        // (assignedUserId, status, count) — two open tickets in different statuses for user 1
+        when(ticketRepository.countActiveByAssignedUser()).thenReturn(List.of(
+                new Object[]{1L, com.caseflow.ticket.domain.TicketStatus.ASSIGNED, 3L},
+                new Object[]{1L, com.caseflow.ticket.domain.TicketStatus.IN_PROGRESS, 2L}
+        ));
+
+        mockMvc.perform(get("/api/users"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].openTicketCount").value(5));
     }
 
     // ── PUT /api/users/{id} ───────────────────────────────────────────────────

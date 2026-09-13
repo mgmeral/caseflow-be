@@ -9,12 +9,15 @@ import com.caseflow.identity.api.dto.UserProfileResponse;
 import com.caseflow.identity.api.dto.UserResponse;
 import com.caseflow.identity.api.dto.UserSummaryResponse;
 import com.caseflow.identity.api.mapper.UserMapper;
+import com.caseflow.identity.domain.User;
 import com.caseflow.identity.service.UserService;
 import com.caseflow.common.api.PagedResponse;
+import com.caseflow.ticket.repository.TicketRepository;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
@@ -32,7 +35,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @Tag(name = "Users", description = "User account management")
 @RestController
@@ -43,10 +48,12 @@ public class UserController {
 
     private final UserService userService;
     private final UserMapper userMapper;
+    private final TicketRepository ticketRepository;
 
-    public UserController(UserService userService, UserMapper userMapper) {
+    public UserController(UserService userService, UserMapper userMapper, TicketRepository ticketRepository) {
         this.userService = userService;
         this.userMapper = userMapper;
+        this.ticketRepository = ticketRepository;
     }
 
     @PostMapping
@@ -69,8 +76,22 @@ public class UserController {
     @PreAuthorize("hasAnyAuthority('PERM_USER_MANAGE', 'PERM_USER_READ')")
     public ResponseEntity<PagedResponse<UserSummaryResponse>> listUsers(
             @PageableDefault(size = 20, sort = "username", direction = Sort.Direction.ASC) Pageable pageable) {
-        return ResponseEntity.ok(PagedResponse.from(
-                userService.findAll(pageable).map(userMapper::toSummaryResponse)));
+        Page<User> page = userService.findAll(pageable);
+
+        // Bulk-computed once per page rather than per row — see countActiveByAssignedUser javadoc.
+        Map<Long, Long> openCountsByUserId = new HashMap<>();
+        for (Object[] row : ticketRepository.countActiveByAssignedUser()) {
+            Long userId = (Long) row[0];
+            long count = ((Number) row[2]).longValue();
+            openCountsByUserId.merge(userId, count, Long::sum);
+        }
+
+        return ResponseEntity.ok(PagedResponse.from(page.map(user -> {
+            UserSummaryResponse base = userMapper.toSummaryResponse(user);
+            long openTicketCount = openCountsByUserId.getOrDefault(user.getId(), 0L);
+            return new UserSummaryResponse(base.id(), base.username(), base.fullName(),
+                    base.roleId(), base.roleCode(), base.isActive(), openTicketCount);
+        })));
     }
 
     @GetMapping("/by-username")

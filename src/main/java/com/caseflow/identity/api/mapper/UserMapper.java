@@ -32,6 +32,7 @@ public interface UserMapper {
              expression = "java(user.getRole() != null ? user.getRole().getId() : null)")
     @Mapping(target = "roleCode",
              expression = "java(user.getRole() != null ? user.getRole().getCode() : null)")
+    @Mapping(target = "openTicketCount", ignore = true) // filled in by the caller — see UserController.listUsers
     UserSummaryResponse toSummaryResponse(User user);
 
     @Mapping(target = "roleId",
