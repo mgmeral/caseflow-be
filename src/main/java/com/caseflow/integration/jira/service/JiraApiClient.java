@@ -16,6 +16,7 @@ import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestTemplate;
 
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
@@ -102,6 +103,100 @@ public class JiraApiClient {
                     "Jira connection test failed: " + e.getMessage(), false, e);
         }
     }
+
+    /**
+     * Checks, in order, everything issue creation depends on: the credentials, the project and the
+     * issue type. Stops at the first failure (later checks are reported as skipped) and never throws.
+     * Messages are written for the admin fixing the form, not for logs.
+     */
+    public JiraDiagnostics diagnose(JiraConfig config) {
+        String base = config.getBaseUrl().replaceAll("/+$", "");
+        HttpEntity<Void> request = new HttpEntity<>(buildHeaders(config));
+        List<JiraCheck> checks = new ArrayList<>();
+
+        // 1. Credentials
+        try {
+            Map<?, ?> me = restTemplate.exchange(base + "/rest/api/3/myself", HttpMethod.GET, request, Map.class).getBody();
+            String who = me != null && me.get("displayName") != null ? String.valueOf(me.get("displayName")) : config.getUsername();
+            checks.add(new JiraCheck(CHECK_AUTH, true, "Signed in to Jira as " + who + "."));
+        } catch (HttpClientErrorException e) {
+            checks.add(new JiraCheck(CHECK_AUTH, false, switch (e.getStatusCode().value()) {
+                case 401 -> "Jira rejected the e-mail / API token (401). Check both, or create a new token.";
+                case 403 -> "This Jira account is not allowed to use the REST API (403).";
+                case 404 -> "No Jira Cloud API at this address (404). Use your site root, e.g. https://company.atlassian.net.";
+                default -> "Jira answered " + e.getStatusCode().value() + " to the sign-in check.";
+            }));
+            return skipRest(checks);
+        } catch (ResourceAccessException e) {
+            checks.add(new JiraCheck(CHECK_AUTH, false, "Cannot reach " + base + ". Check the address and that it is reachable from the CaseFlow server."));
+            return skipRest(checks);
+        } catch (Exception e) {
+            checks.add(new JiraCheck(CHECK_AUTH, false, "Unexpected answer from " + base + " — is this a Jira Cloud site?"));
+            return skipRest(checks);
+        }
+
+        // 2. Project
+        String key = config.getProjectKey();
+        try {
+            Map<?, ?> project = restTemplate.exchange(base + "/rest/api/3/project/" + key, HttpMethod.GET, request, Map.class).getBody();
+            String name = project != null && project.get("name") != null ? " (" + project.get("name") + ")" : "";
+            checks.add(new JiraCheck(CHECK_PROJECT, true, "Project " + key + name + " found."));
+        } catch (HttpClientErrorException e) {
+            checks.add(new JiraCheck(CHECK_PROJECT, false, e.getStatusCode().value() == 404
+                    ? "Project " + key + " does not exist, or this Jira account cannot see it."
+                    : "Jira answered " + e.getStatusCode().value() + " when reading project " + key + "."));
+            return skipRest(checks);
+        } catch (Exception e) {
+            checks.add(new JiraCheck(CHECK_PROJECT, false, "Could not read project " + key + "."));
+            return skipRest(checks);
+        }
+
+        // 3. Issue type — this endpoint only lists types the account may create in the project.
+        List<String> issueTypes = new ArrayList<>();
+        try {
+            Map<?, ?> meta = restTemplate.exchange(base + "/rest/api/3/issue/createmeta/" + key + "/issuetypes",
+                    HttpMethod.GET, request, Map.class).getBody();
+            Object list = meta == null ? null : meta.get("issueTypes") != null ? meta.get("issueTypes") : meta.get("values");
+            if (list instanceof List<?> types) {
+                for (Object t : types) {
+                    if (t instanceof Map<?, ?> m && m.get("name") != null) issueTypes.add(String.valueOf(m.get("name")));
+                }
+            }
+        } catch (Exception e) {
+            checks.add(new JiraCheck(CHECK_ISSUE_TYPE, false, "Could not list the issue types of project " + key + "."));
+            return new JiraDiagnostics(false, checks, issueTypes);
+        }
+        String wanted = config.getIssueType();
+        if (issueTypes.isEmpty()) {
+            checks.add(new JiraCheck(CHECK_ISSUE_TYPE, false,
+                    "This Jira account cannot create issues in " + key + ". Give it the \"Create issues\" project permission."));
+        } else if (issueTypes.stream().anyMatch(t -> t.equalsIgnoreCase(wanted))) {
+            checks.add(new JiraCheck(CHECK_ISSUE_TYPE, true, "Issue type \"" + wanted + "\" can be created in " + key + "."));
+        } else {
+            checks.add(new JiraCheck(CHECK_ISSUE_TYPE, false,
+                    "Issue type \"" + wanted + "\" is not available in " + key + ". Available: " + String.join(", ", issueTypes) + "."));
+        }
+        return new JiraDiagnostics(checks.stream().allMatch(JiraCheck::ok), checks, issueTypes);
+    }
+
+    private static JiraDiagnostics skipRest(List<JiraCheck> checks) {
+        for (String key : List.of(CHECK_AUTH, CHECK_PROJECT, CHECK_ISSUE_TYPE)) {
+            if (checks.stream().noneMatch(c -> c.key().equals(key))) {
+                checks.add(new JiraCheck(key, false, "Skipped — fix the step above first."));
+            }
+        }
+        return new JiraDiagnostics(false, checks, List.of());
+    }
+
+    public static final String CHECK_AUTH = "AUTH";
+    public static final String CHECK_PROJECT = "PROJECT";
+    public static final String CHECK_ISSUE_TYPE = "ISSUE_TYPE";
+
+    /** One step of {@link #diagnose}; {@code key} is AUTH, PROJECT or ISSUE_TYPE. */
+    public record JiraCheck(String key, boolean ok, String message) {}
+
+    /** Result of {@link #diagnose}; {@code issueTypes} lists what the account may create (empty unless reached). */
+    public record JiraDiagnostics(boolean success, List<JiraCheck> checks, List<String> issueTypes) {}
 
     // ── Private helpers ───────────────────────────────────────────────────────
 

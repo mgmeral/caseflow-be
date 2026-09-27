@@ -80,4 +80,39 @@ public class JiraConfigService {
                 .orElseThrow(() -> new IllegalStateException("Jira integration is not configured"));
         return jiraApiClient.testConnection(config);
     }
+
+    /**
+     * Runs the step-by-step Jira check against the given, possibly unsaved, values — nothing is
+     * persisted. A blank token reuses the saved one only when the site address is unchanged, so
+     * a stored token is never sent to a different host.
+     *
+     * @throws IllegalStateException if no token is available for this address
+     */
+    @Transactional(readOnly = true)
+    public JiraApiClient.JiraDiagnostics diagnose(String baseUrl, String username, String apiToken,
+                                                  String projectKey, String issueType) {
+        String normalizedBase = normalizeBaseUrl(baseUrl);
+        String token = apiToken != null && !apiToken.isBlank() ? apiToken : null;
+        if (token == null) {
+            token = configRepository.findFirstByOrderByIdAsc()
+                    .filter(saved -> normalizeBaseUrl(saved.getBaseUrl()).equalsIgnoreCase(normalizedBase))
+                    .map(JiraConfig::getApiToken)
+                    .filter(t -> !t.isBlank())
+                    .orElseThrow(() -> new IllegalStateException(
+                            "Enter the API token — a saved token is only reused for the same Jira address."));
+        }
+
+        JiraConfig draft = new JiraConfig();
+        draft.setBaseUrl(normalizedBase);
+        draft.setAuthType("BASIC");
+        draft.setUsername(username != null ? username.strip() : null);
+        draft.setApiToken(token);
+        draft.setProjectKey(projectKey.strip());
+        draft.setIssueType(issueType != null && !issueType.isBlank() ? issueType.strip() : "Task");
+        return jiraApiClient.diagnose(draft);
+    }
+
+    private static String normalizeBaseUrl(String url) {
+        return url == null ? "" : url.strip().replaceAll("/+$", "");
+    }
 }

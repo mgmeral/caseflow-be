@@ -3,9 +3,9 @@ package com.caseflow.integration.jira.api;
 import com.caseflow.auth.CaseFlowUserDetails;
 import com.caseflow.integration.jira.api.dto.JiraConfigRequest;
 import com.caseflow.integration.jira.api.dto.JiraConfigResponse;
+import com.caseflow.integration.jira.api.dto.JiraTestResponse;
 import com.caseflow.integration.jira.domain.JiraConfig;
 import com.caseflow.integration.jira.service.JiraConfigService;
-import com.caseflow.integration.service.IntegrationJobExecutionException;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -17,7 +17,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -56,16 +55,23 @@ public class JiraAdminController {
         return ResponseEntity.ok(JiraConfigResponse.from(saved));
     }
 
+    /**
+     * Checks credentials, project and issue type step by step. With a body the given (unsaved)
+     * form values are tested; without one, the saved configuration. Nothing is persisted.
+     */
     @PostMapping("/test")
-    public ResponseEntity<Map<String, Object>> testConnection() {
+    public ResponseEntity<JiraTestResponse> testConnection(@Valid @RequestBody(required = false) JiraConfigRequest draft) {
         try {
-            boolean ok = configService.testConnection();
-            return ResponseEntity.ok(Map.of("success", ok, "message", "Connection successful"));
+            if (draft == null) {
+                JiraConfig saved = configService.findConfig()
+                        .orElseThrow(() -> new IllegalStateException("Jira integration is not configured"));
+                return ResponseEntity.ok(JiraTestResponse.from(configService.diagnose(
+                        saved.getBaseUrl(), saved.getUsername(), null, saved.getProjectKey(), saved.getIssueType())));
+            }
+            return ResponseEntity.ok(JiraTestResponse.from(configService.diagnose(
+                    draft.baseUrl(), draft.username(), draft.apiToken(), draft.projectKey(), draft.issueType())));
         } catch (IllegalStateException e) {
-            return ResponseEntity.badRequest()
-                    .body(Map.of("success", false, "message", e.getMessage()));
-        } catch (IntegrationJobExecutionException e) {
-            return ResponseEntity.ok(Map.of("success", false, "message", e.getMessage()));
+            return ResponseEntity.badRequest().body(JiraTestResponse.failure(e.getMessage()));
         }
     }
 }

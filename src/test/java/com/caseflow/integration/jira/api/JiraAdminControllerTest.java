@@ -5,6 +5,7 @@ import com.caseflow.auth.CaseFlowUserDetailsService;
 import com.caseflow.auth.JwtTokenService;
 import com.caseflow.common.security.SecurityConfig;
 import com.caseflow.integration.jira.domain.JiraConfig;
+import com.caseflow.integration.jira.service.JiraApiClient;
 import com.caseflow.integration.jira.service.JiraConfigService;
 import com.caseflow.ticket.security.TicketAuthorizationService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -28,6 +29,8 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
@@ -102,12 +105,59 @@ class JiraAdminControllerTest {
 
     @Test
     @WithMockUser(authorities = "PERM_INTEGRATION_CONFIG_MANAGE")
-    void testConnection_returns200_onSuccess() throws Exception {
-        when(configService.testConnection()).thenReturn(true);
+    void testConnection_withoutBody_checksTheSavedConfig() throws Exception {
+        JiraConfig saved = buildConfig();
+        saved.setUsername("ops@acme.com");
+        when(configService.findConfig()).thenReturn(Optional.of(saved));
+        when(configService.diagnose("https://jira.example.com", "ops@acme.com", null, "TEST", "Task"))
+                .thenReturn(new JiraApiClient.JiraDiagnostics(true, List.of(
+                        new JiraApiClient.JiraCheck("AUTH", true, "Signed in"),
+                        new JiraApiClient.JiraCheck("PROJECT", true, "Project found"),
+                        new JiraApiClient.JiraCheck("ISSUE_TYPE", true, "Issue type ok")), List.of("Task", "Bug")));
 
         mockMvc.perform(post("/api/admin/integrations/jira/test").with(csrf()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.success").value(true));
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.checks.length()").value(3))
+                .andExpect(jsonPath("$.issueTypes[1]").value("Bug"));
+    }
+
+    @Test
+    @WithMockUser(authorities = "PERM_INTEGRATION_CONFIG_MANAGE")
+    void testConnection_withBody_checksTheUnsavedValues_andReportsTheFirstFailure() throws Exception {
+        when(configService.diagnose("https://acme.atlassian.net", "ops@acme.com", "tok", "SUP", "Task"))
+                .thenReturn(new JiraApiClient.JiraDiagnostics(false, List.of(
+                        new JiraApiClient.JiraCheck("AUTH", true, "Signed in"),
+                        new JiraApiClient.JiraCheck("PROJECT", false, "Project SUP does not exist"),
+                        new JiraApiClient.JiraCheck("ISSUE_TYPE", false, "Skipped")), List.of()));
+
+        Map<String, Object> body = Map.of("baseUrl", "https://acme.atlassian.net", "username", "ops@acme.com",
+                "apiToken", "tok", "projectKey", "SUP", "issueType", "Task", "enabled", false);
+
+        mockMvc.perform(post("/api/admin/integrations/jira/test").with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message").value("Project SUP does not exist"))
+                .andExpect(jsonPath("$.checks[1].key").value("PROJECT"));
+        verify(configService, never()).save(any(), any(), any(), any(), any(), any(), any(), any(), anyBoolean(), anyLong());
+    }
+
+    @Test
+    @WithMockUser(authorities = "PERM_INTEGRATION_CONFIG_MANAGE")
+    void testConnection_returns400_whenNoTokenIsAvailable() throws Exception {
+        when(configService.diagnose(any(), any(), any(), any(), any()))
+                .thenThrow(new IllegalStateException("Enter the API token"));
+
+        Map<String, Object> body = Map.of("baseUrl", "https://other.example.com", "projectKey", "SUP", "enabled", false);
+
+        mockMvc.perform(post("/api/admin/integrations/jira/test").with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message").value("Enter the API token"));
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
