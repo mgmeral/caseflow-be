@@ -4,6 +4,7 @@ import com.caseflow.ticket.domain.History;
 import com.caseflow.ticket.domain.TicketEventType;
 import com.caseflow.ticket.repository.HistoryRepository;
 import com.caseflow.ticket.repository.TicketRepository;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -19,17 +20,24 @@ import java.util.UUID;
  *
  * <p>Each event also carries the ticket's stable {@code publicId} so downstream
  * consumers can correlate events without a tickets-table join.
+ *
+ * <p>Every write also publishes a {@link TicketHistoryRecordedEvent}, so other modules
+ * (e.g. AI response-cache invalidation) can react to ticket changes without each
+ * mutation site having to know about them.
  */
 @Service
 public class TicketHistoryService {
 
     private final HistoryRepository historyRepository;
     private final TicketRepository ticketRepository;
+    private final ApplicationEventPublisher eventPublisher;
 
     public TicketHistoryService(HistoryRepository historyRepository,
-                                TicketRepository ticketRepository) {
+                                TicketRepository ticketRepository,
+                                ApplicationEventPublisher eventPublisher) {
         this.historyRepository = historyRepository;
         this.ticketRepository = ticketRepository;
+        this.eventPublisher = eventPublisher;
     }
 
     // ── Generic write ─────────────────────────────────────────────────────────
@@ -38,7 +46,7 @@ public class TicketHistoryService {
     public void record(Long ticketId, String actionType, Long performedBy, String details) {
         UUID publicId = resolvePublicId(ticketId);
         History h = build(ticketId, publicId, actionType, performedBy, details);
-        historyRepository.save(h);
+        save(h);
     }
 
     // ── Ticket lifecycle ──────────────────────────────────────────────────────
@@ -48,7 +56,7 @@ public class TicketHistoryService {
         UUID publicId = resolvePublicId(ticketId);
         History h = build(ticketId, publicId, TicketEventType.TICKET_CREATED, performedBy, null);
         h.setSummary("Ticket created");
-        historyRepository.save(h);
+        save(h);
     }
 
     @Transactional
@@ -59,7 +67,7 @@ public class TicketHistoryService {
         h.setSummary("Status changed: " + from + " \u2192 " + to);
         h.setOldValueJson("\"" + from + "\"");
         h.setNewValueJson("\"" + to + "\"");
-        historyRepository.save(h);
+        save(h);
     }
 
     @Transactional
@@ -70,7 +78,7 @@ public class TicketHistoryService {
         h.setSummary("Priority changed: " + from + " \u2192 " + to);
         h.setOldValueJson("\"" + from + "\"");
         h.setNewValueJson("\"" + to + "\"");
-        historyRepository.save(h);
+        save(h);
     }
 
     @Transactional
@@ -80,7 +88,7 @@ public class TicketHistoryService {
                 "userId=" + userId + ",groupId=" + groupId);
         h.setSummary("Assigned to user " + userId);
         h.setMetadataJson("{\"userId\":" + userId + ",\"groupId\":" + groupId + "}");
-        historyRepository.save(h);
+        save(h);
     }
 
     @Transactional
@@ -90,7 +98,7 @@ public class TicketHistoryService {
                 "userId=" + newUserId + ",groupId=" + newGroupId);
         h.setSummary("Reassigned to user " + newUserId);
         h.setMetadataJson("{\"userId\":" + newUserId + ",\"groupId\":" + newGroupId + "}");
-        historyRepository.save(h);
+        save(h);
     }
 
     @Transactional
@@ -98,7 +106,7 @@ public class TicketHistoryService {
         UUID publicId = resolvePublicId(ticketId);
         History h = build(ticketId, publicId, "UNASSIGNED", performedBy, null);
         h.setSummary("Assignment removed");
-        historyRepository.save(h);
+        save(h);
     }
 
     @Transactional
@@ -108,7 +116,7 @@ public class TicketHistoryService {
                 "from=" + fromGroupId + ",to=" + toGroupId);
         h.setSummary("Transferred from group " + fromGroupId + " to group " + toGroupId);
         h.setMetadataJson("{\"fromGroupId\":" + fromGroupId + ",\"toGroupId\":" + toGroupId + "}");
-        historyRepository.save(h);
+        save(h);
     }
 
     @Transactional
@@ -116,7 +124,7 @@ public class TicketHistoryService {
         UUID publicId = resolvePublicId(ticketId);
         History h = build(ticketId, publicId, TicketEventType.INTERNAL_NOTE_ADDED, performedBy, null);
         h.setSummary("Internal note added");
-        historyRepository.save(h);
+        save(h);
     }
 
     @Transactional
@@ -124,7 +132,7 @@ public class TicketHistoryService {
         UUID publicId = resolvePublicId(ticketId);
         History h = build(ticketId, publicId, "CLOSED", performedBy, null);
         h.setSummary("Ticket closed");
-        historyRepository.save(h);
+        save(h);
     }
 
     @Transactional
@@ -132,7 +140,7 @@ public class TicketHistoryService {
         UUID publicId = resolvePublicId(ticketId);
         History h = build(ticketId, publicId, "REOPENED", performedBy, null);
         h.setSummary("Ticket reopened");
-        historyRepository.save(h);
+        save(h);
     }
 
     // ── Email activity ────────────────────────────────────────────────────────
@@ -150,7 +158,7 @@ public class TicketHistoryService {
         h.setSummary("Inbound email received from " + fromAddress);
         h.setMetadataJson("{\"ingressEventId\":" + ingressEventId
                 + ",\"from\":\"" + escapeJson(fromAddress) + "\"}");
-        historyRepository.save(h);
+        save(h);
     }
 
     /**
@@ -165,7 +173,7 @@ public class TicketHistoryService {
         h.setSummary("Reply queued to " + toAddress);
         h.setMetadataJson("{\"dispatchId\":" + dispatchId
                 + ",\"toAddress\":\"" + escapeJson(toAddress) + "\"}");
-        historyRepository.save(h);
+        save(h);
     }
 
     /**
@@ -179,7 +187,7 @@ public class TicketHistoryService {
         h.setSourceType("SYSTEM");
         h.setSummary("Outbound reply sent");
         h.setMetadataJson("{\"dispatchId\":" + dispatchId + "}");
-        historyRepository.save(h);
+        save(h);
     }
 
     /**
@@ -196,7 +204,7 @@ public class TicketHistoryService {
         h.setMetadataJson("{\"dispatchId\":" + dispatchId
                 + ",\"permanent\":" + permanent
                 + ",\"reason\":\"" + escapeJson(reason) + "\"}");
-        historyRepository.save(h);
+        save(h);
     }
 
     // ── Content events ────────────────────────────────────────────────────────
@@ -209,7 +217,7 @@ public class TicketHistoryService {
         h.setSummary("Attachment added: " + fileName);
         h.setMetadataJson("{\"attachmentId\":" + attachmentId
                 + ",\"fileName\":\"" + escapeJson(fileName) + "\"}");
-        historyRepository.save(h);
+        save(h);
     }
 
     @Transactional
@@ -220,7 +228,7 @@ public class TicketHistoryService {
         h.setSummary("Template used: " + templateCode);
         h.setMetadataJson("{\"templateId\":" + templateId
                 + ",\"templateCode\":\"" + escapeJson(templateCode) + "\"}");
-        historyRepository.save(h);
+        save(h);
     }
 
     // ── Tag events ────────────────────────────────────────────────────────────
@@ -232,7 +240,7 @@ public class TicketHistoryService {
         h.setSummary("Tag added: " + tagCode);
         h.setMetadataJson("{\"tagId\":" + tagId
                 + ",\"tagCode\":\"" + escapeJson(tagCode) + "\"}");
-        historyRepository.save(h);
+        save(h);
     }
 
     @Transactional
@@ -242,7 +250,7 @@ public class TicketHistoryService {
         h.setSummary("Tag removed: " + tagCode);
         h.setMetadataJson("{\"tagId\":" + tagId
                 + ",\"tagCode\":\"" + escapeJson(tagCode) + "\"}");
-        historyRepository.save(h);
+        save(h);
     }
 
     // ── Jira integration events ───────────────────────────────────────────────
@@ -254,7 +262,7 @@ public class TicketHistoryService {
                 performedBy, null);
         h.setSummary("Jira issue creation requested");
         h.setMetadataJson("{\"jobId\":" + jobId + "}");
-        historyRepository.save(h);
+        save(h);
     }
 
     @Transactional
@@ -267,7 +275,7 @@ public class TicketHistoryService {
         h.setMetadataJson("{\"jobId\":" + jobId
                 + ",\"issueKey\":\"" + escapeJson(issueKey) + "\""
                 + ",\"issueUrl\":\"" + escapeJson(issueUrl) + "\"}");
-        historyRepository.save(h);
+        save(h);
     }
 
     @Transactional
@@ -281,7 +289,7 @@ public class TicketHistoryService {
         h.setMetadataJson("{\"jobId\":" + jobId
                 + ",\"permanent\":" + permanent
                 + ",\"reason\":\"" + escapeJson(reason) + "\"}");
-        historyRepository.save(h);
+        save(h);
     }
 
     // ── External notification events ──────────────────────────────────────────
@@ -298,7 +306,7 @@ public class TicketHistoryService {
                 + ",\"channelType\":\"" + escapeJson(channelType) + "\""
                 + ",\"channelName\":\"" + escapeJson(channelName) + "\""
                 + ",\"eventType\":\"" + escapeJson(eventType) + "\"}");
-        historyRepository.save(h);
+        save(h);
     }
 
     @Transactional
@@ -313,7 +321,7 @@ public class TicketHistoryService {
                 + ",\"channelType\":\"" + escapeJson(channelType) + "\""
                 + ",\"channelName\":\"" + escapeJson(channelName) + "\""
                 + ",\"reason\":\"" + escapeJson(reason) + "\"}");
-        historyRepository.save(h);
+        save(h);
     }
 
     // ── Scheduled email events ────────────────────────────────────────────────
@@ -328,7 +336,7 @@ public class TicketHistoryService {
         h.setMetadataJson("{\"dispatchId\":" + dispatchId
                 + ",\"toAddress\":\"" + escapeJson(toAddress) + "\""
                 + ",\"sendNotBefore\":\"" + sendNotBefore + "\"}");
-        historyRepository.save(h);
+        save(h);
     }
 
     @Transactional
@@ -338,7 +346,7 @@ public class TicketHistoryService {
                 performedBy, null);
         h.setSummary("Scheduled email canceled");
         h.setMetadataJson("{\"dispatchId\":" + dispatchId + "}");
-        historyRepository.save(h);
+        save(h);
     }
 
     @Transactional
@@ -347,7 +355,7 @@ public class TicketHistoryService {
         h.setSourceType("SYSTEM");
         h.setSummary("Scheduled email sent");
         h.setMetadataJson("{\"dispatchId\":" + dispatchId + "}");
-        historyRepository.save(h);
+        save(h);
     }
 
     @Transactional
@@ -358,7 +366,7 @@ public class TicketHistoryService {
         h.setSummary("Scheduled email failed: " + truncate(reason, 200));
         h.setMetadataJson("{\"dispatchId\":" + dispatchId
                 + ",\"reason\":\"" + escapeJson(reason) + "\"}");
-        historyRepository.save(h);
+        save(h);
     }
 
     // ── Query ─────────────────────────────────────────────────────────────────
@@ -374,6 +382,11 @@ public class TicketHistoryService {
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
+
+    private void save(History h) {
+        historyRepository.save(h);
+        eventPublisher.publishEvent(new TicketHistoryRecordedEvent(h.getTicketId(), h.getActionType()));
+    }
 
     private History build(Long ticketId, UUID ticketPublicId, String actionType,
                           Long performedBy, String details) {

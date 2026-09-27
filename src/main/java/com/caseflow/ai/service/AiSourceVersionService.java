@@ -12,17 +12,9 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * Manages the AI source version for tickets.
  *
- * <p>The source version increments only when AI-relevant ticket data changes:
- * <ul>
- *   <li>Inbound or outbound email added</li>
- *   <li>Internal note added</li>
- *   <li>Ticket resolved or closed</li>
- *   <li>Tags changed</li>
- *   <li>Resolution summary changed</li>
- * </ul>
- *
- * <p>Version increments are NOT triggered by cosmetic changes like status transitions
- * between intermediate states, priority changes, or assignment changes.
+ * <p>The source version increments when data the AI requests are built from changes:
+ * emails, internal notes, tags, status and priority. {@link AiCacheInvalidationListener}
+ * decides which ticket history events count; assignment and transfer changes do not.
  *
  * <p>On increment, response cache entries for the ticket are invalidated.
  */

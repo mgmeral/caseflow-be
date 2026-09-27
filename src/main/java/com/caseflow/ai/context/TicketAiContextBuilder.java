@@ -22,6 +22,7 @@ import com.caseflow.ticket.domain.Ticket;
 import com.caseflow.ticket.domain.TicketTag;
 import com.caseflow.ticket.repository.TagRepository;
 import com.caseflow.ticket.repository.TicketTagRepository;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,9 +32,11 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.Function;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -57,6 +60,15 @@ public class TicketAiContextBuilder {
     private static final DateTimeFormatter ISO_FMT = DateTimeFormatter.ISO_INSTANT;
 
     private static final String DEFAULT_REPLY_TEMPLATE_CODE = "CUSTOMER_REPLY";
+
+    private static final Pattern TURKISH_LETTERS = Pattern.compile("[ğşı]");
+    private static final Pattern TURKISH_WORDS = Pattern.compile(
+            "\\b(bir|ile|icin|için|degil|değil|merhaba|lutfen|lütfen|tesekkur|teşekkür|tesekkurler|teşekkürler|sipariş|siparis)\\b",
+            Pattern.UNICODE_CHARACTER_CLASS);
+
+    /** Answer language when the ticket text gives no signal; see {@link #resolveLocale}. */
+    @Value("${caseflow.ai.default-locale:en}")
+    private String defaultLocale = "en";
 
     private final NoteRepository noteRepository;
     private final EmailDocumentRepository emailDocumentRepository;
@@ -142,7 +154,7 @@ public class TicketAiContextBuilder {
                 inbound,
                 outbound,
                 internalNotes,
-                "en"
+                resolveLocale(ticket, inbound.stream().map(SummaryContext.MessageSnippet::preview).toList())
         );
     }
 
@@ -208,7 +220,7 @@ public class TicketAiContextBuilder {
                 thread,
                 tags,
                 internalNotes,
-                "en",
+                resolveLocale(ticket, latestBody != null ? List.of(latestBody) : List.of()),
                 "professional",
                 List.of(),   // policySnippets — no Policy module yet; context is ready
                 constraints,
@@ -243,7 +255,7 @@ public class TicketAiContextBuilder {
                 ticket.getPriority().name(),
                 tags,
                 customerName,
-                "en"
+                resolveLocale(ticket, userQuestion != null ? List.of(userQuestion) : List.of())
         );
     }
 
@@ -291,6 +303,27 @@ public class TicketAiContextBuilder {
             if (minutesLeft <= 60) return SlaState.WARNING.name();
         }
         return SlaState.OK.name();
+    }
+
+    /**
+     * Picks the language the AI should answer in, from the ticket's own text rather than the
+     * requesting agent, because cached AI responses are shared by every agent on the ticket.
+     *
+     * <p>Deliberately a small heuristic, not a language detector: Turkish is recognised by its
+     * distinctive letters (ğ, ş, ı) or common function words that customers also type without
+     * diacritics; everything else falls back to {@code caseflow.ai.default-locale}.
+     */
+    String resolveLocale(Ticket ticket, List<String> customerTexts) {
+        StringBuilder text = new StringBuilder();
+        if (ticket.getSubject() != null) text.append(ticket.getSubject()).append('\n');
+        if (ticket.getDescription() != null) text.append(ticket.getDescription()).append('\n');
+        customerTexts.stream().filter(Objects::nonNull).forEach(t -> text.append(t).append('\n'));
+
+        String lower = text.toString().toLowerCase(Locale.ROOT);
+        if (TURKISH_LETTERS.matcher(lower).find() || TURKISH_WORDS.matcher(lower).find()) {
+            return "tr";
+        }
+        return defaultLocale;
     }
 
     /**

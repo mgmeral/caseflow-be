@@ -5,9 +5,11 @@ import com.caseflow.ticket.domain.Ticket;
 import com.caseflow.ticket.domain.TicketEventType;
 import com.caseflow.ticket.repository.HistoryRepository;
 import com.caseflow.ticket.repository.TicketRepository;
+import com.caseflow.workflow.history.TicketHistoryRecordedEvent;
 import com.caseflow.workflow.history.TicketHistoryService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.ApplicationEventPublisher;
 
 import java.util.List;
 import java.util.Optional;
@@ -23,6 +25,7 @@ class TicketHistoryServiceTest {
 
     private HistoryRepository historyRepository;
     private TicketRepository ticketRepository;
+    private ApplicationEventPublisher eventPublisher;
     private TicketHistoryService service;
     private UUID ticketPublicId;
     private Ticket ticket;
@@ -31,7 +34,8 @@ class TicketHistoryServiceTest {
     void setUp() {
         historyRepository = mock(HistoryRepository.class);
         ticketRepository  = mock(TicketRepository.class);
-        service = new TicketHistoryService(historyRepository, ticketRepository);
+        eventPublisher    = mock(ApplicationEventPublisher.class);
+        service = new TicketHistoryService(historyRepository, ticketRepository, eventPublisher);
 
         ticketPublicId = UUID.randomUUID();
         ticket = new Ticket();
@@ -51,6 +55,19 @@ class TicketHistoryServiceTest {
         }
         when(ticketRepository.findById(42L)).thenReturn(Optional.of(ticket));
         when(historyRepository.save(any(History.class))).thenAnswer(inv -> inv.getArgument(0));
+    }
+
+    // ── Event publication ─────────────────────────────────────────────────────
+
+    @Test
+    void everyWrite_publishesHistoryRecordedEvent() {
+        service.recordNoteAdded(42L, 1L);
+        service.recordTagAdded(42L, ticketPublicId, 7L, "AUTH", 1L);
+
+        verify(eventPublisher).publishEvent(
+                new TicketHistoryRecordedEvent(42L, TicketEventType.INTERNAL_NOTE_ADDED));
+        verify(eventPublisher).publishEvent(
+                new TicketHistoryRecordedEvent(42L, TicketEventType.TAG_ADDED));
     }
 
     // ── TICKET_CREATED ────────────────────────────────────────────────────────

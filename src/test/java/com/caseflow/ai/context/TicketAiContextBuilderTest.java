@@ -29,6 +29,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Instant;
 import java.util.List;
@@ -234,6 +235,54 @@ class TicketAiContextBuilderTest {
             assertThat(m.direction()).isEqualTo("inbound");
             assertThat(m.preview()).startsWith("Login issue after password change");
         });
+    }
+
+    // ── Locale ────────────────────────────────────────────────────────────────
+
+    @Test
+    void resolveLocale_turkishLetters_returnsTr() {
+        ticket.setSubject("Şifre sıfırlama çalışmıyor");
+
+        assertThat(builder.resolveLocale(ticket, List.of())).isEqualTo("tr");
+    }
+
+    @Test
+    void resolveLocale_turkishWithoutDiacritics_returnsTr() {
+        ticket.setSubject("Login problemi");
+
+        assertThat(builder.resolveLocale(ticket, List.of("Merhaba, siparis ile ilgili bir sorun var")))
+                .isEqualTo("tr");
+    }
+
+    @Test
+    void resolveLocale_englishWithCapitalI_isNotMistakenForTurkish() {
+        // Lower-casing "I" with a Turkish locale would yield "ı" — must not count as Turkish.
+        ticket.setSubject("I CANNOT LOG IN");
+
+        assertThat(builder.resolveLocale(ticket, List.of("I've tried twice, it still fails.")))
+                .isEqualTo("en");
+    }
+
+    @Test
+    void resolveLocale_noSignal_usesConfiguredDefault() {
+        ReflectionTestUtils.setField(builder, "defaultLocale", "de");
+
+        assertThat(builder.resolveLocale(ticket, List.of("Order 12345"))).isEqualTo("de");
+    }
+
+    @Test
+    void buildSummaryContext_turkishMessage_setsTrLocale() {
+        when(customerRepository.findById(10L)).thenReturn(Optional.empty());
+        when(noteRepository.findByTicketIdOrderByCreatedAtAsc(1L)).thenReturn(List.of());
+        when(ticketTagRepository.findByTicketId(1L)).thenReturn(List.of());
+        EmailDocument email = new EmailDocument();
+        email.setDirection(EmailDirection.INBOUND);
+        email.setFrom("musteri@acme.com");
+        email.setTextBody("Şifremi değiştirdikten sonra giriş yapamıyorum.");
+        setReceivedAt(email, Instant.now());
+        when(emailDocumentRepository.findByTicketId(1L)).thenReturn(List.of(email));
+
+        assertThat(builder.buildSummaryContext(ticket).locale()).isEqualTo("tr");
     }
 
     @Test
