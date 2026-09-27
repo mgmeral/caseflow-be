@@ -85,7 +85,7 @@ class AiAssistServiceTest {
         // Default: no AI index entry (sourceVersion=0) and no cache hits
         // lenient() because not all tests call cache-enabled methods (replyDraft / policyGuidance skip cache)
         lenient().when(aiIndexRepository.findByTicketId(anyLong())).thenReturn(Optional.empty());
-        lenient().when(cacheRepository.findByTicketIdAndSourceVersionAndResponseType(anyLong(), anyLong(), any(AiResponseType.class)))
+        lenient().when(cacheRepository.findFirstByTicketIdAndSourceVersionAndResponseTypeAndIsStaleIsFalse(anyLong(), anyLong(), any(AiResponseType.class)))
                 .thenReturn(Optional.empty());
         lenient().when(cacheRepository.save(any())).thenAnswer(i -> i.getArgument(0));
     }
@@ -160,6 +160,34 @@ class AiAssistServiceTest {
         assertThat(result.metadata().available()).isTrue();
         assertThat(result.metadata().model()).isEqualTo("gpt-4o");
         assertThat(result.ticketId()).isEqualTo(1L);
+    }
+
+    @Test
+    void summarize_overwritesAnExpiredCacheRowInPlace_insteadOfInsertingASecondOne() {
+        // Regression: invalidating the old row and inserting a new one made Hibernate flush the
+        // INSERT first, which collided with the still-live row on idx_ai_cache_ticket_version_type.
+        TicketAiResponseCache expired = new TicketAiResponseCache();
+        expired.setTicketId(1L);
+        expired.setSourceVersion(0L);
+        expired.setResponseType(AiResponseType.SUMMARY);
+        expired.setResponsePayload("{}");
+        expired.setExpiresAt(Instant.now().minusSeconds(60));
+        when(cacheRepository.findFirstByTicketIdAndSourceVersionAndResponseTypeAndIsStaleIsFalse(1L, 0L, AiResponseType.SUMMARY))
+                .thenReturn(Optional.of(expired));
+        when(ticketRepository.findById(1L)).thenReturn(Optional.of(ticket));
+        when(availabilityService.isAvailable()).thenReturn(true);
+        when(contextBuilder.buildSummaryContext(ticket)).thenReturn(stubSummaryContext());
+        when(aiClient.requestSummary(any(), eq(1L))).thenReturn(
+                new AiRawSummaryResponse("Fresh summary.", null, "qwen", "v1", Instant.now().toString(), "corr-1"));
+
+        AiSummaryAssistResponse result = sut.summarize(1L);
+
+        assertThat(result.summary()).isEqualTo("Fresh summary.");
+        ArgumentCaptor<TicketAiResponseCache> saved = ArgumentCaptor.forClass(TicketAiResponseCache.class);
+        verify(cacheRepository).save(saved.capture());
+        assertThat(saved.getValue()).isSameAs(expired);
+        assertThat(saved.getValue().isValid()).isTrue();
+        assertThat(saved.getValue().getResponsePayload()).contains("Fresh summary.");
     }
 
     @Test

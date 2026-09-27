@@ -13,10 +13,12 @@ import java.util.Optional;
 public interface TicketAiResponseCacheRepository extends JpaRepository<TicketAiResponseCache, Long> {
 
     /**
-     * Finds a cache entry by ticket, source version, and response type.
-     * The caller must also check {@link TicketAiResponseCache#isValid()} before using the result.
+     * The live (non-stale) cache entry for ticket + source version + response type. At most one
+     * exists (partial unique index {@code idx_ai_cache_ticket_version_type}); stale rows with the
+     * same key may pile up after invalidation and are deliberately ignored.
+     * The caller must also check {@link TicketAiResponseCache#isValid()} for expiry.
      */
-    Optional<TicketAiResponseCache> findByTicketIdAndSourceVersionAndResponseType(
+    Optional<TicketAiResponseCache> findFirstByTicketIdAndSourceVersionAndResponseTypeAndIsStaleIsFalse(
             Long ticketId, long sourceVersion, AiResponseType responseType);
 
     /**

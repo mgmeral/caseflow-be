@@ -289,7 +289,7 @@ public class AiAssistService {
 
     private <T> Optional<T> loadCache(Long ticketId, long sourceVersion,
                                        AiResponseType type, Class<T> responseClass) {
-        return cacheRepository.findByTicketIdAndSourceVersionAndResponseType(ticketId, sourceVersion, type)
+        return cacheRepository.findFirstByTicketIdAndSourceVersionAndResponseTypeAndIsStaleIsFalse(ticketId, sourceVersion, type)
                 .filter(TicketAiResponseCache::isValid)
                 .map(entry -> {
                     try {
@@ -309,17 +309,18 @@ public class AiAssistService {
         try {
             String payload = objectMapper.writeValueAsString(response);
 
-            // Upsert: mark any old entry stale, then save new one
-            cacheRepository.findByTicketIdAndSourceVersionAndResponseType(ticketId, sourceVersion, type)
-                    .ifPresent(old -> {
-                        old.invalidate();
-                        cacheRepository.save(old);
+            // Upsert by overwriting the live row in place. Marking it stale and inserting a new row
+            // breaks: Hibernate flushes the INSERT before the UPDATE, so the new row collides with
+            // the not-yet-stale old one on idx_ai_cache_ticket_version_type and the request fails.
+            TicketAiResponseCache entry = cacheRepository
+                    .findFirstByTicketIdAndSourceVersionAndResponseTypeAndIsStaleIsFalse(ticketId, sourceVersion, type)
+                    .orElseGet(() -> {
+                        TicketAiResponseCache fresh = new TicketAiResponseCache();
+                        fresh.setTicketId(ticketId);
+                        fresh.setSourceVersion(sourceVersion);
+                        fresh.setResponseType(type);
+                        return fresh;
                     });
-
-            TicketAiResponseCache entry = new TicketAiResponseCache();
-            entry.setTicketId(ticketId);
-            entry.setSourceVersion(sourceVersion);
-            entry.setResponseType(type);
             entry.setResponsePayload(payload);
             entry.setModelName(model);
             entry.setPromptVersion(promptVersion);
