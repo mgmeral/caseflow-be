@@ -1,5 +1,6 @@
 package com.caseflow.ai.context;
 
+import com.caseflow.ai.client.dto.request.AiTicketIngestRequest;
 import com.caseflow.ai.context.dto.PolicyGuidanceContext;
 import com.caseflow.ai.context.dto.ReplyDraftContext;
 import com.caseflow.ai.context.dto.SimilarCasesContext;
@@ -57,6 +58,10 @@ public class TicketAiContextBuilder {
     private static final int MAX_MESSAGES_IN_CONTEXT = 5;
     private static final int MAX_NOTES_IN_CONTEXT = 3;
     private static final int PREVIEW_MAX_CHARS = 500;
+    /** Similar-case search indexes more text than a prompt preview carries. */
+    private static final int INGEST_PART_MAX_CHARS = 2000;
+    private static final int MAX_INGEST_INBOUND_EMAILS = 3;
+    private static final int MAX_INGEST_OUTBOUND_EMAILS = 2;
     private static final DateTimeFormatter ISO_FMT = DateTimeFormatter.ISO_INSTANT;
 
     private static final String DEFAULT_REPLY_TEMPLATE_CODE = "CUSTOMER_REPLY";
@@ -242,6 +247,65 @@ public class TicketAiContextBuilder {
         );
     }
 
+    /**
+     * What a resolved/closed ticket contributes to similar-case search: the problem (subject,
+     * description, first customer emails) and how it was handled (latest agent replies and the
+     * latest internal note). Indexed content is only ever shown to agents allowed to read the
+     * source ticket (checked in {@code AiAssistService}).
+     */
+    @Transactional(readOnly = true)
+    public AiTicketIngestRequest buildIngestRequest(Ticket ticket) {
+        List<EmailDocument> emails = new ArrayList<>(emailDocumentRepository.findByTicketId(ticket.getId()));
+        emails.sort(Comparator.comparing(EmailDocument::getReceivedAt,
+                Comparator.nullsFirst(Comparator.naturalOrder())));
+
+        StringBuilder body = new StringBuilder();
+        if (ticket.getDescription() != null && !ticket.getDescription().isBlank()) {
+            body.append(truncate(ticket.getDescription(), INGEST_PART_MAX_CHARS)).append("\n\n");
+        }
+        emails.stream()
+                .filter(e -> EmailDirection.INBOUND.equals(e.getDirection()))
+                .limit(MAX_INGEST_INBOUND_EMAILS)
+                .map(this::emailText)
+                .filter(t -> t != null && !t.isBlank())
+                .forEach(t -> body.append(truncate(t, INGEST_PART_MAX_CHARS)).append("\n\n"));
+        String bodyText = body.toString().strip();
+        if (bodyText.isEmpty()) {
+            bodyText = ticket.getSubject();   // the AI service requires a non-blank body
+        }
+
+        StringBuilder resolution = new StringBuilder();
+        List<EmailDocument> outbound = emails.stream()
+                .filter(e -> EmailDirection.OUTBOUND.equals(e.getDirection()))
+                .toList();
+        outbound.stream()
+                .skip(Math.max(0, outbound.size() - MAX_INGEST_OUTBOUND_EMAILS))
+                .map(this::emailText)
+                .filter(t -> t != null && !t.isBlank())
+                .forEach(t -> resolution.append(truncate(t, INGEST_PART_MAX_CHARS)).append("\n\n"));
+        noteRepository.findByTicketIdOrderByCreatedAtAsc(ticket.getId()).stream()
+                .filter(n -> NoteType.INTERNAL.equals(n.getType()))
+                .reduce((first, second) -> second)
+                .ifPresent(n -> resolution.append("Internal note: ")
+                        .append(truncate(n.getContent(), INGEST_PART_MAX_CHARS)));
+
+        return new AiTicketIngestRequest(
+                ticket.getPublicId().toString(),
+                ticket.getCustomerId() != null ? ticket.getCustomerId().toString() : null,
+                ticket.getAssignedGroupId() != null ? ticket.getAssignedGroupId().toString() : null,
+                resolveCustomerName(ticket.getCustomerId()),
+                ticket.getSubject(),
+                bodyText,
+                resolution.toString().strip(),
+                resolveTagCodes(ticket.getId()),
+                ticket.getStatus().name()
+        );
+    }
+
+    private String emailText(EmailDocument e) {
+        return e.getTextBody() != null && !e.getTextBody().isBlank() ? e.getTextBody() : e.getBodyPreview();
+    }
+
     @Transactional(readOnly = true)
     public PolicyGuidanceContext buildPolicyGuidanceContext(Ticket ticket, String userQuestion) {
         List<String> tags = resolveTagCodes(ticket.getId());
@@ -338,8 +402,12 @@ public class TicketAiContextBuilder {
     }
 
     private String truncate(String text) {
+        return truncate(text, PREVIEW_MAX_CHARS);
+    }
+
+    private String truncate(String text, int max) {
         if (text == null) return null;
-        return text.length() <= PREVIEW_MAX_CHARS ? text : text.substring(0, PREVIEW_MAX_CHARS) + "…";
+        return text.length() <= max ? text : text.substring(0, max) + "…";
     }
 
     private String maskEmailAddress(String email) {

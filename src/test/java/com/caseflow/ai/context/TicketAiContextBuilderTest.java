@@ -1,5 +1,6 @@
 package com.caseflow.ai.context;
 
+import com.caseflow.ai.client.dto.request.AiTicketIngestRequest;
 import com.caseflow.ai.context.dto.PolicyGuidanceContext;
 import com.caseflow.ai.context.dto.ReplyDraftContext;
 import com.caseflow.ai.context.dto.SimilarCasesContext;
@@ -34,6 +35,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyList;
@@ -283,6 +285,44 @@ class TicketAiContextBuilderTest {
         when(emailDocumentRepository.findByTicketId(1L)).thenReturn(List.of(email));
 
         assertThat(builder.buildSummaryContext(ticket).locale()).isEqualTo("tr");
+    }
+
+    @Test
+    void buildIngestRequest_indexesProblemAndResolution_underThePublicId() throws Exception {
+        UUID publicId = UUID.randomUUID();
+        var f = Ticket.class.getDeclaredField("publicId");
+        f.setAccessible(true);
+        f.set(ticket, publicId);
+        ticket.setStatus(TicketStatus.RESOLVED);
+        ticket.setDescription("Customer cannot log in after a password change.");
+        ticket.setAssignedGroupId(7L);
+
+        EmailDocument inbound = new EmailDocument();
+        inbound.setDirection(EmailDirection.INBOUND);
+        inbound.setTextBody("It says invalid credentials.");
+        setReceivedAt(inbound, Instant.parse("2026-09-01T10:00:00Z"));
+        EmailDocument reply = new EmailDocument();
+        reply.setDirection(EmailDirection.OUTBOUND);
+        reply.setTextBody("Please clear the saved password in your browser.");
+        setReceivedAt(reply, Instant.parse("2026-09-01T11:00:00Z"));
+        Note note = new Note();
+        note.setType(NoteType.INTERNAL);
+        note.setContent("Password manager kept the old password.");
+        setNoteCreatedAt(note, Instant.parse("2026-09-01T12:00:00Z"));
+
+        when(emailDocumentRepository.findByTicketId(1L)).thenReturn(List.of(reply, inbound));
+        when(noteRepository.findByTicketIdOrderByCreatedAtAsc(1L)).thenReturn(List.of(note));
+        when(ticketTagRepository.findByTicketId(1L)).thenReturn(List.of());
+        when(customerRepository.findById(10L)).thenReturn(Optional.empty());
+
+        AiTicketIngestRequest req = builder.buildIngestRequest(ticket);
+
+        assertThat(req.sourceId()).isEqualTo(publicId.toString());
+        assertThat(req.customerId()).isEqualTo("10");
+        assertThat(req.groupId()).isEqualTo("7");
+        assertThat(req.status()).isEqualTo("RESOLVED");
+        assertThat(req.body()).contains("cannot log in", "invalid credentials");
+        assertThat(req.resolutionSummary()).contains("clear the saved password", "Internal note: Password manager");
     }
 
     @Test

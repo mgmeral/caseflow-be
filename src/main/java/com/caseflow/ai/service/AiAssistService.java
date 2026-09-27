@@ -39,11 +39,13 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Predicate;
 
 /**
  * Orchestrates synchronous AI assist flows for ticket-level operations.
@@ -67,7 +69,10 @@ public class AiAssistService {
 
     private static final Logger log = LoggerFactory.getLogger(AiAssistService.class);
     private static final int SIMILAR_CASES_MAX = 5;
-    private static final int SIMILAR_CASES_OVERFETCH = 3;
+    /** Chunk matches requested from the AI service; many collapse into one ticket or are not visible. */
+    private static final int SIMILAR_CASES_TOP_K = 30;
+    /** Distinct candidate tickets cached per ticket, before visibility filtering. */
+    private static final int SIMILAR_CASE_CANDIDATES_KEPT = 15;
     private static final Duration CACHE_TTL = Duration.ofMinutes(30);
 
     private final CaseflowAiClient aiClient;
@@ -153,7 +158,7 @@ public class AiAssistService {
 
         try {
             ReplyDraftContext ctx = contextBuilder.buildReplyDraftContext(ticket);
-            AiReplyDraftRequest request = toReplyDraftRequest(ctx, correlationId, toneHint);
+            AiReplyDraftRequest request = toReplyDraftRequest(ctx, customerIdOf(ticket), correlationId, toneHint);
             AiRawReplyDraftResponse raw = aiClient.requestReplyDraft(request, ticketId);
 
             return new AiReplyDraftAssistResponse(
@@ -177,8 +182,16 @@ public class AiAssistService {
 
     // ── Similar cases ─────────────────────────────────────────────────────────
 
+    /**
+     * Similar resolved/closed tickets the caller may read.
+     *
+     * <p>Candidates come from the AI service (the ticket itself excluded) and are cached per
+     * ticket <em>before</em> any visibility filtering, so the cache is safe to share between
+     * agents. Every request then keeps only candidates {@code visibleToCaller} accepts, checked
+     * against the current database state — assignment can change after a ticket is indexed.
+     */
     @Transactional
-    public AiSimilarCasesAssistResponse similarCases(Long ticketId) {
+    public AiSimilarCasesAssistResponse similarCases(Long ticketId, Predicate<Ticket> visibleToCaller) {
         String correlationId = newCorrelationId();
         Ticket ticket = requireTicket(ticketId);
 
@@ -186,31 +199,31 @@ public class AiAssistService {
             return AiSimilarCasesAssistResponse.unavailable(ticketId, correlationId, "AI service disabled");
         }
 
-        long sourceVersion = resolveSourceVersion(ticketId);
-        Optional<AiSimilarCasesAssistResponse> cached = loadCache(ticketId, sourceVersion,
-                AiResponseType.SIMILAR_CASES, AiSimilarCasesAssistResponse.class);
-        if (cached.isPresent()) {
-            log.debug("AI similar-cases cache hit [ticketId={}, sourceVersion={}]", ticketId, sourceVersion);
-            return cached.get();
-        }
-
         try {
-            SimilarCasesContext ctx = contextBuilder.buildSimilarCasesContext(ticket);
-            // Matches are per chunk, so over-fetch and collapse to one entry per source ticket.
-            AiSimilarCasesRequest request = new AiSimilarCasesRequest(
-                    correlationId, similarCasesQuery(ctx), null, ctx.tags(),
-                    SIMILAR_CASES_MAX * SIMILAR_CASES_OVERFETCH);
-            AiRawSimilarCasesResponse raw = aiClient.requestSimilarCases(request, ticketId);
+            long sourceVersion = resolveSourceVersion(ticketId);
+            SimilarCaseCandidates candidates = loadCache(ticketId, sourceVersion,
+                    AiResponseType.SIMILAR_CASES, SimilarCaseCandidates.class)
+                    .filter(c -> c.candidates() != null)
+                    .orElse(null);
+            if (candidates == null) {
+                SimilarCasesContext ctx = contextBuilder.buildSimilarCasesContext(ticket);
+                // Matches are per chunk and some will be invisible to the caller, so over-fetch.
+                AiSimilarCasesRequest request = new AiSimilarCasesRequest(
+                        correlationId, similarCasesQuery(ctx), null, ctx.tags(), SIMILAR_CASES_TOP_K,
+                        new AiSimilarCasesRequest.Filters(
+                                AiTicketSyncService.INDEXED_STATUSES.stream().map(Enum::name).sorted().toList(),
+                                List.of(ticket.getPublicId().toString())));
+                AiRawSimilarCasesResponse raw = aiClient.requestSimilarCases(request, ticketId);
+                candidates = toCandidates(raw);
+                saveCache(ticketId, sourceVersion, AiResponseType.SIMILAR_CASES, candidates,
+                        raw.model(), raw.promptVersion(), parseInstant(raw.generatedAt()));
+            } else {
+                log.debug("AI similar-cases cache hit [ticketId={}, sourceVersion={}]", ticketId, sourceVersion);
+            }
 
-            List<AiSimilarCasesAssistResponse.SimilarCase> cases = toSimilarCases(raw);
-
-            AiSimilarCasesAssistResponse response = new AiSimilarCasesAssistResponse(ticketId, cases,
+            return new AiSimilarCasesAssistResponse(ticketId, visibleCases(candidates, visibleToCaller),
                     com.caseflow.ai.api.dto.AiAssistMetadata.of(
-                            raw.model(), raw.promptVersion(), raw.generatedAt(), correlationId));
-
-            saveCache(ticketId, sourceVersion, AiResponseType.SIMILAR_CASES, response,
-                    raw.model(), raw.promptVersion(), parseInstant(raw.generatedAt()));
-            return response;
+                            candidates.model(), candidates.promptVersion(), candidates.generatedAt(), correlationId));
 
         } catch (AiServiceUnavailableException ex) {
             log.warn("AI similar-cases unavailable [ticketId={}, correlationId={}]: {}",
@@ -237,7 +250,7 @@ public class AiAssistService {
         try {
             PolicyGuidanceContext ctx = contextBuilder.buildPolicyGuidanceContext(ticket, question);
             AiPolicyGuidanceRequest request = new AiPolicyGuidanceRequest(
-                    correlationId, ctx.userQuestion(), ctx.customerName(),
+                    correlationId, ctx.userQuestion(), ctx.customerName(), customerIdOf(ticket),
                     ctx.status(), ctx.priority(), ctx.tags(), null);
             AiRawPolicyGuidanceResponse raw = aiClient.requestPolicyGuidance(request, ticketId);
 
@@ -334,38 +347,66 @@ public class AiAssistService {
     }
 
     /**
-     * Collapses per-chunk matches into one entry per source ticket (first = highest score,
+     * Collapses per-chunk matches into one candidate per source ticket (first = highest score,
      * since the AI service returns matches in descending score order).
      */
-    private static List<AiSimilarCasesAssistResponse.SimilarCase> toSimilarCases(AiRawSimilarCasesResponse raw) {
-        if (raw.matches() == null) return List.of();
-        Map<String, AiRawSimilarCasesResponse.Match> bySource = new LinkedHashMap<>();
-        for (AiRawSimilarCasesResponse.Match m : raw.matches()) {
-            if (m.sourceId() == null || m.sourceId().isBlank()) continue;
-            bySource.putIfAbsent(m.sourceId(), m);
+    private static SimilarCaseCandidates toCandidates(AiRawSimilarCasesResponse raw) {
+        Map<String, SimilarCaseCandidates.Candidate> bySource = new LinkedHashMap<>();
+        if (raw.matches() != null) {
+            for (AiRawSimilarCasesResponse.Match m : raw.matches()) {
+                if (m.sourceId() == null || m.sourceId().isBlank()) continue;
+                Map<String, Object> meta = m.metadata() != null ? m.metadata() : Map.of();
+                bySource.putIfAbsent(m.sourceId(), new SimilarCaseCandidates.Candidate(
+                        m.sourceId(),
+                        m.score() != null ? m.score().floatValue() : 0f,
+                        m.snippet(),
+                        splitTags(meta.get("tags"))));
+            }
         }
-        return bySource.values().stream()
-                .limit(SIMILAR_CASES_MAX)
-                .map(m -> {
-                    Map<String, Object> meta = m.metadata() != null ? m.metadata() : Map.of();
-                    return new AiSimilarCasesAssistResponse.SimilarCase(
-                            stringOr(meta.get("ticketNo"), m.sourceId()),
-                            m.title(),
-                            m.score() != null ? m.score().floatValue() : 0f,
-                            stringOr(meta.get("resolutionSummary"), m.snippet()),
-                            splitTags(meta.get("tags")));
-                })
-                .toList();
+        return new SimilarCaseCandidates(bySource.values().stream().limit(SIMILAR_CASE_CANDIDATES_KEPT).toList(),
+                raw.model(), raw.promptVersion(), raw.generatedAt());
     }
 
-    private static String stringOr(Object value, String fallback) {
-        return value instanceof String s && !s.isBlank() ? s : fallback;
+    /**
+     * Candidates the caller may read, best first, with ticket number and subject taken from the
+     * database (not from the index, which may be stale). Candidates whose ticket no longer
+     * exists, or whose sourceId is not a ticket publicId, are dropped.
+     */
+    private List<AiSimilarCasesAssistResponse.SimilarCase> visibleCases(SimilarCaseCandidates candidates,
+                                                                        Predicate<Ticket> visibleToCaller) {
+        Map<UUID, SimilarCaseCandidates.Candidate> byPublicId = new LinkedHashMap<>();
+        for (SimilarCaseCandidates.Candidate c : candidates.candidates()) {
+            try {
+                byPublicId.putIfAbsent(UUID.fromString(c.sourceId()), c);
+            } catch (IllegalArgumentException notATicketPublicId) {
+                // indexed by something other than caseflow-be — ignore
+            }
+        }
+        if (byPublicId.isEmpty()) return List.of();
+        Map<UUID, Ticket> tickets = new HashMap<>();
+        ticketRepository.findByPublicIdIn(byPublicId.keySet()).forEach(t -> tickets.put(t.getPublicId(), t));
+
+        return byPublicId.entrySet().stream()
+                .filter(e -> tickets.containsKey(e.getKey()))
+                .filter(e -> visibleToCaller.test(tickets.get(e.getKey())))
+                .limit(SIMILAR_CASES_MAX)
+                .map(e -> {
+                    Ticket t = tickets.get(e.getKey());
+                    SimilarCaseCandidates.Candidate c = e.getValue();
+                    return new AiSimilarCasesAssistResponse.SimilarCase(
+                            t.getId(), t.getTicketNo(), t.getSubject(), c.score(), c.snippet(), c.tags());
+                })
+                .toList();
     }
 
     /** The AI service stores tags as one comma-separated metadata string. */
     private static List<String> splitTags(Object value) {
         if (!(value instanceof String s) || s.isBlank()) return List.of();
         return Arrays.stream(s.split(",")).map(String::strip).filter(t -> !t.isEmpty()).toList();
+    }
+
+    private static String customerIdOf(Ticket ticket) {
+        return ticket.getCustomerId() != null ? ticket.getCustomerId().toString() : null;
     }
 
     private String newCorrelationId() {
@@ -402,7 +443,7 @@ public class AiAssistService {
         );
     }
 
-    private AiReplyDraftRequest toReplyDraftRequest(ReplyDraftContext ctx, String correlationId,
+    private AiReplyDraftRequest toReplyDraftRequest(ReplyDraftContext ctx, String customerId, String correlationId,
                                                      String toneHintOverride) {
         String tone = toneHintOverride != null ? toneHintOverride : ctx.toneHint();
         List<AiReplyDraftRequest.LatestMessage> latestMessages = ctx.threadContext().stream()
@@ -411,6 +452,7 @@ public class AiAssistService {
         return new AiReplyDraftRequest(
                 correlationId,
                 ctx.customerName(),
+                customerId,
                 ctx.locale(),
                 tone,
                 ctx.status(),

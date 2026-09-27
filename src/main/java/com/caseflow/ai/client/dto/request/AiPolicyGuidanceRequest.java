@@ -12,6 +12,8 @@ public record AiPolicyGuidanceRequest(
         String correlationId,
         String query,
         String customerName,
+        /** Scopes policy retrieval to GLOBAL policies plus this customer's own. */
+        String customerId,
         String ticketStatus,
         String priority,
         List<String> tags,

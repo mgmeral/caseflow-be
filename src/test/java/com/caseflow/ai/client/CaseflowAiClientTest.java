@@ -276,7 +276,7 @@ class CaseflowAiClientTest {
 
         private static AiReplyDraftRequest replyDraftRequest(String correlationId) {
             return new AiReplyDraftRequest(
-                    correlationId, "Acme Corp", "en", "professional",
+                    correlationId, "Acme Corp", null, "en", "professional",
                     "OPEN", "MEDIUM", List.of(), List.of(), List.of(),
                     List.of(), List.of(), "RESOLUTION", null);
         }

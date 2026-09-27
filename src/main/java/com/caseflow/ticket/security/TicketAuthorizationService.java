@@ -50,6 +50,15 @@ public class TicketAuthorizationService {
         return inScope(auth, ticketQueryService.getById(ticketId));
     }
 
+    /**
+     * Same rule as {@link #canReadTicket}, for a ticket the caller already loaded — used to filter
+     * batches (e.g. AI similar cases) without one query per ticket.
+     */
+    public boolean canReadLoadedTicket(Authentication auth, Ticket ticket) {
+        if (!hasPermission(auth, Permission.TICKET_READ)) return false;
+        return inScope(auth, ticket);
+    }
+
     public boolean canReadTicketByPublicId(Authentication auth, UUID ticketPublicId) {
         if (!hasPermission(auth, Permission.TICKET_READ)) return false;
         return inScope(auth, ticketQueryService.getByPublicId(ticketPublicId));

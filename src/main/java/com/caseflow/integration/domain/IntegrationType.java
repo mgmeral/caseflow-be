@@ -6,5 +6,7 @@ package com.caseflow.integration.domain;
 public enum IntegrationType {
     JIRA_ISSUE_CREATE,
     SLACK_NOTIFICATION,
-    TEAMS_NOTIFICATION
+    TEAMS_NOTIFICATION,
+    /** Index or un-index a ticket in caseflow-ai-service's similar-case search (AI-001). */
+    AI_TICKET_SYNC
 }

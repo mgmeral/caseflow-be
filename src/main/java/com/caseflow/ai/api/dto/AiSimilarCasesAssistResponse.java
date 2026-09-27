@@ -10,7 +10,12 @@ public record AiSimilarCasesAssistResponse(
         List<SimilarCase> cases,
         AiAssistMetadata metadata
 ) {
+    /**
+     * @param ticketId  the similar ticket's id, for linking (only tickets the caller may read are returned)
+     * @param resolutionSummary snippet of the indexed ticket text
+     */
     public record SimilarCase(
+            Long ticketId,
             String ticketNo,
             String subject,
             float similarityScore,

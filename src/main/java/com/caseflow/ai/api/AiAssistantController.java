@@ -7,6 +7,7 @@ import com.caseflow.ai.api.dto.AiReplyDraftRequest;
 import com.caseflow.ai.api.dto.AiSimilarCasesAssistResponse;
 import com.caseflow.ai.api.dto.AiSummaryAssistResponse;
 import com.caseflow.ai.service.AiAssistService;
+import com.caseflow.ticket.security.TicketAuthorizationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -15,6 +16,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -43,9 +45,11 @@ public class AiAssistantController {
     private static final Logger log = LoggerFactory.getLogger(AiAssistantController.class);
 
     private final AiAssistService aiAssistService;
+    private final TicketAuthorizationService ticketAuth;
 
-    public AiAssistantController(AiAssistService aiAssistService) {
+    public AiAssistantController(AiAssistService aiAssistService, TicketAuthorizationService ticketAuth) {
         this.aiAssistService = aiAssistService;
+        this.ticketAuth = ticketAuth;
     }
 
     /**
@@ -85,9 +89,12 @@ public class AiAssistantController {
     @Operation(summary = "Find AI-similar resolved cases for a ticket")
     @GetMapping("/ai-similar-cases")
     @PreAuthorize("hasAuthority('PERM_AI_ASSIST') and @ticketAuth.canReadTicket(authentication, #ticketId)")
-    public ResponseEntity<AiSimilarCasesAssistResponse> similarCases(@PathVariable Long ticketId) {
+    public ResponseEntity<AiSimilarCasesAssistResponse> similarCases(@PathVariable Long ticketId,
+                                                                     Authentication authentication) {
         log.info("GET /tickets/{}/ai-similar-cases", ticketId);
-        return ResponseEntity.ok(aiAssistService.similarCases(ticketId));
+        // Only similar tickets this caller may read — checked against current assignment, not the index
+        return ResponseEntity.ok(aiAssistService.similarCases(ticketId,
+                t -> ticketAuth.canReadLoadedTicket(authentication, t)));
     }
 
     /**

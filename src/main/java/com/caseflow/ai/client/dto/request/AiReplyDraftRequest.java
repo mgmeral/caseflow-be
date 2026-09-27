@@ -12,6 +12,8 @@ import java.util.List;
 public record AiReplyDraftRequest(
         String correlationId,
         String customerName,
+        /** Scopes policy retrieval to GLOBAL policies plus this customer's own. */
+        String customerId,
         String locale,
         String tone,
         String ticketStatus,

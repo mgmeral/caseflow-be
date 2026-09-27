@@ -4,6 +4,8 @@ import com.caseflow.ai.client.dto.request.AiPolicyGuidanceRequest;
 import com.caseflow.ai.client.dto.request.AiReplyDraftRequest;
 import com.caseflow.ai.client.dto.request.AiSimilarCasesRequest;
 import com.caseflow.ai.client.dto.request.AiSummaryRequest;
+import com.caseflow.ai.client.dto.request.AiTicketIngestRequest;
+import com.caseflow.ai.client.dto.response.AiIngestResponse;
 import com.caseflow.ai.client.dto.response.AiRawPolicyGuidanceResponse;
 import com.caseflow.ai.client.dto.response.AiRawReplyDraftResponse;
 import com.caseflow.ai.client.dto.response.AiRawSimilarCasesResponse;
@@ -129,6 +131,41 @@ public class CaseflowAiClient {
         String path = "/api/ai/tickets/" + ticketId + "/policy-guidance";
         log.debug("AI policy-guidance request — correlationId={}, ticketId={}", request.correlationId(), ticketId);
         return post(path, request, request.correlationId(), AiRawPolicyGuidanceResponse.class);
+    }
+
+    /**
+     * Calls {@code POST /api/ai/ingest/tickets}. Re-ingesting a {@code sourceId} replaces its chunks.
+     *
+     * <p>No {@code @Retryable}/circuit breaker here: callers run inside the durable
+     * {@code integration_jobs} queue, which already retries with backoff.
+     *
+     * @throws AiServiceUnavailableException on any network, HTTP, or deserialization error
+     */
+    public AiIngestResponse ingestTicket(AiTicketIngestRequest request, String correlationId) {
+        log.debug("AI ticket ingest — correlationId={}, sourceId={}", correlationId, request.sourceId());
+        return post("/api/ai/ingest/tickets", request, correlationId, AiIngestResponse.class);
+    }
+
+    /**
+     * Calls {@code DELETE /api/ai/ingest/{sourceType}/{sourceId}}. Idempotent.
+     *
+     * @throws AiServiceUnavailableException on any network or HTTP error
+     */
+    public void deleteSource(String sourceType, String sourceId, String correlationId) {
+        String path = "/api/ai/ingest/" + sourceType + "/" + sourceId;
+        try {
+            restClient.delete()
+                    .uri(path)
+                    .header("X-Correlation-ID", correlationId != null ? correlationId : "")
+                    .header("X-Source", "caseflow-be")
+                    .retrieve()
+                    .toBodilessEntity();
+        } catch (RestClientResponseException ex) {
+            throw new AiServiceUnavailableException(path, ex.getStatusCode().value(),
+                    "AI service HTTP error " + ex.getStatusCode().value() + " for " + path);
+        } catch (RestClientException ex) {
+            throw new AiServiceUnavailableException(path, "AI service unreachable: " + ex.getMessage(), ex);
+        }
     }
 
     // ── Circuit-breaker fallbacks ─────────────────────────────────────────────

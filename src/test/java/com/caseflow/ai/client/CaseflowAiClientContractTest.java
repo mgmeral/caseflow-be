@@ -4,6 +4,8 @@ import com.caseflow.ai.client.dto.request.AiPolicyGuidanceRequest;
 import com.caseflow.ai.client.dto.request.AiReplyDraftRequest;
 import com.caseflow.ai.client.dto.request.AiSimilarCasesRequest;
 import com.caseflow.ai.client.dto.request.AiSummaryRequest;
+import com.caseflow.ai.client.dto.request.AiTicketIngestRequest;
+import com.caseflow.ai.client.dto.response.AiIngestResponse;
 import com.caseflow.ai.client.dto.response.AiRawPolicyGuidanceResponse;
 import com.caseflow.ai.client.dto.response.AiRawReplyDraftResponse;
 import com.caseflow.ai.client.dto.response.AiRawSimilarCasesResponse;
@@ -26,6 +28,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withNoContent;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 /**
@@ -42,6 +45,7 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 class CaseflowAiClientContractTest {
 
     private static final String BASE = "http://ai-test";
+    private static final String TICKET_PUBLIC_ID = "7d1f7e2a-3b8c-4d5e-9f10-1a2b3c4d5e6f";
 
     private MockRestServiceServer mockServer;
     private CaseflowAiClient client;
@@ -80,7 +84,7 @@ class CaseflowAiClientContractTest {
         expect("/api/ai/tickets/1/reply-draft", "requests/reply-draft-request.json", "reply-draft-response.json");
 
         AiRawReplyDraftResponse res = client.requestReplyDraft(new AiReplyDraftRequest(
-                "corr-1", "Acme Corp", "en", "professional", "IN_PROGRESS", "MEDIUM", List.of("AUTH"),
+                "corr-1", "Acme Corp", "42", "en", "professional", "IN_PROGRESS", "MEDIUM", List.of("AUTH"),
                 List.of(new AiReplyDraftRequest.LatestMessage(
                         "inbound", "c***@acme.com", "I cannot log in since yesterday.", "2026-09-27T09:00:00Z")),
                 List.of("Checked the account, it is not locked."), List.of(),
@@ -98,7 +102,8 @@ class CaseflowAiClientContractTest {
 
         AiRawSimilarCasesResponse res = client.requestSimilarCases(new AiSimilarCasesRequest(
                 "corr-1", "Login issue\nUser cannot log in after a password change.",
-                "Acme Corp", List.of("AUTH"), 15), 1L);
+                "Acme Corp", List.of("AUTH"), 30,
+                new AiSimilarCasesRequest.Filters(List.of("CLOSED", "RESOLVED"), List.of(TICKET_PUBLIC_ID))), 1L);
 
         assertThat(res.matches()).singleElement().satisfies(m -> {
             assertThat(m.sourceId()).isEqualTo("t-50");
@@ -141,10 +146,33 @@ class CaseflowAiClientContractTest {
         assertThat(res.warnings()).hasSize(1);
     }
 
+    @Test
+    void ticketIngest_matchesAiServiceContract() {
+        expect("/api/ai/ingest/tickets", "requests/ticket-ingest-request.json", "ingest-response.json");
+
+        AiIngestResponse res = client.ingestTicket(new AiTicketIngestRequest(
+                TICKET_PUBLIC_ID, "42", "7", "Acme Corp", "Login issue",
+                "User cannot log in after a password change.",
+                "Cleared the cached password in the browser.", List.of("AUTH"), "RESOLVED"), "corr-1");
+
+        assertThat(res.status()).isEqualTo("SUCCESS");
+        assertThat(res.chunksIndexed()).isEqualTo(2);
+        assertThat(res.sourceId()).isEqualTo(TICKET_PUBLIC_ID);
+    }
+
+    @Test
+    void deleteSource_callsAiServiceDeleteEndpoint() {
+        mockServer.expect(requestTo(BASE + "/api/ai/ingest/TICKET/" + TICKET_PUBLIC_ID))
+                .andExpect(method(HttpMethod.DELETE))
+                .andRespond(withNoContent());
+
+        client.deleteSource("TICKET", TICKET_PUBLIC_ID, "corr-1");
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static AiPolicyGuidanceRequest policyRequest() {
-        return new AiPolicyGuidanceRequest("corr-1", "What is the refund policy?", "Acme Corp",
+        return new AiPolicyGuidanceRequest("corr-1", "What is the refund policy?", "Acme Corp", "42",
                 "IN_PROGRESS", "MEDIUM", List.of("BILLING"), 5);
     }
 

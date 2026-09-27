@@ -2,10 +2,13 @@ package com.caseflow.ticket.repository;
 
 import com.caseflow.ticket.domain.Ticket;
 import com.caseflow.ticket.domain.TicketStatus;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -27,6 +30,10 @@ public interface TicketRepository
     Optional<Ticket> findByPublicId(UUID publicId);
 
     List<Ticket> findByStatus(TicketStatus status);
+
+    Page<Ticket> findByStatus(TicketStatus status, Pageable pageable);
+
+    List<Ticket> findByPublicIdIn(Collection<UUID> publicIds);
 
     List<Ticket> findByAssignedUserId(Long assignedUserId);
 

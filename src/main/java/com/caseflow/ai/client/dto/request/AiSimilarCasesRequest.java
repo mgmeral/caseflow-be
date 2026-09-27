@@ -14,5 +14,12 @@ public record AiSimilarCasesRequest(
         String queryText,
         String customerName,
         List<String> tags,
-        Integer topK
-) {}
+        Integer topK,
+        Filters filters
+) {
+    /**
+     * Enforced by the AI service on the vector search. Agent visibility is deliberately NOT
+     * pushed down here — it depends on current assignment and is checked in caseflow-be.
+     */
+    public record Filters(List<String> statuses, List<String> excludeSourceIds) {}
+}

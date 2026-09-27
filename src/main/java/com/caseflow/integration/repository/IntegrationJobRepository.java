@@ -69,4 +69,8 @@ public interface IntegrationJobRepository extends JpaRepository<IntegrationJob, 
                                          @Param("limit") int limit);
 
     List<IntegrationJob> findByStatus(IntegrationJobStatus status);
+
+    /** True if a job of this type for the ticket is still waiting to be claimed. */
+    boolean existsByTicketIdAndIntegrationTypeAndStatus(Long ticketId, IntegrationType type,
+                                                        IntegrationJobStatus status);
 }

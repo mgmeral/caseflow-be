@@ -21,6 +21,7 @@ import com.caseflow.ai.context.dto.SimilarCasesContext;
 import com.caseflow.ai.context.dto.SummaryContext;
 import com.caseflow.ai.domain.AiResponseType;
 import com.caseflow.ai.repository.TicketAiIndexRepository;
+import com.caseflow.ai.domain.TicketAiResponseCache;
 import com.caseflow.ai.repository.TicketAiResponseCacheRepository;
 import com.caseflow.common.exception.TicketNotFoundException;
 import com.caseflow.ticket.domain.Ticket;
@@ -38,9 +39,12 @@ import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
+import java.util.function.Predicate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -76,6 +80,7 @@ class AiAssistServiceTest {
         ticket.setSubject("Login issue");
         setId(ticket, 1L);
         setTicketNo(ticket, "TKT-0000001");
+        setPublicId(ticket, UUID.fromString("00000000-0000-0000-0000-000000000001"));
 
         // Default: no AI index entry (sourceVersion=0) and no cache hits
         // lenient() because not all tests call cache-enabled methods (replyDraft / policyGuidance skip cache)
@@ -356,12 +361,14 @@ class AiAssistServiceTest {
 
     // ── Similar cases ─────────────────────────────────────────────────────────
 
+    private static final Predicate<Ticket> EVERYONE_VISIBLE = t -> true;
+
     @Test
     void similarCases_returnsEmptyList_whenAiDisabled() {
         when(ticketRepository.findById(1L)).thenReturn(Optional.of(ticket));
         when(availabilityService.isAvailable()).thenReturn(false);
 
-        AiSimilarCasesAssistResponse result = sut.similarCases(1L);
+        AiSimilarCasesAssistResponse result = sut.similarCases(1L, EVERYONE_VISIBLE);
 
         assertThat(result.cases()).isEmpty();
         assertThat(result.metadata().available()).isFalse();
@@ -375,68 +382,103 @@ class AiAssistServiceTest {
         when(aiClient.requestSimilarCases(any(), eq(1L)))
                 .thenThrow(new AiServiceUnavailableException("/api/ai/tickets/1/similar-cases", "timeout"));
 
-        AiSimilarCasesAssistResponse result = sut.similarCases(1L);
+        AiSimilarCasesAssistResponse result = sut.similarCases(1L, EVERYONE_VISIBLE);
 
         assertThat(result.cases()).isEmpty();
         assertThat(result.metadata().available()).isFalse();
     }
 
     @Test
-    void similarCases_returnsCases_onSuccess() {
-        when(ticketRepository.findById(1L)).thenReturn(Optional.of(ticket));
-        when(availabilityService.isAvailable()).thenReturn(true);
-        when(contextBuilder.buildSimilarCasesContext(ticket)).thenReturn(stubSimilarCasesContext());
-        when(aiClient.requestSimilarCases(any(), eq(1L))).thenReturn(similarCasesResponse(List.of(
-                match("t-50", "Similar login issue", 0.92,
-                        Map.of("ticketNo", "TKT-0000050", "tags", "AUTH, LOGIN")))));
+    void similarCases_returnsCases_withNumberAndSubjectFromDatabase() {
+        Ticket similar = indexedTicket(50L, "TKT-0000050", "Login fails after reset", 7L);
+        stubSimilarCases(List.of(match(similar.getPublicId().toString(), "stale indexed title", 0.92,
+                Map.of("tags", "AUTH, LOGIN"))), List.of(similar));
 
-        AiSimilarCasesAssistResponse result = sut.similarCases(1L);
+        AiSimilarCasesAssistResponse result = sut.similarCases(1L, EVERYONE_VISIBLE);
 
-        assertThat(result.cases()).hasSize(1);
-        AiSimilarCasesAssistResponse.SimilarCase first = result.cases().get(0);
-        assertThat(first.ticketNo()).isEqualTo("TKT-0000050");
-        assertThat(first.subject()).isEqualTo("Similar login issue");
-        assertThat(first.similarityScore()).isEqualTo(0.92f);
-        assertThat(first.tags()).containsExactly("AUTH", "LOGIN");
-        assertThat(first.resolutionSummary()).isEqualTo("snippet of t-50");
+        assertThat(result.cases()).singleElement().satisfies(c -> {
+            assertThat(c.ticketId()).isEqualTo(50L);
+            assertThat(c.ticketNo()).isEqualTo("TKT-0000050");
+            assertThat(c.subject()).isEqualTo("Login fails after reset");
+            assertThat(c.similarityScore()).isEqualTo(0.92f);
+            assertThat(c.tags()).containsExactly("AUTH", "LOGIN");
+            assertThat(c.resolutionSummary()).startsWith("snippet of");
+        });
         assertThat(result.metadata().available()).isTrue();
     }
 
     @Test
-    void similarCases_collapsesChunksOfSameSource_andCapsResults() {
-        when(ticketRepository.findById(1L)).thenReturn(Optional.of(ticket));
-        when(availabilityService.isAvailable()).thenReturn(true);
-        when(contextBuilder.buildSimilarCasesContext(ticket)).thenReturn(stubSimilarCasesContext());
-        when(aiClient.requestSimilarCases(any(), eq(1L))).thenReturn(similarCasesResponse(List.of(
-                match("t-1", "A", 0.95, Map.of()),
-                match("t-1", "A", 0.90, Map.of()),
-                match("t-2", "B", 0.89, Map.of()),
-                match("t-3", "C", 0.88, Map.of()),
-                match("t-4", "D", 0.87, Map.of()),
-                match("t-5", "E", 0.86, Map.of()),
-                match("t-6", "F", 0.85, Map.of()))));
+    void similarCases_dropsTicketsTheCallerCannotRead() {
+        Ticket mine = indexedTicket(50L, "TKT-50", "Mine", 7L);
+        Ticket otherGroup = indexedTicket(60L, "TKT-60", "Other group", 8L);
+        stubSimilarCases(List.of(
+                match(otherGroup.getPublicId().toString(), "x", 0.95, Map.of()),
+                match(mine.getPublicId().toString(), "y", 0.90, Map.of())), List.of(mine, otherGroup));
 
-        AiSimilarCasesAssistResponse result = sut.similarCases(1L);
+        AiSimilarCasesAssistResponse result = sut.similarCases(1L, t -> Long.valueOf(7L).equals(t.getAssignedGroupId()));
 
-        assertThat(result.cases()).extracting(AiSimilarCasesAssistResponse.SimilarCase::ticketNo)
-                .containsExactly("t-1", "t-2", "t-3", "t-4", "t-5");
-        assertThat(result.cases().get(0).similarityScore()).isEqualTo(0.95f);
+        assertThat(result.cases()).extracting(AiSimilarCasesAssistResponse.SimilarCase::ticketId).containsExactly(50L);
     }
 
     @Test
-    void similarCases_sendsSubjectAndDescriptionAsQueryText() {
-        when(ticketRepository.findById(1L)).thenReturn(Optional.of(ticket));
-        when(availabilityService.isAvailable()).thenReturn(true);
-        when(contextBuilder.buildSimilarCasesContext(ticket)).thenReturn(stubSimilarCasesContext());
-        when(aiClient.requestSimilarCases(any(), eq(1L))).thenReturn(similarCasesResponse(List.of()));
+    void similarCases_cachesCandidatesBeforeVisibilityFiltering() throws Exception {
+        Ticket mine = indexedTicket(50L, "TKT-50", "Mine", 7L);
+        Ticket otherGroup = indexedTicket(60L, "TKT-60", "Other group", 8L);
+        stubSimilarCases(List.of(
+                match(otherGroup.getPublicId().toString(), "x", 0.95, Map.of()),
+                match(mine.getPublicId().toString(), "y", 0.90, Map.of())), List.of(mine, otherGroup));
 
-        sut.similarCases(1L);
+        sut.similarCases(1L, t -> Long.valueOf(7L).equals(t.getAssignedGroupId()));
+
+        ArgumentCaptor<TicketAiResponseCache> saved = ArgumentCaptor.forClass(TicketAiResponseCache.class);
+        verify(cacheRepository).save(saved.capture());
+        SimilarCaseCandidates cached = objectMapper.readValue(saved.getValue().getResponsePayload(),
+                SimilarCaseCandidates.class);
+        // Both candidates are cached — the next agent may be allowed to see the other one.
+        assertThat(cached.candidates()).hasSize(2);
+    }
+
+    @Test
+    void similarCases_collapsesChunksOfSameSource_andCapsResults() {
+        List<Ticket> tickets = new ArrayList<>();
+        List<AiRawSimilarCasesResponse.Match> matches = new ArrayList<>();
+        for (int i = 1; i <= 6; i++) {
+            Ticket t = indexedTicket(100L + i, "TKT-" + i, "Subject " + i, 7L);
+            tickets.add(t);
+            matches.add(match(t.getPublicId().toString(), "x", 0.99 - i * 0.01, Map.of()));
+            if (i == 1) matches.add(match(t.getPublicId().toString(), "x", 0.5, Map.of()));  // 2nd chunk
+        }
+        stubSimilarCases(matches, tickets);
+
+        AiSimilarCasesAssistResponse result = sut.similarCases(1L, EVERYONE_VISIBLE);
+
+        assertThat(result.cases()).extracting(AiSimilarCasesAssistResponse.SimilarCase::ticketNo)
+                .containsExactly("TKT-1", "TKT-2", "TKT-3", "TKT-4", "TKT-5");
+        assertThat(result.cases().get(0).similarityScore()).isEqualTo(0.98f);
+    }
+
+    @Test
+    void similarCases_asksForSettledTicketsOnly_excludingItself() {
+        stubSimilarCases(List.of(), List.of());
+
+        sut.similarCases(1L, EVERYONE_VISIBLE);
 
         ArgumentCaptor<AiSimilarCasesRequest> captor = ArgumentCaptor.forClass(AiSimilarCasesRequest.class);
         verify(aiClient).requestSimilarCases(captor.capture(), eq(1L));
-        assertThat(captor.getValue().queryText())
-                .isEqualTo("Login issue\nUser cannot log in after password change");
-        assertThat(captor.getValue().topK()).isGreaterThan(5);
+        AiSimilarCasesRequest sent = captor.getValue();
+        assertThat(sent.queryText()).isEqualTo("Login issue\nUser cannot log in after password change");
+        assertThat(sent.topK()).isGreaterThan(5);
+        assertThat(sent.filters().statuses()).containsExactly("CLOSED", "RESOLVED");
+        assertThat(sent.filters().excludeSourceIds()).containsExactly(ticket.getPublicId().toString());
+    }
+
+    @Test
+    void similarCases_ignoresCandidatesThatAreNotTicketsAnyMore() {
+        stubSimilarCases(List.of(
+                match(UUID.randomUUID().toString(), "deleted ticket", 0.9, Map.of()),
+                match("not-a-uuid", "foreign source", 0.8, Map.of())), List.of());
+
+        assertThat(sut.similarCases(1L, EVERYONE_VISIBLE).cases()).isEmpty();
     }
 
     // ── Policy guidance ───────────────────────────────────────────────────────
@@ -528,5 +570,33 @@ class AiAssistServiceTest {
 
     private static void setTicketNo(Ticket ticket, String ticketNo) {
         ticket.setTicketNo(ticketNo);
+    }
+
+    private static void setPublicId(Ticket ticket, UUID publicId) {
+        try {
+            var f = Ticket.class.getDeclaredField("publicId");
+            f.setAccessible(true);
+            f.set(ticket, publicId);
+        } catch (Exception e) { throw new RuntimeException(e); }
+    }
+
+    /** A resolved ticket as it exists in the database, in group {@code groupId}. */
+    private static Ticket indexedTicket(Long id, String ticketNo, String subject, Long groupId) {
+        Ticket t = new Ticket();
+        setId(t, id);
+        setPublicId(t, UUID.randomUUID());
+        t.setTicketNo(ticketNo);
+        t.setSubject(subject);
+        t.setStatus(TicketStatus.RESOLVED);
+        t.setAssignedGroupId(groupId);
+        return t;
+    }
+
+    private void stubSimilarCases(List<AiRawSimilarCasesResponse.Match> matches, List<Ticket> existing) {
+        when(ticketRepository.findById(1L)).thenReturn(Optional.of(ticket));
+        when(availabilityService.isAvailable()).thenReturn(true);
+        when(contextBuilder.buildSimilarCasesContext(ticket)).thenReturn(stubSimilarCasesContext());
+        when(aiClient.requestSimilarCases(any(), eq(1L))).thenReturn(similarCasesResponse(matches));
+        lenient().when(ticketRepository.findByPublicIdIn(any())).thenReturn(existing);
     }
 }
