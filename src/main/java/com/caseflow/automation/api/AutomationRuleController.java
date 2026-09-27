@@ -49,7 +49,7 @@ public class AutomationRuleController {
      * @param triggerType optional filter — returns only rules for this trigger type
      */
     @GetMapping
-    @PreAuthorize("hasAuthority('PERM_SETTINGS_MANAGE')")
+    @PreAuthorize("hasAuthority('PERM_ADMIN_CONFIG')")
     public ResponseEntity<List<AutomationRuleResponse>> list(
             @RequestParam(required = false) AutomationTriggerType triggerType) {
         log.info("GET /admin/automation/rules — triggerType: {}", triggerType);
@@ -64,7 +64,7 @@ public class AutomationRuleController {
      * for use by FE rule builder UIs.
      */
     @GetMapping("/meta/triggers")
-    @PreAuthorize("hasAuthority('PERM_SETTINGS_MANAGE')")
+    @PreAuthorize("hasAuthority('PERM_ADMIN_CONFIG')")
     public ResponseEntity<Map<String, String>> triggerTypes() {
         Map<String, String> result = new java.util.LinkedHashMap<>();
         for (AutomationTriggerType t : AutomationTriggerType.values()) {
@@ -74,7 +74,7 @@ public class AutomationRuleController {
     }
 
     @PostMapping
-    @PreAuthorize("hasAuthority('PERM_SETTINGS_MANAGE')")
+    @PreAuthorize("hasAuthority('PERM_ADMIN_CONFIG')")
     public ResponseEntity<AutomationRuleResponse> create(
             @Valid @RequestBody CreateAutomationRuleRequest request) {
         log.info("POST /admin/automation/rules — name: '{}', trigger: {}", request.name(), request.triggerType());
@@ -92,7 +92,7 @@ public class AutomationRuleController {
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasAuthority('PERM_SETTINGS_MANAGE')")
+    @PreAuthorize("hasAuthority('PERM_ADMIN_CONFIG')")
     public ResponseEntity<AutomationRuleResponse> update(
             @PathVariable Long id,
             @Valid @RequestBody UpdateAutomationRuleRequest request) {
@@ -111,7 +111,7 @@ public class AutomationRuleController {
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasAuthority('PERM_SETTINGS_MANAGE')")
+    @PreAuthorize("hasAuthority('PERM_ADMIN_CONFIG')")
     public ResponseEntity<Void> delete(@PathVariable Long id) {
         log.info("DELETE /admin/automation/rules/{}", id);
         if (!ruleRepository.existsById(id)) {

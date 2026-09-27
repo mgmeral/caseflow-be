@@ -43,32 +43,32 @@ public class SlaPolicyController {
     }
 
     @GetMapping
-    @PreAuthorize("hasAuthority('PERM_SETTINGS_MANAGE')")
+    @PreAuthorize("hasAuthority('PERM_ADMIN_CONFIG')")
     public ResponseEntity<List<SlaPolicyResponse>> list() {
         return ResponseEntity.ok(slaService.findAll());
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAuthority('PERM_SETTINGS_MANAGE')")
+    @PreAuthorize("hasAuthority('PERM_ADMIN_CONFIG')")
     public ResponseEntity<SlaPolicyResponse> get(@PathVariable Long id) {
         return ResponseEntity.ok(slaService.findById(id));
     }
 
     @PostMapping
-    @PreAuthorize("hasAuthority('PERM_SETTINGS_MANAGE')")
+    @PreAuthorize("hasAuthority('PERM_ADMIN_CONFIG')")
     public ResponseEntity<SlaPolicyResponse> create(@Valid @RequestBody SlaPolicyRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).body(slaService.create(request));
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasAuthority('PERM_SETTINGS_MANAGE')")
+    @PreAuthorize("hasAuthority('PERM_ADMIN_CONFIG')")
     public ResponseEntity<SlaPolicyResponse> update(@PathVariable Long id,
                                                      @Valid @RequestBody SlaPolicyRequest request) {
         return ResponseEntity.ok(slaService.update(id, request));
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasAuthority('PERM_SETTINGS_MANAGE')")
+    @PreAuthorize("hasAuthority('PERM_ADMIN_CONFIG')")
     public ResponseEntity<Void> delete(@PathVariable Long id) {
         slaService.delete(id);
         return ResponseEntity.noContent().build();
@@ -84,7 +84,7 @@ public class SlaPolicyController {
      * <p>Returns a summary: how many tickets were stamped, skipped (no policy), or failed.
      */
     @PostMapping("/backfill")
-    @PreAuthorize("hasAuthority('PERM_SETTINGS_MANAGE')")
+    @PreAuthorize("hasAuthority('PERM_ADMIN_CONFIG')")
     public ResponseEntity<SlaBackfillService.BackfillResult> backfill() {
         return ResponseEntity.ok(slaBackfillService.backfillMissingDueDates());
     }
