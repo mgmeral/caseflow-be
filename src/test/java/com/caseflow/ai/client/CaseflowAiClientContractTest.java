@@ -1,5 +1,6 @@
 package com.caseflow.ai.client;
 
+import com.caseflow.ai.client.dto.request.AiDocumentIngestRequest;
 import com.caseflow.ai.client.dto.request.AiPolicyGuidanceRequest;
 import com.caseflow.ai.client.dto.request.AiReplyDraftRequest;
 import com.caseflow.ai.client.dto.request.AiSimilarCasesRequest;
@@ -158,6 +159,17 @@ class CaseflowAiClientContractTest {
         assertThat(res.status()).isEqualTo("SUCCESS");
         assertThat(res.chunksIndexed()).isEqualTo(2);
         assertThat(res.sourceId()).isEqualTo(TICKET_PUBLIC_ID);
+    }
+
+    @Test
+    void documentIngest_matchesAiServiceContract() {
+        expect("/api/ai/ingest/documents", "requests/document-ingest-request.json", "ingest-response.json");
+
+        AiIngestResponse res = client.ingestDocument(new AiDocumentIngestRequest(
+                "0b7e2c55-9d41-4c8a-a7f2-3e5d6c7b8a90", "POLICY", "Refund policy",
+                "Duplicate charges are refunded within 5 business days.", "42"), "corr-1");
+
+        assertThat(res.status()).isEqualTo("SUCCESS");
     }
 
     @Test

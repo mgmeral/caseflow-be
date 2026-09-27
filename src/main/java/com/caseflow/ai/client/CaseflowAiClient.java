@@ -1,5 +1,6 @@
 package com.caseflow.ai.client;
 
+import com.caseflow.ai.client.dto.request.AiDocumentIngestRequest;
 import com.caseflow.ai.client.dto.request.AiPolicyGuidanceRequest;
 import com.caseflow.ai.client.dto.request.AiReplyDraftRequest;
 import com.caseflow.ai.client.dto.request.AiSimilarCasesRequest;
@@ -144,6 +145,17 @@ public class CaseflowAiClient {
     public AiIngestResponse ingestTicket(AiTicketIngestRequest request, String correlationId) {
         log.debug("AI ticket ingest — correlationId={}, sourceId={}", correlationId, request.sourceId());
         return post("/api/ai/ingest/tickets", request, correlationId, AiIngestResponse.class);
+    }
+
+    /**
+     * Calls {@code POST /api/ai/ingest/documents}. Re-ingesting a {@code sourceId} replaces its chunks.
+     * Same retry model as {@link #ingestTicket}.
+     *
+     * @throws AiServiceUnavailableException on any network, HTTP, or deserialization error
+     */
+    public AiIngestResponse ingestDocument(AiDocumentIngestRequest request, String correlationId) {
+        log.debug("AI document ingest — correlationId={}, sourceId={}", correlationId, request.sourceId());
+        return post("/api/ai/ingest/documents", request, correlationId, AiIngestResponse.class);
     }
 
     /**

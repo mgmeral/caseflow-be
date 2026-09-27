@@ -4,6 +4,7 @@ import com.caseflow.common.exception.ActiveAssignmentAlreadyExistsException;
 import com.caseflow.common.exception.SlaPolicyNotFoundException;
 import com.caseflow.common.exception.ActiveAssignmentNotFoundException;
 import com.caseflow.common.exception.IngressEventNotFoundException;
+import com.caseflow.common.exception.KnowledgeDocumentNotFoundException;
 import com.caseflow.common.exception.InvalidIngressEventStateException;
 import com.caseflow.common.exception.CustomerDeleteBlockedException;
 import com.caseflow.common.exception.ReassignTargetSameAsCurrentException;
@@ -81,7 +82,8 @@ public class GlobalExceptionHandler {
             ActiveAssignmentNotFoundException.class,
             ReassignTargetUserNotFoundException.class,
             SlaPolicyNotFoundException.class,
-            IngressEventNotFoundException.class
+            IngressEventNotFoundException.class,
+            KnowledgeDocumentNotFoundException.class
     })
     public ResponseEntity<ErrorResponse> handleNotFound(RuntimeException ex,
                                                         HttpServletRequest request) {

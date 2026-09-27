@@ -8,5 +8,7 @@ public enum IntegrationType {
     SLACK_NOTIFICATION,
     TEAMS_NOTIFICATION,
     /** Index or un-index a ticket in caseflow-ai-service's similar-case search (AI-001). */
-    AI_TICKET_SYNC
+    AI_TICKET_SYNC,
+    /** Index or un-index a knowledge-base document for AI policy guidance (AI-001). */
+    AI_DOCUMENT_SYNC
 }

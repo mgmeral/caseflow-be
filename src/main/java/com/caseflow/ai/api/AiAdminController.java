@@ -1,5 +1,6 @@
 package com.caseflow.ai.api;
 
+import com.caseflow.ai.service.AiDocumentSyncService;
 import com.caseflow.ai.service.AiTicketSyncService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -23,26 +24,29 @@ public class AiAdminController {
 
     private static final Logger log = LoggerFactory.getLogger(AiAdminController.class);
 
-    private final AiTicketSyncService syncService;
+    private final AiTicketSyncService ticketSyncService;
+    private final AiDocumentSyncService documentSyncService;
 
-    public AiAdminController(AiTicketSyncService syncService) {
-        this.syncService = syncService;
+    public AiAdminController(AiTicketSyncService ticketSyncService, AiDocumentSyncService documentSyncService) {
+        this.ticketSyncService = ticketSyncService;
+        this.documentSyncService = documentSyncService;
     }
 
     /**
-     * Queues every RESOLVED/CLOSED ticket for (re)indexing — needed once after the vector
-     * collection is created or recreated. Jobs run in the background on the integration-job
-     * worker; re-running is safe (re-ingest replaces a ticket's chunks).
+     * Queues every RESOLVED/CLOSED ticket and every active knowledge document for (re)indexing —
+     * needed once after the vector collection is created or recreated. Jobs run in the
+     * background on the integration-job worker; re-running is safe (re-ingest replaces a
+     * source's chunks).
      */
-    @Operation(summary = "Re-index all resolved/closed tickets for AI similar-case search")
+    @Operation(summary = "Re-index resolved/closed tickets and active knowledge documents for AI")
     @PostMapping("/reindex")
     @PreAuthorize("hasAuthority('PERM_ADMIN_CONFIG')")
     public ResponseEntity<ReindexResponse> reindex() {
-        int enqueued = syncService.reindexAll();
-        log.info("POST /admin/ai/reindex — {} jobs enqueued", enqueued);
-        return ResponseEntity.accepted().body(new ReindexResponse(enqueued));
+        ReindexResponse response = new ReindexResponse(ticketSyncService.reindexAll(), documentSyncService.reindexAll());
+        log.info("POST /admin/ai/reindex — {} ticket and {} document jobs enqueued", response.tickets(), response.documents());
+        return ResponseEntity.accepted().body(response);
     }
 
-    /** @param enqueued sync jobs queued now (tickets that already had one waiting are not counted) */
-    public record ReindexResponse(int enqueued) {}
+    /** Sync jobs queued now (tickets that already had one waiting are not counted). */
+    public record ReindexResponse(int tickets, int documents) {}
 }
