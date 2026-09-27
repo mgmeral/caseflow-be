@@ -62,16 +62,16 @@ class CaseflowAiClientTest {
     @Test
     void exception_networkError_hasZeroHttpStatus() {
         AiServiceUnavailableException ex = new AiServiceUnavailableException(
-                "/api/ai/similar-cases", "timeout");
+                "/api/ai/tickets/1/similar-cases", "timeout");
 
         assertThat(ex.getHttpStatus()).isEqualTo(0);
-        assertThat(ex.getOperation()).isEqualTo("/api/ai/similar-cases");
+        assertThat(ex.getOperation()).isEqualTo("/api/ai/tickets/1/similar-cases");
     }
 
     @Test
     void exception_serverError_isRetryable() {
         AiServiceUnavailableException ex = new AiServiceUnavailableException(
-                "/api/ai/policy-guidance", 500, "Internal server error");
+                "/api/ai/tickets/1/policy-guidance", 500, "Internal server error");
 
         assertThat(ex.getHttpStatus()).isGreaterThanOrEqualTo(500);
         assertThat(ex.getHttpStatus()).isLessThan(600);

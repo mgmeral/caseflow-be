@@ -37,8 +37,11 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -64,6 +67,7 @@ public class AiAssistService {
 
     private static final Logger log = LoggerFactory.getLogger(AiAssistService.class);
     private static final int SIMILAR_CASES_MAX = 5;
+    private static final int SIMILAR_CASES_OVERFETCH = 3;
     private static final Duration CACHE_TTL = Duration.ofMinutes(30);
 
     private final CaseflowAiClient aiClient;
@@ -192,17 +196,13 @@ public class AiAssistService {
 
         try {
             SimilarCasesContext ctx = contextBuilder.buildSimilarCasesContext(ticket);
+            // Matches are per chunk, so over-fetch and collapse to one entry per source ticket.
             AiSimilarCasesRequest request = new AiSimilarCasesRequest(
-                    correlationId, ctx.ticketNo(), ctx.subject(), ctx.problemSummary(),
-                    ctx.tags(), ctx.customerCategory(), true, SIMILAR_CASES_MAX);
-            AiRawSimilarCasesResponse raw = aiClient.requestSimilarCases(request);
+                    correlationId, similarCasesQuery(ctx), null, ctx.tags(),
+                    SIMILAR_CASES_MAX * SIMILAR_CASES_OVERFETCH);
+            AiRawSimilarCasesResponse raw = aiClient.requestSimilarCases(request, ticketId);
 
-            List<AiSimilarCasesAssistResponse.SimilarCase> cases = raw.cases() == null ? List.of() :
-                    raw.cases().stream()
-                            .map(c -> new AiSimilarCasesAssistResponse.SimilarCase(
-                                    c.ticketNo(), c.subject(), c.similarityScore(),
-                                    c.resolutionSummary(), c.tags()))
-                            .toList();
+            List<AiSimilarCasesAssistResponse.SimilarCase> cases = toSimilarCases(raw);
 
             AiSimilarCasesAssistResponse response = new AiSimilarCasesAssistResponse(ticketId, cases,
                     com.caseflow.ai.api.dto.AiAssistMetadata.of(
@@ -237,18 +237,21 @@ public class AiAssistService {
         try {
             PolicyGuidanceContext ctx = contextBuilder.buildPolicyGuidanceContext(ticket, question);
             AiPolicyGuidanceRequest request = new AiPolicyGuidanceRequest(
-                    correlationId, ctx.ticketNo(), ctx.userQuestion(), ctx.subject(),
-                    ctx.status(), ctx.tags(), ctx.customerName(), ctx.locale(), ctx.scopeHints());
-            AiRawPolicyGuidanceResponse raw = aiClient.requestPolicyGuidance(request);
+                    correlationId, ctx.userQuestion(), ctx.customerName(),
+                    ctx.status(), ctx.priority(), ctx.tags(), null);
+            AiRawPolicyGuidanceResponse raw = aiClient.requestPolicyGuidance(request, ticketId);
 
-            List<AiPolicyGuidanceAssistResponse.PolicyCitation> citations = raw.citations() == null
+            List<AiPolicyGuidanceAssistResponse.PolicyCitation> citations = raw.policyReferences() == null
                     ? List.of()
-                    : raw.citations().stream()
-                            .map(c -> new AiPolicyGuidanceAssistResponse.PolicyCitation(
-                                    c.policyId(), c.title(), c.excerpt(), c.relevanceScore()))
+                    : raw.policyReferences().stream()
+                            .map(r -> new AiPolicyGuidanceAssistResponse.PolicyCitation(
+                                    r.sourceId(), r.title(), r.snippet(),
+                                    r.score() != null ? r.score().floatValue() : 0f))
                             .toList();
 
-            return new AiPolicyGuidanceAssistResponse(ticketId, raw.guidance(), citations,
+            return new AiPolicyGuidanceAssistResponse(ticketId, raw.answer(), citations,
+                    raw.recommendedActions() != null ? raw.recommendedActions() : List.of(),
+                    raw.confidence(),
                     com.caseflow.ai.api.dto.AiAssistMetadata.of(
                             raw.model(), raw.promptVersion(), raw.generatedAt(), correlationId));
 
@@ -320,6 +323,49 @@ public class AiAssistService {
     private Ticket requireTicket(Long ticketId) {
         return ticketRepository.findById(ticketId)
                 .orElseThrow(() -> new TicketNotFoundException(ticketId));
+    }
+
+    private static String similarCasesQuery(SimilarCasesContext ctx) {
+        String subject = ctx.subject() != null ? ctx.subject() : "";
+        String problem = ctx.problemSummary() != null ? ctx.problemSummary() : "";
+        String query = (subject + "\n" + problem).strip();
+        // The AI service rejects a blank queryText; fall back to the ticket number.
+        return query.isEmpty() ? ctx.ticketNo() : query;
+    }
+
+    /**
+     * Collapses per-chunk matches into one entry per source ticket (first = highest score,
+     * since the AI service returns matches in descending score order).
+     */
+    private static List<AiSimilarCasesAssistResponse.SimilarCase> toSimilarCases(AiRawSimilarCasesResponse raw) {
+        if (raw.matches() == null) return List.of();
+        Map<String, AiRawSimilarCasesResponse.Match> bySource = new LinkedHashMap<>();
+        for (AiRawSimilarCasesResponse.Match m : raw.matches()) {
+            if (m.sourceId() == null || m.sourceId().isBlank()) continue;
+            bySource.putIfAbsent(m.sourceId(), m);
+        }
+        return bySource.values().stream()
+                .limit(SIMILAR_CASES_MAX)
+                .map(m -> {
+                    Map<String, Object> meta = m.metadata() != null ? m.metadata() : Map.of();
+                    return new AiSimilarCasesAssistResponse.SimilarCase(
+                            stringOr(meta.get("ticketNo"), m.sourceId()),
+                            m.title(),
+                            m.score() != null ? m.score().floatValue() : 0f,
+                            stringOr(meta.get("resolutionSummary"), m.snippet()),
+                            splitTags(meta.get("tags")));
+                })
+                .toList();
+    }
+
+    private static String stringOr(Object value, String fallback) {
+        return value instanceof String s && !s.isBlank() ? s : fallback;
+    }
+
+    /** The AI service stores tags as one comma-separated metadata string. */
+    private static List<String> splitTags(Object value) {
+        if (!(value instanceof String s) || s.isBlank()) return List.of();
+        return Arrays.stream(s.split(",")).map(String::strip).filter(t -> !t.isEmpty()).toList();
     }
 
     private String newCorrelationId() {

@@ -201,7 +201,7 @@ class AiAssistantControllerTest {
     void policyGuidance_returns200_withGuidance() throws Exception {
         when(aiAssistService.policyGuidance(eq(1L), eq("What is the refund policy?"))).thenReturn(
                 new AiPolicyGuidanceAssistResponse(1L, "Refunds are available within 30 days.",
-                        List.of(),
+                        List.of(), List.of("Offer a refund"), 0.8,
                         AiAssistMetadata.of("gpt-4o", "v1", Instant.now().toString(), "corr-mno")));
 
         mockMvc.perform(post("/api/tickets/1/ai-policy-guidance")
@@ -209,6 +209,8 @@ class AiAssistantControllerTest {
                         .content("{\"question\":\"What is the refund policy?\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.guidance").value("Refunds are available within 30 days."))
+                .andExpect(jsonPath("$.recommendedActions[0]").value("Offer a refund"))
+                .andExpect(jsonPath("$.confidence").value(0.8))
                 .andExpect(jsonPath("$.metadata.available").value(true));
     }
 }

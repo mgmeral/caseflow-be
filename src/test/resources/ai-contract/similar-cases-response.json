@@ -1,0 +1,28 @@
+{
+  "requestId": "req-1",
+  "model": "llama3.1",
+  "promptVersion": "1.0",
+  "generatedAt": "2026-09-27T10:00:00Z",
+  "latencyMs": 42,
+  "ticketId": "1",
+  "matches": [
+    {
+      "sourceId": "t-50",
+      "sourceType": "TICKET",
+      "title": "Similar login issue",
+      "snippet": "User could not log in; resolved by resetting the password.",
+      "score": 0.91,
+      "metadata": {
+        "sourceId": "t-50",
+        "sourceType": "TICKET",
+        "title": "Similar login issue",
+        "customerName": "Acme Corp",
+        "status": "RESOLVED",
+        "tags": "AUTH,LOGIN",
+        "chunkIndex": 0,
+        "chunkTotal": 2
+      }
+    }
+  ],
+  "warnings": []
+}

@@ -1,0 +1,13 @@
+{
+  "requestId": "req-2",
+  "model": "llama3.1",
+  "promptVersion": "1.0",
+  "generatedAt": "2026-09-27T10:00:00Z",
+  "latencyMs": 12,
+  "ticketId": "1",
+  "answer": "No relevant policy documents were found for this query. Ingest policy documents via the ingest API before requesting policy guidance.",
+  "recommendedActions": [],
+  "confidence": 0.0,
+  "policyReferences": [],
+  "warnings": ["No indexed policy documents matched this query. Ingest policy documents via the ingest API or Kafka consumers before using this feature."]
+}

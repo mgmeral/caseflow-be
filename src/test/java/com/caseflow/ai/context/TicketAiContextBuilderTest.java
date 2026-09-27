@@ -1,5 +1,6 @@
 package com.caseflow.ai.context;
 
+import com.caseflow.ai.context.dto.PolicyGuidanceContext;
 import com.caseflow.ai.context.dto.ReplyDraftContext;
 import com.caseflow.ai.context.dto.SimilarCasesContext;
 import com.caseflow.ai.context.dto.SummaryContext;
@@ -201,6 +202,50 @@ class TicketAiContextBuilderTest {
         ReplyDraftContext ctx = builder.buildReplyDraftContext(ticket);
 
         assertThat(ctx.latestInboundMessage()).isEqualTo("Latest message — need urgent help");
+    }
+
+    @Test
+    void buildSummaryContext_withoutEmails_usesSubjectAndDescriptionAsOpeningMessage() {
+        // The AI service rejects summary requests with no messages (@NotEmpty latestMessages).
+        when(customerRepository.findById(10L)).thenReturn(Optional.empty());
+        when(emailDocumentRepository.findByTicketId(1L)).thenReturn(List.of());
+        when(noteRepository.findByTicketIdOrderByCreatedAtAsc(1L)).thenReturn(List.of());
+        when(ticketTagRepository.findByTicketId(1L)).thenReturn(List.of());
+        ticket.setDescription("Created by phone: customer cannot log in.");
+
+        SummaryContext ctx = builder.buildSummaryContext(ticket);
+
+        assertThat(ctx.recentInboundMessages()).singleElement().satisfies(m ->
+                assertThat(m.preview()).isEqualTo(
+                        "Login issue after password change\nCreated by phone: customer cannot log in."));
+    }
+
+    @Test
+    void buildReplyDraftContext_withoutEmails_usesSubjectAndDescriptionAsOpeningMessage() {
+        when(customerRepository.findById(10L)).thenReturn(Optional.empty());
+        when(emailDocumentRepository.findByTicketId(1L)).thenReturn(List.of());
+        when(noteRepository.findByTicketIdOrderByCreatedAtAsc(1L)).thenReturn(List.of());
+        when(ticketTagRepository.findByTicketId(1L)).thenReturn(List.of());
+        ticket.setDescription("Created by phone: customer cannot log in.");
+
+        ReplyDraftContext ctx = builder.buildReplyDraftContext(ticket);
+
+        assertThat(ctx.threadContext()).singleElement().satisfies(m -> {
+            assertThat(m.direction()).isEqualTo("inbound");
+            assertThat(m.preview()).startsWith("Login issue after password change");
+        });
+    }
+
+    @Test
+    void buildPolicyGuidanceContext_includesPriority() {
+        when(ticketTagRepository.findByTicketId(1L)).thenReturn(List.of());
+        when(customerRepository.findById(10L)).thenReturn(Optional.empty());
+
+        PolicyGuidanceContext ctx = builder.buildPolicyGuidanceContext(ticket, "Refund policy?");
+
+        assertThat(ctx.userQuestion()).isEqualTo("Refund policy?");
+        assertThat(ctx.status()).isEqualTo("IN_PROGRESS");
+        assertThat(ctx.priority()).isEqualTo("HIGH");
     }
 
     @Test

@@ -1,0 +1,20 @@
+{
+  "requestId": "req-1",
+  "model": "llama3.1",
+  "promptVersion": "1.0",
+  "generatedAt": "2026-09-27T10:00:00Z",
+  "latencyMs": 2950,
+  "ticketId": "1",
+  "answer": "Refunds are available within 30 days of purchase.",
+  "recommendedActions": ["Confirm the purchase date", "Offer a refund"],
+  "confidence": 0.74,
+  "policyReferences": [
+    {
+      "sourceId": "pol-7",
+      "title": "Refund policy",
+      "snippet": "Customers may request a refund within 30 days...",
+      "score": 0.81
+    }
+  ],
+  "warnings": []
+}

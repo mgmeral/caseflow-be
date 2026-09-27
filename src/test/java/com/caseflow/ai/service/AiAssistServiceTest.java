@@ -6,8 +6,11 @@ import com.caseflow.ai.api.dto.AiSimilarCasesAssistResponse;
 import com.caseflow.ai.api.dto.AiSummaryAssistResponse;
 import com.caseflow.ai.client.AiServiceUnavailableException;
 import com.caseflow.ai.client.CaseflowAiClient;
+import com.caseflow.ai.client.dto.request.AiPolicyGuidanceRequest;
 import com.caseflow.ai.client.dto.request.AiReplyDraftRequest;
+import com.caseflow.ai.client.dto.request.AiSimilarCasesRequest;
 import com.caseflow.ai.client.dto.request.AiSummaryRequest;
+import com.caseflow.ai.client.dto.response.AiRawPolicyGuidanceResponse;
 import com.caseflow.ai.client.dto.response.AiRawReplyDraftResponse;
 import com.caseflow.ai.client.dto.response.AiRawSimilarCasesResponse;
 import com.caseflow.ai.client.dto.response.AiRawSummaryResponse;
@@ -36,6 +39,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -368,8 +372,8 @@ class AiAssistServiceTest {
         when(ticketRepository.findById(1L)).thenReturn(Optional.of(ticket));
         when(availabilityService.isAvailable()).thenReturn(true);
         when(contextBuilder.buildSimilarCasesContext(ticket)).thenReturn(stubSimilarCasesContext());
-        when(aiClient.requestSimilarCases(any()))
-                .thenThrow(new AiServiceUnavailableException("/api/ai/similar-cases", "timeout"));
+        when(aiClient.requestSimilarCases(any(), eq(1L)))
+                .thenThrow(new AiServiceUnavailableException("/api/ai/tickets/1/similar-cases", "timeout"));
 
         AiSimilarCasesAssistResponse result = sut.similarCases(1L);
 
@@ -382,19 +386,57 @@ class AiAssistServiceTest {
         when(ticketRepository.findById(1L)).thenReturn(Optional.of(ticket));
         when(availabilityService.isAvailable()).thenReturn(true);
         when(contextBuilder.buildSimilarCasesContext(ticket)).thenReturn(stubSimilarCasesContext());
-        when(aiClient.requestSimilarCases(any())).thenReturn(
-                new AiRawSimilarCasesResponse(
-                        List.of(new AiRawSimilarCasesResponse.SimilarCase(
-                                "TKT-0000050", "Similar login issue", 0.92f,
-                                "Reset password resolved it", List.of("AUTH"))),
-                        "gpt-4o", "v1", Instant.now().toString(), "corr-789"));
+        when(aiClient.requestSimilarCases(any(), eq(1L))).thenReturn(similarCasesResponse(List.of(
+                match("t-50", "Similar login issue", 0.92,
+                        Map.of("ticketNo", "TKT-0000050", "tags", "AUTH, LOGIN")))));
 
         AiSimilarCasesAssistResponse result = sut.similarCases(1L);
 
         assertThat(result.cases()).hasSize(1);
-        assertThat(result.cases().get(0).ticketNo()).isEqualTo("TKT-0000050");
-        assertThat(result.cases().get(0).similarityScore()).isEqualTo(0.92f);
+        AiSimilarCasesAssistResponse.SimilarCase first = result.cases().get(0);
+        assertThat(first.ticketNo()).isEqualTo("TKT-0000050");
+        assertThat(first.subject()).isEqualTo("Similar login issue");
+        assertThat(first.similarityScore()).isEqualTo(0.92f);
+        assertThat(first.tags()).containsExactly("AUTH", "LOGIN");
+        assertThat(first.resolutionSummary()).isEqualTo("snippet of t-50");
         assertThat(result.metadata().available()).isTrue();
+    }
+
+    @Test
+    void similarCases_collapsesChunksOfSameSource_andCapsResults() {
+        when(ticketRepository.findById(1L)).thenReturn(Optional.of(ticket));
+        when(availabilityService.isAvailable()).thenReturn(true);
+        when(contextBuilder.buildSimilarCasesContext(ticket)).thenReturn(stubSimilarCasesContext());
+        when(aiClient.requestSimilarCases(any(), eq(1L))).thenReturn(similarCasesResponse(List.of(
+                match("t-1", "A", 0.95, Map.of()),
+                match("t-1", "A", 0.90, Map.of()),
+                match("t-2", "B", 0.89, Map.of()),
+                match("t-3", "C", 0.88, Map.of()),
+                match("t-4", "D", 0.87, Map.of()),
+                match("t-5", "E", 0.86, Map.of()),
+                match("t-6", "F", 0.85, Map.of()))));
+
+        AiSimilarCasesAssistResponse result = sut.similarCases(1L);
+
+        assertThat(result.cases()).extracting(AiSimilarCasesAssistResponse.SimilarCase::ticketNo)
+                .containsExactly("t-1", "t-2", "t-3", "t-4", "t-5");
+        assertThat(result.cases().get(0).similarityScore()).isEqualTo(0.95f);
+    }
+
+    @Test
+    void similarCases_sendsSubjectAndDescriptionAsQueryText() {
+        when(ticketRepository.findById(1L)).thenReturn(Optional.of(ticket));
+        when(availabilityService.isAvailable()).thenReturn(true);
+        when(contextBuilder.buildSimilarCasesContext(ticket)).thenReturn(stubSimilarCasesContext());
+        when(aiClient.requestSimilarCases(any(), eq(1L))).thenReturn(similarCasesResponse(List.of()));
+
+        sut.similarCases(1L);
+
+        ArgumentCaptor<AiSimilarCasesRequest> captor = ArgumentCaptor.forClass(AiSimilarCasesRequest.class);
+        verify(aiClient).requestSimilarCases(captor.capture(), eq(1L));
+        assertThat(captor.getValue().queryText())
+                .isEqualTo("Login issue\nUser cannot log in after password change");
+        assertThat(captor.getValue().topK()).isGreaterThan(5);
     }
 
     // ── Policy guidance ───────────────────────────────────────────────────────
@@ -408,6 +450,36 @@ class AiAssistServiceTest {
 
         assertThat(result.guidance()).isNull();
         assertThat(result.metadata().available()).isFalse();
+    }
+
+    @Test
+    void policyGuidance_mapsAnswerReferencesAndActions_onSuccess() {
+        when(ticketRepository.findById(1L)).thenReturn(Optional.of(ticket));
+        when(availabilityService.isAvailable()).thenReturn(true);
+        when(contextBuilder.buildPolicyGuidanceContext(ticket, "Refund policy?"))
+                .thenReturn(stubPolicyGuidanceContext());
+        when(aiClient.requestPolicyGuidance(any(), eq(1L))).thenReturn(new AiRawPolicyGuidanceResponse(
+                "req-1", "1", "Refunds within 30 days.", List.of("Offer refund"), 0.8,
+                List.of(new AiRawPolicyGuidanceResponse.PolicyReference("pol-1", "Refund policy", "Refunds...", 0.77)),
+                List.of(), "llama3.1", "1.0", "2026-09-27T10:00:00Z"));
+
+        AiPolicyGuidanceAssistResponse result = sut.policyGuidance(1L, "Refund policy?");
+
+        assertThat(result.guidance()).isEqualTo("Refunds within 30 days.");
+        assertThat(result.recommendedActions()).containsExactly("Offer refund");
+        assertThat(result.confidence()).isEqualTo(0.8);
+        assertThat(result.citations()).singleElement().satisfies(c -> {
+            assertThat(c.policyId()).isEqualTo("pol-1");
+            assertThat(c.excerpt()).isEqualTo("Refunds...");
+            assertThat(c.relevanceScore()).isEqualTo(0.77f);
+        });
+        assertThat(result.metadata().available()).isTrue();
+
+        ArgumentCaptor<AiPolicyGuidanceRequest> captor = ArgumentCaptor.forClass(AiPolicyGuidanceRequest.class);
+        verify(aiClient).requestPolicyGuidance(captor.capture(), eq(1L));
+        assertThat(captor.getValue().query()).isEqualTo("Refund policy?");
+        assertThat(captor.getValue().ticketStatus()).isEqualTo("IN_PROGRESS");
+        assertThat(captor.getValue().priority()).isEqualTo("MEDIUM");
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
@@ -432,7 +504,18 @@ class AiAssistServiceTest {
 
     private PolicyGuidanceContext stubPolicyGuidanceContext() {
         return new PolicyGuidanceContext("TKT-0000001", "Refund policy?",
-                "Login issue", "IN_PROGRESS", List.of(), "Acme Corp", "en", List.of());
+                "Login issue", "IN_PROGRESS", "MEDIUM", List.of(), "Acme Corp", "en");
+    }
+
+    private static AiRawSimilarCasesResponse similarCasesResponse(List<AiRawSimilarCasesResponse.Match> matches) {
+        return new AiRawSimilarCasesResponse("req-1", "1", matches, List.of(),
+                "llama3.1", "1.0", Instant.now().toString());
+    }
+
+    private static AiRawSimilarCasesResponse.Match match(String sourceId, String title, double score,
+                                                          Map<String, Object> metadata) {
+        return new AiRawSimilarCasesResponse.Match(sourceId, "TICKET", title,
+                "snippet of " + sourceId, score, metadata);
     }
 
     private static void setId(Ticket ticket, Long id) {

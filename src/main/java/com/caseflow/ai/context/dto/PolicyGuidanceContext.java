@@ -10,8 +10,8 @@ public record PolicyGuidanceContext(
         String userQuestion,
         String subject,
         String status,
+        String priority,
         List<String> tags,
         String customerName,
-        String locale,
-        List<String> scopeHints
+        String locale
 ) {}

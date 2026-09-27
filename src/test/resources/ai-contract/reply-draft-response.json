@@ -1,0 +1,16 @@
+{
+  "correlationId": "corr-1",
+  "model": "llama3.1",
+  "promptVersion": "1.0",
+  "generatedAt": "2026-09-27T10:00:00Z",
+  "latencyMs": 2410,
+  "ticketId": "1",
+  "suggestedSubject": "Re: Login issue",
+  "suggestedBody": "Dear customer, we have reset your password.",
+  "reasoningSummary": "Customer is locked out; a reset resolves it.",
+  "tone": "PROFESSIONAL",
+  "suggestedTags": ["AUTH"],
+  "suggestedPriority": "MEDIUM",
+  "confidence": 0.78,
+  "warnings": []
+}

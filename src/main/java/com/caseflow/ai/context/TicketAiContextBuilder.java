@@ -117,6 +117,11 @@ public class TicketAiContextBuilder {
                         formatInstant(e.getReceivedAt())))
                 .toList();
 
+        if (inbound.isEmpty() && outbound.isEmpty()) {
+            inbound = List.of(new SummaryContext.MessageSnippet(
+                    null, openingMessagePreview(ticket), formatInstant(ticket.getCreatedAt())));
+        }
+
         List<String> internalNotes = notes.stream()
                 .filter(n -> NoteType.INTERNAL.equals(n.getType()))
                 .sorted(Comparator.comparing(Note::getCreatedAt).reversed())
@@ -170,6 +175,11 @@ public class TicketAiContextBuilder {
                         truncate(e.getBodyPreview() != null ? e.getBodyPreview() : e.getTextBody()),
                         formatInstant(e.getReceivedAt())))
                 .toList();
+
+        if (thread.isEmpty()) {
+            thread = List.of(new ReplyDraftContext.MessageSnippet(
+                    "inbound", openingMessagePreview(ticket), formatInstant(ticket.getCreatedAt())));
+        }
 
         String latestBody = latestInbound != null
                 ? truncate(latestInbound.getBodyPreview() != null
@@ -230,10 +240,10 @@ public class TicketAiContextBuilder {
                 userQuestion,
                 ticket.getSubject(),
                 ticket.getStatus().name(),
+                ticket.getPriority().name(),
                 tags,
                 customerName,
-                "en",
-                List.of()
+                "en"
         );
     }
 
@@ -281,6 +291,17 @@ public class TicketAiContextBuilder {
             if (minutesLeft <= 60) return SlaState.WARNING.name();
         }
         return SlaState.OK.name();
+    }
+
+    /**
+     * The AI service requires at least one message for summary and reply-draft. A ticket
+     * created without any email (e.g. manually by an agent) has none, so its subject and
+     * description stand in as the customer's opening message.
+     */
+    private String openingMessagePreview(Ticket ticket) {
+        String subject = ticket.getSubject() != null ? ticket.getSubject() : "";
+        String description = ticket.getDescription() != null ? ticket.getDescription() : "";
+        return truncate((subject + "\n" + description).strip());
     }
 
     private String truncate(String text) {

@@ -96,8 +96,9 @@ public class CaseflowAiClient {
     }
 
     /**
-     * Calls the AI service's {@code /api/ai/similar-cases} endpoint.
+     * Calls the AI service's {@code /api/ai/tickets/{ticketId}/similar-cases} endpoint.
      *
+     * @param ticketId the CaseFlow ticket id, embedded in the downstream path
      * @throws AiServiceUnavailableException on any network, HTTP, or deserialization error
      */
     @CircuitBreaker(name = "ai-service", fallbackMethod = "fallbackSimilarCases")
@@ -106,15 +107,16 @@ public class CaseflowAiClient {
             maxAttemptsExpression = "#{@aiClientProperties.retry.maxAttempts}",
             backoff = @Backoff(delayExpression = "#{@aiClientProperties.retry.backoffMs}")
     )
-    public AiRawSimilarCasesResponse requestSimilarCases(AiSimilarCasesRequest request) {
-        log.debug("AI similar-cases request — correlationId={}, ticketNo={}",
-                request.correlationId(), request.ticketNo());
-        return post("/api/ai/similar-cases", request, request.correlationId(), AiRawSimilarCasesResponse.class);
+    public AiRawSimilarCasesResponse requestSimilarCases(AiSimilarCasesRequest request, Long ticketId) {
+        String path = "/api/ai/tickets/" + ticketId + "/similar-cases";
+        log.debug("AI similar-cases request — correlationId={}, ticketId={}", request.correlationId(), ticketId);
+        return post(path, request, request.correlationId(), AiRawSimilarCasesResponse.class);
     }
 
     /**
-     * Calls the AI service's {@code /api/ai/policy-guidance} endpoint.
+     * Calls the AI service's {@code /api/ai/tickets/{ticketId}/policy-guidance} endpoint.
      *
+     * @param ticketId the CaseFlow ticket id, embedded in the downstream path
      * @throws AiServiceUnavailableException on any network, HTTP, or deserialization error
      */
     @CircuitBreaker(name = "ai-service", fallbackMethod = "fallbackPolicyGuidance")
@@ -123,10 +125,10 @@ public class CaseflowAiClient {
             maxAttemptsExpression = "#{@aiClientProperties.retry.maxAttempts}",
             backoff = @Backoff(delayExpression = "#{@aiClientProperties.retry.backoffMs}")
     )
-    public AiRawPolicyGuidanceResponse requestPolicyGuidance(AiPolicyGuidanceRequest request) {
-        log.debug("AI policy-guidance request — correlationId={}, ticketNo={}",
-                request.correlationId(), request.ticketNo());
-        return post("/api/ai/policy-guidance", request, request.correlationId(), AiRawPolicyGuidanceResponse.class);
+    public AiRawPolicyGuidanceResponse requestPolicyGuidance(AiPolicyGuidanceRequest request, Long ticketId) {
+        String path = "/api/ai/tickets/" + ticketId + "/policy-guidance";
+        log.debug("AI policy-guidance request — correlationId={}, ticketId={}", request.correlationId(), ticketId);
+        return post(path, request, request.correlationId(), AiRawPolicyGuidanceResponse.class);
     }
 
     // ── Circuit-breaker fallbacks ─────────────────────────────────────────────
@@ -145,17 +147,17 @@ public class CaseflowAiClient {
                 "Circuit breaker open: " + ex.getMessage());
     }
 
-    private AiRawSimilarCasesResponse fallbackSimilarCases(AiSimilarCasesRequest request,
+    private AiRawSimilarCasesResponse fallbackSimilarCases(AiSimilarCasesRequest request, Long ticketId,
                                                             CallNotPermittedException ex) {
-        log.warn("AI circuit breaker OPEN — similar-cases blocked [ticketNo={}]", request.ticketNo());
-        throw new AiServiceUnavailableException("/api/ai/similar-cases",
+        log.warn("AI circuit breaker OPEN — similar-cases blocked [ticketId={}]", ticketId);
+        throw new AiServiceUnavailableException("/api/ai/tickets/" + ticketId + "/similar-cases",
                 "Circuit breaker open: " + ex.getMessage());
     }
 
-    private AiRawPolicyGuidanceResponse fallbackPolicyGuidance(AiPolicyGuidanceRequest request,
+    private AiRawPolicyGuidanceResponse fallbackPolicyGuidance(AiPolicyGuidanceRequest request, Long ticketId,
                                                                 CallNotPermittedException ex) {
-        log.warn("AI circuit breaker OPEN — policy-guidance blocked [ticketNo={}]", request.ticketNo());
-        throw new AiServiceUnavailableException("/api/ai/policy-guidance",
+        log.warn("AI circuit breaker OPEN — policy-guidance blocked [ticketId={}]", ticketId);
+        throw new AiServiceUnavailableException("/api/ai/tickets/" + ticketId + "/policy-guidance",
                 "Circuit breaker open: " + ex.getMessage());
     }
 
