@@ -39,6 +39,25 @@ public class SecurityAuditService {
         repository.save(entry);
     }
 
+    /**
+     * Records that an operator was shown unmasked personal data, e.g. a full sender address.
+     *
+     * @param target what was viewed, e.g. {@code INGRESS_EVENT:123}
+     */
+    @Async
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void recordSensitiveDataView(Long userId, String username, String ipAddress, String target) {
+        SecurityAuditLog entry = new SecurityAuditLog();
+        entry.setEventType(SecurityAuditEventType.SENSITIVE_DATA_VIEWED);
+        entry.setActorUserId(userId);
+        entry.setActorUsername(username);
+        entry.setIpAddress(ipAddress);
+        entry.setOutcome("SUCCESS");
+        entry.setTarget(truncate(target, 100));
+        entry.setCorrelationId(MDC.get("correlationId"));
+        repository.save(entry);
+    }
+
     private static String truncate(String value, int max) {
         if (value == null) return null;
         return value.length() <= max ? value : value.substring(0, max);

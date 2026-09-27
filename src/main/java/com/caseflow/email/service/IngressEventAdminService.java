@@ -14,9 +14,11 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Instant;
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 
 /**
  * Operator recovery operations for inbound ingress events.
@@ -39,35 +41,59 @@ public class IngressEventAdminService {
     }
 
     /**
-     * Lists ingress events matching the given filters. All parameters are optional.
-     *
-     * @param status    filter by status; null = all statuses
-     * @param mailboxId filter by mailbox; null = all mailboxes
-     * @param messageId exact match on RFC 5322 Message-ID; null = no filter
-     * @param ticketId  filter by linked ticket; null = all events
-     * @param from      filter events received on or after this time; null = no lower bound
-     * @param to        filter events received on or before this time; null = no upper bound
+     * Lists ingress events matching the given filters. All filter fields are optional.
      */
     @Transactional(readOnly = true)
-    public Page<EmailIngressEvent> findFiltered(IngressEventStatus status,
-                                                 Long mailboxId, String messageId, Long ticketId,
-                                                 Instant from, Instant to,
-                                                 Pageable pageable) {
-        // Built as a Specification (rather than a JPQL "(:param IS NULL OR ...)" query) so that
-        // an absent filter never binds a null parameter at all — Postgres/PgJDBC cannot always
-        // infer the SQL type of a bare null parameter used only in an "IS NULL" check (observed
-        // for the Instant from/to bounds: "could not determine data type of parameter $9").
-        Specification<EmailIngressEvent> spec = (root, query, cb) -> {
+    public Page<EmailIngressEvent> findFiltered(IngressEventFilter filter, Pageable pageable) {
+        return eventRepository.findAll(toSpecification(filter), pageable);
+    }
+
+    /**
+     * Number of events per status under the filter's non-status criteria, so the counts
+     * describe the same slice of events the list shows. Every status is present (0 if none).
+     */
+    @Transactional(readOnly = true)
+    public Map<IngressEventStatus, Long> countByStatus(IngressEventFilter filter) {
+        IngressEventFilter base = filter.withoutStatuses();
+        Map<IngressEventStatus, Long> counts = new EnumMap<>(IngressEventStatus.class);
+        for (IngressEventStatus status : IngressEventStatus.values()) {
+            IngressEventFilter one = new IngressEventFilter(List.of(status), base.mailboxId(),
+                    base.messageId(), base.ticketId(), base.q(), base.from(), base.to());
+            counts.put(status, eventRepository.count(toSpecification(one)));
+        }
+        return counts;
+    }
+
+    // Built as a Specification (rather than a JPQL "(:param IS NULL OR ...)" query) so that
+    // an absent filter never binds a null parameter at all — Postgres/PgJDBC cannot always
+    // infer the SQL type of a bare null parameter used only in an "IS NULL" check (observed
+    // for the Instant from/to bounds: "could not determine data type of parameter $9").
+    private static Specification<EmailIngressEvent> toSpecification(IngressEventFilter f) {
+        return (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
-            if (status != null) predicates.add(cb.equal(root.get("status"), status));
-            if (mailboxId != null) predicates.add(cb.equal(root.get("mailboxId"), mailboxId));
-            if (messageId != null) predicates.add(cb.equal(root.get("messageId"), messageId));
-            if (ticketId != null) predicates.add(cb.equal(root.get("ticketId"), ticketId));
-            if (from != null) predicates.add(cb.greaterThanOrEqualTo(root.get("receivedAt"), from));
-            if (to != null) predicates.add(cb.lessThanOrEqualTo(root.get("receivedAt"), to));
+            if (!f.statuses().isEmpty()) predicates.add(root.get("status").in(f.statuses()));
+            if (f.mailboxId() != null) predicates.add(cb.equal(root.get("mailboxId"), f.mailboxId()));
+            if (f.messageId() != null) predicates.add(cb.equal(root.get("messageId"), f.messageId()));
+            if (f.ticketId() != null) predicates.add(cb.equal(root.get("ticketId"), f.ticketId()));
+            if (f.from() != null) predicates.add(cb.greaterThanOrEqualTo(root.get("receivedAt"), f.from()));
+            if (f.to() != null) predicates.add(cb.lessThanOrEqualTo(root.get("receivedAt"), f.to()));
+            if (f.q() != null) {
+                String pattern = "%" + escapeLike(f.q().toLowerCase(Locale.ROOT)) + "%";
+                List<Predicate> text = new ArrayList<>(List.of(
+                        cb.like(cb.lower(root.get("rawFrom")), pattern, '\\'),
+                        cb.like(cb.lower(root.get("rawSubject")), pattern, '\\'),
+                        cb.like(cb.lower(root.get("messageId")), pattern, '\\')));
+                if (f.q().matches("\\d{1,18}")) {
+                    text.add(cb.equal(root.get("ticketId"), Long.parseLong(f.q())));
+                }
+                predicates.add(cb.or(text.toArray(new Predicate[0])));
+            }
             return cb.and(predicates.toArray(new Predicate[0]));
         };
-        return eventRepository.findAll(spec, pageable);
+    }
+
+    private static String escapeLike(String value) {
+        return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
     }
 
     /**

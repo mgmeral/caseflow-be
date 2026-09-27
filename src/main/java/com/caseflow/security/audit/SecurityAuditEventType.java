@@ -9,5 +9,7 @@ public enum SecurityAuditEventType {
     TOKEN_THEFT_DETECTED,
     SESSION_LIMIT_ENFORCED,
     PASSWORD_CHANGED,
-    ROLE_CHANGED
+    ROLE_CHANGED,
+    /** Full (unmasked) personal data was shown to an operator; {@code target} names the record. */
+    SENSITIVE_DATA_VIEWED
 }

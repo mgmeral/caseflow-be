@@ -264,7 +264,9 @@ public class EmailIngressServiceImpl implements EmailIngressService {
         } catch (Exception e) {
             log.error("Failed to process ingress event {} — {}", eventId, e.getMessage(), e);
             event.setStatus(IngressEventStatus.FAILED);
-            event.setFailureReason(e.getMessage());
+            // Exception messages can carry addresses, SQL or host details and are shown to operators;
+            // keep only the type here, the full message and stack trace are in the log above.
+            event.setFailureReason("PROCESSING_ERROR (" + e.getClass().getSimpleName() + ")");
             eventRepository.save(event);
             metrics.inboundFailed();
         }

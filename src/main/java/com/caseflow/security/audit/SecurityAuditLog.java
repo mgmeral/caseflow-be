@@ -45,6 +45,9 @@ public class SecurityAuditLog {
     @Column(name = "correlation_id", length = 100)
     private String correlationId;
 
+    @Column(name = "target", length = 100)
+    private String target;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -78,6 +81,9 @@ public class SecurityAuditLog {
 
     public String getCorrelationId() { return correlationId; }
     public void setCorrelationId(String correlationId) { this.correlationId = correlationId; }
+
+    public String getTarget() { return target; }
+    public void setTarget(String target) { this.target = target; }
 
     public Instant getCreatedAt() { return createdAt; }
 }
