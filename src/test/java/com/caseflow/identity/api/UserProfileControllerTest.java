@@ -12,6 +12,7 @@ import com.caseflow.identity.api.mapper.UserMapper;
 import com.caseflow.identity.domain.Role;
 import com.caseflow.identity.domain.User;
 import com.caseflow.identity.service.UserService;
+import com.caseflow.ticket.repository.TicketRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -48,6 +49,8 @@ class UserProfileControllerTest {
     @MockBean private CaseFlowUserDetailsService userDetailsService;
     @MockBean private UserService userService;
     @MockBean private UserMapper userMapper;
+    // UserController depends on it for openTicketCount (e5981c0)
+    @MockBean private TicketRepository ticketRepository;
 
     private CaseFlowUserDetails principal;
     private UserProfileResponse profileResponse;
