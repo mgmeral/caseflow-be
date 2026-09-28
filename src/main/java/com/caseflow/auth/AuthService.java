@@ -49,7 +49,9 @@ public class AuthService {
         this.auditService = auditService;
     }
 
-    @Transactional
+    // A rejected login must still commit its side effects (failed-attempt counter,
+    // lockout): rolling them back on the thrown exception disables brute-force lockout.
+    @Transactional(noRollbackFor = {BadCredentialsException.class, AccountLockedException.class})
     public TokenPair login(String username, String password) {
         log.info("Login attempt — username: {}", username);
         User user = userRepository.findByUsername(username)
@@ -94,7 +96,8 @@ public class AuthService {
         return generateTokenPair(user);
     }
 
-    @Transactional
+    // Reuse detection revokes every session and then throws; that revocation must commit.
+    @Transactional(noRollbackFor = BadCredentialsException.class)
     public TokenPair refresh(String rawRefreshToken) {
         String hash = hashToken(rawRefreshToken);
         RefreshToken stored = refreshTokenRepository.findByTokenHash(hash)

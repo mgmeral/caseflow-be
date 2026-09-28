@@ -130,8 +130,10 @@ public class TicketRepositoryImpl implements TicketRepositoryCustom {
 
     @Override
     public Double avgFirstResponseMinutes(Long customerId, Instant from, Instant to) {
+        // HQL duration arithmetic: `(a - b) by second`. Hibernate 6 rejects
+        // EXTRACT(EPOCH FROM <duration>) when the query is created, outside the try below.
         StringBuilder jpql = new StringBuilder(
-                "SELECT AVG(EXTRACT(EPOCH FROM (t.firstResponseRespondedAt - t.createdAt)) / 60.0) " +
+                "SELECT AVG(((t.firstResponseRespondedAt - t.createdAt) by second) / 60.0) " +
                 "FROM Ticket t " +
                 "WHERE t.firstResponseRespondedAt IS NOT NULL ");
         if (customerId != null) jpql.append("AND t.customerId = :customerId ");
@@ -154,7 +156,7 @@ public class TicketRepositoryImpl implements TicketRepositoryCustom {
         // Average of (resolvedAt - createdAt) for RESOLVED tickets
         // and (closedAt - createdAt) for CLOSED tickets
         StringBuilder jpql = new StringBuilder(
-                "SELECT AVG(EXTRACT(EPOCH FROM (COALESCE(t.resolvedAt, t.closedAt) - t.createdAt)) / 60.0) " +
+                "SELECT AVG(((COALESCE(t.resolvedAt, t.closedAt) - t.createdAt) by second) / 60.0) " +
                 "FROM Ticket t " +
                 "WHERE (t.status = com.caseflow.ticket.domain.TicketStatus.RESOLVED OR t.status = com.caseflow.ticket.domain.TicketStatus.CLOSED) " +
                 "AND COALESCE(t.resolvedAt, t.closedAt) IS NOT NULL ");

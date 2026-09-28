@@ -6,6 +6,7 @@ import com.caseflow.ticket.domain.TicketStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
 import org.springframework.context.annotation.Import;
@@ -33,6 +34,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Spring from entity metadata. What matters here is query correctness, not migration order.
  */
 @DataJpaTest
+@AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Testcontainers(disabledWithoutDocker = true)
 @ActiveProfiles("integration")
 @Import(TicketRepositoryImpl.class)
@@ -59,6 +61,9 @@ class TicketRepositoryIntegrationTest {
 
     @Autowired
     private TestEntityManager em;
+
+    @Autowired
+    private com.caseflow.workflow.repository.TransferRepository transferRepository;
 
     private static long customerA = 100L;
     private static long customerB = 200L;
@@ -229,7 +234,8 @@ class TicketRepositoryIntegrationTest {
 
     @Test
     void avgFirstResponseMinutes_computesCorrectAverage() {
-        Instant createdAt = Instant.now().minus(120, ChronoUnit.MINUTES);
+        // Ticket.createdAt is always set to "now" by @PrePersist, so offsets are relative to now.
+        Instant createdAt = Instant.now();
         Instant respondedAt60 = createdAt.plus(60, ChronoUnit.MINUTES);
         Instant respondedAt90 = createdAt.plus(90, ChronoUnit.MINUTES);
 
@@ -242,9 +248,9 @@ class TicketRepositoryIntegrationTest {
         em.flush();
 
         Double avg = ticketRepository.avgFirstResponseMinutes(customerA, null, null);
-        // Avg of 60 and 90 = 75 (approximately, given createdAt may differ slightly)
+        // Avg of 60 and 90 = 75 (approximately, since createdAt is stamped at persist time)
         assertThat(avg).isNotNull();
-        assertThat(avg).isBetween(60.0, 100.0);
+        assertThat(avg).isCloseTo(75.0, org.assertj.core.data.Offset.offset(1.0));
     }
 
     @Test
@@ -261,7 +267,8 @@ class TicketRepositoryIntegrationTest {
 
     @Test
     void avgResolutionMinutes_computesCorrectAverage_forResolvedTickets() {
-        Instant resolvedAt = Instant.now().minus(10, ChronoUnit.MINUTES); // resolved 10 min ago
+        // createdAt is stamped "now" at persist; resolve 10 minutes after that.
+        Instant resolvedAt = Instant.now().plus(10, ChronoUnit.MINUTES);
 
         Ticket t1 = newTicket("TKT-H1", TicketStatus.RESOLVED, TicketPriority.HIGH,
                 customerA, null, null, null, resolvedAt);
@@ -270,7 +277,7 @@ class TicketRepositoryIntegrationTest {
 
         Double avg = ticketRepository.avgResolutionMinutes(customerA, null, null);
         assertThat(avg).isNotNull();
-        assertThat(avg).isGreaterThan(0.0);
+        assertThat(avg).isCloseTo(10.0, org.assertj.core.data.Offset.offset(1.0));
     }
 
     // ── countByStatusGlobal ───────────────────────────────────────────────────
@@ -313,7 +320,39 @@ class TicketRepositoryIntegrationTest {
         assertThat(user1Count).isEqualTo(1);
     }
 
+    // ── countDistinctTransferredTickets (TransferRepository) ──────────────────
+
+    @Test
+    void countDistinctTransferredTickets_withAllFiltersNull_countsEachTransferredTicketOnce() {
+        Ticket a = newTicket("TKT-T1", TicketStatus.IN_PROGRESS, TicketPriority.MEDIUM, customerA, null, null, null, null);
+        Ticket b = newTicket("TKT-T2", TicketStatus.IN_PROGRESS, TicketPriority.MEDIUM, customerB, null, null, null, null);
+        persist(a);
+        persist(b);
+        persist(newTicket("TKT-T3", TicketStatus.NEW, TicketPriority.LOW, customerA, null, null, null, null));
+        em.flush();
+        persistTransfer(a.getId());
+        persistTransfer(a.getId());
+        persistTransfer(b.getId());
+        em.flush();
+
+        // Null bounds used to fail on PostgreSQL with "could not determine data type of parameter".
+        assertThat(transferRepository.countDistinctTransferredTickets(null, null, null)).isEqualTo(2);
+        assertThat(transferRepository.countDistinctTransferredTickets(customerA, null, null)).isEqualTo(1);
+        Instant hourAgo = Instant.now().minus(1, ChronoUnit.HOURS);
+        assertThat(transferRepository.countDistinctTransferredTickets(null, hourAgo, Instant.now().plus(1, ChronoUnit.HOURS))).isEqualTo(2);
+        assertThat(transferRepository.countDistinctTransferredTickets(null, null, hourAgo)).isZero();
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private void persistTransfer(Long ticketId) {
+        com.caseflow.workflow.domain.Transfer transfer = new com.caseflow.workflow.domain.Transfer();
+        transfer.setTicketId(ticketId);
+        transfer.setFromGroupId(groupId1);
+        transfer.setToGroupId(groupId1 + 1);
+        transfer.setTransferredBy(userId1);
+        em.persist(transfer);
+    }
 
     private void persist(Ticket ticket) {
         em.persist(ticket);
