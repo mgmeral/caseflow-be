@@ -26,6 +26,13 @@ services:
       # Set to 'dev' to load seed data on first start
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-}
       LOG_LEVEL_APP: ${LOG_LEVEL_APP:-INFO}
+      # caseflow-ai-service runs in its own compose project (port 8081 on the host).
+      # Inside this container "localhost" is the app itself, so the default
+      # http://localhost:8081 was always refused and every AI card came back unavailable.
+      CASEFLOW_AI_SERVICE_BASE_URL: ${CASEFLOW_AI_SERVICE_BASE_URL:-http://host.docker.internal:8081}
+    extra_hosts:
+      # Docker Desktop provides host.docker.internal; this makes it resolve on Linux too.
+      - "host.docker.internal:host-gateway"
     depends_on:
       postgres:
         condition: service_healthy
